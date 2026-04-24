@@ -670,7 +670,9 @@ export default function HomeFormazionePage() {
     const startedAt = Date.now();
     const tick = window.setInterval(() => {
       setImportProgress((value) => {
+        if (value >= 95) return value;
         const cap = Date.now() - startedAt > 1500 ? 92 : 78;
+        if (value >= cap) return value;
         const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
         return next >= cap ? cap : next;
       });
@@ -689,6 +691,7 @@ export default function HomeFormazionePage() {
         throw new Error(body.error ?? "Errore preview import massivo.");
       }
       setImportPreview(body);
+      window.clearInterval(tick);
       setImportProgress(100);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Errore preview import massivo.");
@@ -711,7 +714,9 @@ export default function HomeFormazionePage() {
     const startedAt = Date.now();
     const tick = window.setInterval(() => {
       setImportProgress((value) => {
+        if (value >= 95) return value;
         const cap = Date.now() - startedAt > 1500 ? 92 : 78;
+        if (value >= cap) return value;
         const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
         return next >= cap ? cap : next;
       });
@@ -730,6 +735,7 @@ export default function HomeFormazionePage() {
         throw new Error(body.error ?? "Errore commit import massivo.");
       }
       setImportPreview(body);
+      window.clearInterval(tick);
       setImportProgress(100);
 
       const last = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });

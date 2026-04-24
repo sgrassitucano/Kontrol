@@ -87,7 +87,9 @@ export default function SorveglianzaImportPage() {
     const startedAt = Date.now();
     const tick = window.setInterval(() => {
       setProgress((value) => {
+        if (value >= 95) return value;
         const cap = Date.now() - startedAt > 1500 ? 92 : 78;
+        if (value >= cap) return value;
         const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
         return next >= cap ? cap : next;
       });
@@ -109,6 +111,7 @@ export default function SorveglianzaImportPage() {
       }
 
       setResult(payload);
+      window.clearInterval(tick);
       setProgress(100);
       if (mode === "commit") {
         const response = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });

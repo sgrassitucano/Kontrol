@@ -35,6 +35,12 @@ export default function GestioneImportPage() {
   const [progress, setProgress] = useState(0);
   const [lastRun, setLastRun] = useState<LastImportRun | null>(null);
 
+  const derivedCounts = useMemo(() => {
+    const warningRows = result?.errors?.filter((row) => row.errorType === "row_imported_with_issues").length ?? 0;
+    const blockingRows = (result?.errors?.length ?? 0) - warningRows;
+    return { warningRows, blockingRows };
+  }, [result]);
+
   const counters = useMemo(() => {
     if (!result) {
       return {
@@ -44,7 +50,8 @@ export default function GestioneImportPage() {
         aggiornate: 0,
         riattivate: 0,
         dimessi: 0,
-        errori: 0,
+        segnalazioni: 0,
+        bloccanti: 0,
       };
     }
 
@@ -55,9 +62,10 @@ export default function GestioneImportPage() {
       aggiornate: result.summary.updatedRows,
       riattivate: result.summary.reactivatedRows,
       dimessi: result.summary.dismissedRows,
-      errori: result.summary.errorRows,
+      segnalazioni: derivedCounts.warningRows,
+      bloccanti: derivedCounts.blockingRows,
     };
-  }, [result]);
+  }, [derivedCounts.blockingRows, derivedCounts.warningRows, result]);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,7 +90,9 @@ export default function GestioneImportPage() {
     const startedAt = Date.now();
     const tick = window.setInterval(() => {
       setProgress((value) => {
+        if (value >= 95) return value;
         const cap = Date.now() - startedAt > 1500 ? 92 : 78;
+        if (value >= cap) return value;
         const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
         return next >= cap ? cap : next;
       });
@@ -104,6 +114,7 @@ export default function GestioneImportPage() {
       }
 
       setResult(payload);
+      window.clearInterval(tick);
       setProgress(100);
       if (mode === "commit") {
         const response = await fetch("/api/import-runs/last?source=anagrafica", { method: "GET" });
@@ -198,21 +209,22 @@ export default function GestioneImportPage() {
         ) : null}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-7">
+      <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
         <StatCard label="Righe totali" value={counters.righeTotali} />
         <StatCard label="Valide" value={counters.valide} />
         <StatCard label="Nuove" value={counters.nuove} />
         <StatCard label="Aggiornate" value={counters.aggiornate} />
         <StatCard label="Riattivate" value={counters.riattivate} />
         <StatCard label="Dimessi" value={counters.dimessi} />
-        <StatCard label="Errori" value={counters.errori} />
+        <StatCard label="Segnalazioni" value={counters.segnalazioni} />
+        <StatCard label="Bloccanti" value={counters.bloccanti} />
       </section>
 
       <section>
         <article className="overflow-hidden rounded-[20px] border border-[var(--brand-line)] bg-white">
           <div className="border-b border-[var(--brand-line)] px-5 py-4">
             <h2 className="text-base font-semibold text-[var(--brand-ink)]">
-              Report errori
+              Report segnalazioni / errori
             </h2>
           </div>
           <div className="overflow-x-auto">
@@ -223,12 +235,16 @@ export default function GestioneImportPage() {
                   <th className="px-4 py-3">CF</th>
                   <th className="px-4 py-3">Cognome</th>
                   <th className="px-4 py-3">Nome</th>
-                  <th className="px-4 py-3">Errore</th>
+                  <th className="px-4 py-3">Esito</th>
                 </tr>
               </thead>
               <tbody>
                 {result?.errors?.length ? (
                   result.errors.map((row, index) => (
+                    (() => {
+                      const isWarning = row.errorType === "row_imported_with_issues";
+                      const tone = isWarning ? "text-amber-700" : "text-red-600";
+                      return (
                     <tr
                       key={`${row.taxCode}-${index}`}
                       className="border-t border-[var(--brand-line)]"
@@ -237,10 +253,12 @@ export default function GestioneImportPage() {
                       <td className="px-4 py-3 text-slate-600">{row.taxCode || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.lastName || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.firstName || "-"}</td>
-                      <td className="px-4 py-3 font-medium text-red-600">
+                      <td className={`px-4 py-3 font-medium ${tone}`}>
                         {row.errorMessage}
                       </td>
                     </tr>
+                      );
+                    })()
                   ))
                 ) : (
                   <tr>
