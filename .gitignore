@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local imports / exports / working files (do not commit)
+/*.csv
+/*.xls
+/*.xlsx
+/commit_result.json
+/preview_result.json
+/*.png

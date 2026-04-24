@@ -1,0 +1,176 @@
+import { NextResponse } from "next/server";
+import { requireModuleAccess } from "@/lib/api/access";
+
+export const runtime = "nodejs";
+
+type DpiItemRow = {
+  id: number;
+  title: string;
+  risk_activities: string | null;
+  category: string | null;
+  control_frequency: string | null;
+  control_type: string | null;
+  is_active: boolean;
+};
+
+function isMissingRelationError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return /relation .*dpi_items.* does not exist/i.test(error.message);
+}
+
+export async function GET() {
+  const auth = await requireModuleAccess("dpi", false);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  try {
+    const supabase = auth.supabase;
+    const { data, error } = await supabase
+      .from("dpi_items")
+      .select("id,title,risk_activities,category,control_frequency,control_type,is_active")
+      .eq("is_active", true)
+      .order("title", { ascending: true });
+
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as DpiItemRow[];
+
+    return NextResponse.json({
+      rows: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        riskActivities: row.risk_activities ?? "",
+        category: row.category ?? "",
+        controlFrequency: row.control_frequency ?? "",
+        controlType: row.control_type ?? "",
+      })),
+    });
+  } catch (err) {
+    if (isMissingRelationError(err)) {
+      return NextResponse.json({
+        rows: [],
+        warning: "Tabelle DPI non presenti nel DB. Applica lo schema Supabase per abilitare il modulo DPI.",
+      });
+    }
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Errore caricamento DPI." },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  const auth = await requireModuleAccess("dpi", true);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  try {
+    const supabase = auth.supabase;
+    const body = (await request.json()) as {
+      title: string;
+      riskActivities?: string;
+      category?: string;
+      controlFrequency?: string;
+      controlType?: string;
+    };
+
+    const title = String(body.title ?? "").trim();
+    if (!title) {
+      return NextResponse.json({ error: "Titolo DPI mancante." }, { status: 400 });
+    }
+
+    const payload = {
+      title,
+      risk_activities: String(body.riskActivities ?? "").trim() || null,
+      category: String(body.category ?? "").trim() || null,
+      control_frequency: String(body.controlFrequency ?? "").trim() || null,
+      control_type: String(body.controlType ?? "").trim() || null,
+      is_active: true,
+    };
+
+    const { data, error } = await supabase
+      .from("dpi_items")
+      .upsert(payload, { onConflict: "title" })
+      .select("id")
+      .single();
+
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ id: (data as { id: number }).id });
+  } catch (err) {
+    if (isMissingRelationError(err)) {
+      return NextResponse.json(
+        { error: "Tabelle DPI non presenti nel DB. Applica lo schema Supabase." },
+        { status: 500 },
+      );
+    }
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Errore creazione DPI." },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PATCH(request: Request) {
+  const auth = await requireModuleAccess("dpi", true);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  try {
+    const supabase = auth.supabase;
+    const body = (await request.json()) as {
+      id: number;
+      title?: string;
+      riskActivities?: string;
+      category?: string;
+      controlFrequency?: string;
+      controlType?: string;
+      isActive?: boolean;
+    };
+
+    const id = Number(body.id);
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: "id DPI non valido." }, { status: 400 });
+    }
+
+    const payload: Record<string, unknown> = {};
+
+    if (typeof body.title === "string") {
+      const title = body.title.trim();
+      if (!title) {
+        return NextResponse.json({ error: "Titolo DPI mancante." }, { status: 400 });
+      }
+      payload.title = title;
+    }
+
+    if (typeof body.riskActivities === "string") {
+      payload.risk_activities = body.riskActivities.trim() || null;
+    }
+    if (typeof body.category === "string") {
+      payload.category = body.category.trim() || null;
+    }
+    if (typeof body.controlFrequency === "string") {
+      payload.control_frequency = body.controlFrequency.trim() || null;
+    }
+    if (typeof body.controlType === "string") {
+      payload.control_type = body.controlType.trim() || null;
+    }
+    if (typeof body.isActive === "boolean") {
+      payload.is_active = body.isActive;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return NextResponse.json({ error: "Nessun campo da aggiornare." }, { status: 400 });
+    }
+
+    const { error } = await supabase.from("dpi_items").update(payload).eq("id", id);
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    if (isMissingRelationError(err)) {
+      return NextResponse.json(
+        { error: "Tabelle DPI non presenti nel DB. Applica lo schema Supabase." },
+        { status: 500 },
+      );
+    }
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Errore modifica DPI." },
+      { status: 500 },
+    );
+  }
+}

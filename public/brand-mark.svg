@@ -1,0 +1,7 @@
+<svg width="360" height="96" viewBox="0 0 360 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M15 25C15 13.9543 23.9543 5 35 5H164C194.376 5 219 29.6243 219 60V60" stroke="#4D6EB3" stroke-width="4" stroke-linecap="round"/>
+  <text x="94" y="42" text-anchor="middle" fill="#7F9DCB" font-size="12" font-family="Arial, Helvetica, sans-serif" letter-spacing="4">COOPERATIVA</text>
+  <text x="94" y="63" text-anchor="middle" fill="#38589C" font-size="24" font-family="Arial, Helvetica, sans-serif" font-weight="700" letter-spacing="3">MORELLI</text>
+  <text x="94" y="84" text-anchor="middle" fill="#7F9DCB" font-size="12" font-family="Arial, Helvetica, sans-serif" letter-spacing="5">1962</text>
+  <path d="M232 36C247 10 266 10 281 36L296 62C298 65 302 64 303 61L320 19C323 12 331 13 333 20L345 60" stroke="#4D6EB3" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

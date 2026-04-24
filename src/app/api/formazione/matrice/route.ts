@@ -1,0 +1,281 @@
+import { NextResponse } from "next/server";
+import { normalizeJobCode } from "@/lib/training/normalize";
+import { readMansioniCsv } from "@/lib/training/mansioni";
+import { requireModuleAccess } from "@/lib/api/access";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+type ScopeType = "job" | "site" | "sub_site";
+
+type ToggleBody = {
+  scopeType: ScopeType;
+  enabled: boolean;
+  courseId: number;
+  jobCodeNorm?: string;
+  siteId?: number;
+  subSiteId?: number;
+};
+
+export const runtime = "nodejs";
+
+export async function GET(request: Request) {
+  const auth = await requireModuleAccess("gestione", true);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  try {
+    const url = new URL(request.url);
+    const scopeType = (url.searchParams.get("scopeType") ?? "job") as ScopeType;
+
+    if (!["job", "site", "sub_site"].includes(scopeType)) {
+      return NextResponse.json({ error: "scopeType non valido." }, { status: 400 });
+    }
+
+    const supabase = auth.supabase;
+
+    const [{ data: courses, error: coursesError }, entitiesResult, { data: rules, error: rulesError }] =
+      await Promise.all([
+        supabase
+          .from("training_courses")
+          .select("id,code,title,is_active")
+          .eq("is_active", true)
+          .order("code"),
+        fetchScopeEntities(supabase, scopeType),
+        supabase
+          .from("training_matrix_rules")
+          .select("id,scope_type,course_id,job_code_norm,site_id,sub_site_id,is_required,source")
+          .eq("scope_type", scopeType),
+      ]);
+
+    if (coursesError) {
+      throw new Error(coursesError.message);
+    }
+    if (entitiesResult.error) {
+      throw new Error(entitiesResult.error);
+    }
+    if (rulesError) {
+      throw new Error(rulesError.message);
+    }
+
+    const flags = new Set<string>();
+    const cellSources: Record<string, "baseline" | "manual"> = {};
+    (rules ?? []).forEach((rule) => {
+      const scopeKey =
+        scopeType === "job"
+          ? rule.job_code_norm
+          : scopeType === "site"
+            ? String(rule.site_id)
+            : String(rule.sub_site_id);
+      const key = `${scopeKey}:${rule.course_id}`;
+      flags.add(key);
+      const source = rule.source === "manual" ? "manual" : "baseline";
+      const existing = cellSources[key];
+      if (!existing || source === "manual") {
+        cellSources[key] = source;
+      }
+    });
+
+    return NextResponse.json({
+      scopeType,
+      courses: courses ?? [],
+      entities: entitiesResult.data,
+      flags: Array.from(flags),
+      cellSources,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Errore imprevisto caricando la matrice.",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  const auth = await requireModuleAccess("gestione", true);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  try {
+    const body = (await request.json()) as ToggleBody;
+
+    if (!body.courseId || !body.scopeType || typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "Payload non valido." }, { status: 400 });
+    }
+
+    const supabase = auth.supabase;
+    const match = getScopeMatch(body);
+    if ("error" in match) {
+      return NextResponse.json({ error: match.error }, { status: 400 });
+    }
+
+    if (body.enabled) {
+      const { error } = await supabase.from("training_matrix_rules").upsert(
+        {
+          scope_type: body.scopeType,
+          course_id: body.courseId,
+          is_required: true,
+          source: "manual",
+          job_code_norm: match.job_code_norm,
+          site_id: match.site_id,
+          sub_site_id: match.sub_site_id,
+        },
+        {
+          onConflict:
+            "scope_type,course_id,job_code_norm,site_id,sub_site_id,employee_id",
+        },
+      );
+
+      if (error) {
+        throw new Error(error.message);
+      }
+    } else {
+      let query = supabase
+        .from("training_matrix_rules")
+        .delete()
+        .eq("scope_type", body.scopeType)
+        .eq("course_id", body.courseId)
+        .is("employee_id", null);
+
+      if (body.scopeType === "job") {
+        query = query.eq("job_code_norm", match.job_code_norm).is("site_id", null).is("sub_site_id", null);
+      } else if (body.scopeType === "site") {
+        query = query.eq("site_id", match.site_id).is("job_code_norm", null).is("sub_site_id", null);
+      } else {
+        query = query.eq("sub_site_id", match.sub_site_id).is("job_code_norm", null).is("site_id", null);
+      }
+
+      const { error } = await query;
+      if (error) {
+        throw new Error(error.message);
+      }
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Errore imprevisto aggiornando la matrice.",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+async function fetchScopeEntities(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  scopeType: ScopeType,
+) {
+  if (scopeType === "job") {
+    const csvMansioni = await readMansioniCsv();
+    const csvKeys = new Set(csvMansioni.map((row) => row.key));
+
+    const { data, error } = await supabase
+      .from("employees")
+      .select("job_title")
+      .neq("job_title", "")
+      .order("job_title");
+
+    if (error) {
+      return {
+        data: [] as Array<{ key: string; label: string; isExtra: boolean }>,
+        error: error.message,
+      };
+    }
+
+    const extras = new Map<string, string>();
+    (data ?? []).forEach((row) => {
+      const label = String(row.job_title ?? "").trim();
+      if (!label) return;
+      const key = normalizeJobCode(label);
+      if (csvKeys.has(key)) return;
+      if (!extras.has(key)) extras.set(key, label);
+    });
+
+    const baseEntities = csvMansioni.map((row) => ({
+      key: row.key,
+      label: row.description ? `${row.code} - ${row.description}` : row.code,
+      isExtra: false,
+    }));
+
+    return {
+      data: [
+        ...baseEntities,
+        ...Array.from(extras.entries())
+          .map(([key, label]) => ({ key, label, isExtra: true }))
+          .sort((a, b) => a.label.localeCompare(b.label)),
+      ],
+      error: null,
+    };
+  }
+
+  if (scopeType === "site") {
+    const { data, error } = await supabase
+      .from("sites")
+      .select("id,display_name")
+      .order("display_name");
+
+    if (error) {
+      return { data: [] as Array<{ key: string; label: string }>, error: error.message };
+    }
+
+    return {
+      data: (data ?? []).map((row) => ({
+        key: String(row.id),
+        label: row.display_name,
+      })),
+      error: null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("sub_sites")
+    .select("id,display_name,sites(display_name)")
+    .order("display_name");
+
+  if (error) {
+    return { data: [] as Array<{ key: string; label: string }>, error: error.message };
+  }
+
+  return {
+    data: (data ?? []).map((row) => ({
+      key: String(row.id),
+      label: `${(row as { sites?: { display_name?: string } }).sites?.display_name ?? ""} / ${row.display_name}`,
+    })),
+    error: null,
+  };
+}
+
+function getScopeMatch(body: ToggleBody) {
+  if (body.scopeType === "job") {
+    if (!body.jobCodeNorm) {
+      return { error: "jobCodeNorm obbligatorio per scope job." };
+    }
+    return {
+      job_code_norm: normalizeJobCode(body.jobCodeNorm),
+      site_id: null,
+      sub_site_id: null,
+    };
+  }
+
+  if (body.scopeType === "site") {
+    if (!body.siteId) {
+      return { error: "siteId obbligatorio per scope site." };
+    }
+    return {
+      job_code_norm: null,
+      site_id: body.siteId,
+      sub_site_id: null,
+    };
+  }
+
+  if (!body.subSiteId) {
+    return { error: "subSiteId obbligatorio per scope sub_site." };
+  }
+
+  return {
+    job_code_norm: null,
+    site_id: null,
+    sub_site_id: body.subSiteId,
+  };
+}
