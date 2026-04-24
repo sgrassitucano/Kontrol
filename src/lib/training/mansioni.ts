@@ -10,7 +10,16 @@ export type MansioneCatalogItem = {
 
 export async function readMansioniCsv(): Promise<MansioneCatalogItem[]> {
   const filePath = path.join(process.cwd(), "mansioni.csv");
-  const raw = await fs.readFile(filePath, "utf8");
+  let raw = "";
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : "";
+    if (code === "ENOENT") {
+      return [];
+    }
+    throw err;
+  }
   const lines = raw.replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
   if (lines.length <= 1) return [];
 
@@ -32,4 +41,3 @@ export async function readMansioniCsv(): Promise<MansioneCatalogItem[]> {
 
   return rows;
 }
-

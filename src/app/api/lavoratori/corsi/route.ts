@@ -13,6 +13,7 @@ type EmployeeRow = {
   site_id: number | null;
   sub_site_id: number | null;
   job_title: string;
+  job_title_notes: string | null;
   sites: unknown;
   sub_sites: unknown;
 };
@@ -293,7 +294,7 @@ export async function GET(request: Request) {
           matricola: employee.matricola,
           cognome: employee.last_name,
           nome: employee.first_name,
-          mansione: employee.job_title ?? "",
+          mansione: formatJobLabel(employee.job_title ?? "", employee.job_title_notes ?? null),
           cantiere: extractDisplayName(employee.sites),
           sottocantiere: extractDisplayName(employee.sub_sites),
           courseId,
@@ -351,7 +352,7 @@ export async function GET(request: Request) {
           matricola: employee.matricola,
           cognome: employee.last_name,
           nome: employee.first_name,
-          mansione: employee.job_title ?? "",
+          mansione: formatJobLabel(employee.job_title ?? "", employee.job_title_notes ?? null),
           cantiere: extractDisplayName(employee.sites),
           sottocantiere: extractDisplayName(employee.sub_sites),
           courseId: statusEntry.course_id,
@@ -511,7 +512,7 @@ async function fetchAllEmployees(
     const { data, error } = await supabase
       .from("employees")
       .select(
-        "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,sites(display_name),sub_sites(display_name)",
+        "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,job_title_notes,sites(display_name),sub_sites(display_name)",
       )
       .eq("status", "attivo")
       .order("last_name")
@@ -661,6 +662,14 @@ function extractDisplayName(value: unknown) {
     return (value as { display_name?: string }).display_name ?? "-";
   }
   return "-";
+}
+
+function formatJobLabel(jobTitle: string, jobNotes: string | null) {
+  const base = String(jobTitle ?? "").trim();
+  const notes = String(jobNotes ?? "").trim();
+  if (!notes) return base;
+  if (!base) return notes;
+  return `${base} / ${notes}`;
 }
 
 function buildActiveFreezeMap(rows: FreezeRow[]) {
@@ -817,7 +826,7 @@ function buildBaseAggregateRow({
     matricola: employee.matricola,
     cognome: employee.last_name,
     nome: employee.first_name,
-    mansione: employee.job_title ?? "",
+    mansione: formatJobLabel(employee.job_title ?? "", employee.job_title_notes ?? null),
     cantiere: extractDisplayName(employee.sites),
     sottocantiere: extractDisplayName(employee.sub_sites),
     corsoCode: courseCode,
