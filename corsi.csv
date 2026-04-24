@@ -1,0 +1,32 @@
+Azienda;Tipo;Scadenza;descrizione;validità in anni;regole aggiuntive
+0000000001;SCAD_FORM;CORSO_AI_1;corso antincendio liv. I;5;
+0000000001;SCAD_FORM;CORSO_AI_2;corso antincendio liv. II;5;sostituisce il livello I
+0000000001;SCAD_FORM;CORSO_AI_3;corso antincendio liv. III;5;sostituisce il livello II e I
+0000000001;SCAD_FORM;CORSO_AMBCON;corso ambienti confinati;5;
+0000000001;SCAD_FORM;CORSO_CARRO;corso carroponte;5;
+0000000001;SCAD_FORM;CORSO_DIR;corso dirigente per la sicurezza;5;esonera dalla formazione generale e specifica
+0000000001;SCAD_FORM;CORSO_DISINF;corso disinfestazione;5;
+0000000001;SCAD_FORM;CORSO_DPI3;corso uso DPI III cat. ;5;
+0000000001;SCAD_FORM;CORSO_ESCAV;corso conduzione escavatori;5;
+0000000001;SCAD_FORM;CORSO_FERETRI;corso uso alzaferetri;5;deve avere PLE + lavori in quota e dpi III cat.
+0000000001;SCAD_FORM;CORSO_FITOSAN;corso fitosanitari;5;
+0000000001;SCAD_FORM;CORSO_FORM;corso formatori sicurezza;5;
+0000000001;SCAD_FORM;CORSO_FORNO_CREM;corso forno crematorio;5;
+0000000001;SCAD_FORM;CORSO_FUNI;corso funi in sospensione;5;
+0000000001;SCAD_FORM;CORSO_GRUAU;corso gru su autocarro;5;
+0000000001;SCAD_FORM;CORSO_HACCP;corso HACCP;illimitato;
+0000000001;SCAD_FORM;CORSO_MUL;corso uso muletto;5;
+0000000001;SCAD_FORM;CORSO_PLE;corso PLE;5;deve avere lavori in quota e dpi III cat.
+0000000001;SCAD_FORM;CORSO_PONT;corso ponteggio;5;deve avere lavori in quota e dpi III cat.
+0000000001;SCAD_FORM;CORSO_PREP;corso preposto;2;
+0000000001;SCAD_FORM;CORSO_PS;corso primo soccorso;5;
+0000000001;SCAD_FORM;CORSO_QUOTA_DPI;corso lavori in quota e dpi III cat.;5;
+0000000001;SCAD_FORM;CORSO_RLS;corso RLS;1;esonera dalla formazione generale
+0000000001;SCAD_FORM;CORSO_RSPP;corso rspp;5;esonera dalla formazione generale e specifica
+0000000001;SCAD_FORM;CORSO_TRABATTELLO;corso trabattello;5;deve avere lavori in quota e dpi III cat.
+0000000001;SCAD_FORM;CORSO_TRASP_MERC_PER;corso trasporto merci pericolose;5;
+0000000001;SCAD_FORM;CORSO_VERDE;corso attrezzature del verde;5;
+0000000001;SCAD_FORM;FORM_BASE;formazione generale ;illimitato;
+0000000001;SCAD_FORM;FORM_SPEC;formazione specifica rischio basso;5;
+0000000001;SCAD_FORM;FORM_SPEC;formazione specifica rischio medio;5;sostituisce il rischio basso
+0000000001;SCAD_FORM;FORM_SPEC;formazione specifica rischio alto;5;sostituisce il rischio medio e basso

@@ -43,6 +43,7 @@ next-env.d.ts
 # local imports / exports / working files (do not commit)
 /*.csv
 !/mansioni.csv
+!/corsi.csv
 /*.xls
 /*.xlsx
 /commit_result.json
