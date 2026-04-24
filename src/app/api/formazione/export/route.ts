@@ -69,6 +69,12 @@ type TrainingEmployeeCourseExclusionRow = {
   is_active: boolean;
 };
 
+type RuleLinkRow = {
+  from_course_id: number;
+  to_course_id: number;
+  relation_type: "substitutes" | "exempts" | "prerequisite";
+};
+
 type WorkerCourseRow = {
   workerId: number;
   matricola: string;
@@ -107,6 +113,7 @@ export async function GET(request: Request) {
       rules,
       courseRows,
       freezes,
+      ruleLinks,
       scopeExclusions,
       employeeExclusions,
       courseExclusions,
@@ -116,6 +123,7 @@ export async function GET(request: Request) {
       fetchAllRules(supabase),
       fetchAllCourseRows(supabase),
       fetchAllFreezes(supabase),
+      fetchAllRuleLinks(supabase),
       fetchAllScopeExclusions(supabase),
       fetchAllTrainingEmployeeExclusions(supabase),
       fetchAllTrainingEmployeeCourseExclusions(supabase),
@@ -162,6 +170,8 @@ export async function GET(request: Request) {
     const statusMap = new Map(statusRows.map((row) => [`${row.employee_id}:${row.course_id}`, row]));
     const statusByEmployee = buildStatusByEmployeeMap(statusRows);
     const rulesByScope = groupRulesByScope((rules ?? []) as MatrixRule[]);
+    const substitutersByToCourseId = buildSubstitutersByToCourseId((ruleLinks ?? []) as RuleLinkRow[]);
+    const substitutionTargetsByFromCourseId = buildSubstitutionTargetsByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
 
     const thresholdDate = new Date();
     thresholdDate.setDate(thresholdDate.getDate() + (Number.isFinite(expiringDays) ? expiringDays : 30));
@@ -186,6 +196,13 @@ export async function GET(request: Request) {
       const suppressedAdditionalCourseIds = new Set<number>();
       const skipRequiredCourseIds = new Set<number>();
 
+      for (const statusRow of employeeStatusRows) {
+        if (!isValidForSubstitution(statusRow, today)) continue;
+        const targets = substitutionTargetsByFromCourseId.get(statusRow.course_id);
+        if (!targets) continue;
+        targets.forEach((targetCourseId) => suppressedAdditionalCourseIds.add(targetCourseId));
+      }
+
       const formBaseCourseId = findCourseIdByCode("FORM_BASE", courseMap);
       const formSpecRequired = findRequiredFormSpecCourse(requiredCourseIds, courseMap);
 
@@ -209,6 +226,7 @@ export async function GET(request: Request) {
           courseMap,
           statusMap,
           employeeStatusRows,
+          substitutersByToCourseId,
           freeze,
           thresholdDate,
           today,
@@ -250,9 +268,49 @@ export async function GET(request: Request) {
         }
 
         const statusEntry = statusMap.get(`${employee.id}:${courseId}`);
+        const substitute = pickBestSubstituteStatus({
+          requiredCourseId: courseId,
+          statusEntry,
+          employeeStatusRows,
+          substitutersByToCourseId,
+          today,
+        });
         const freeze = activeFreeze.get(employee.id);
         const courseExcluded = excludedCourseIdsByEmployee.get(employee.id)?.has(courseId) ?? false;
-        const state = courseExcluded ? "escluso" : resolveCourseState(statusEntry, freeze, thresholdDate, false);
+        if (courseExcluded || !substitute) {
+          const state = courseExcluded ? "escluso" : resolveCourseState(statusEntry, freeze, thresholdDate, false);
+
+          const outputRow: WorkerCourseRow = {
+            workerId: employee.id,
+            matricola: employee.matricola,
+            cognome: employee.last_name,
+            nome: employee.first_name,
+            mansione: employee.job_title ?? "",
+            cantiere: extractDisplayName(employee.sites),
+            sottocantiere: extractDisplayName(employee.sub_sites),
+            corsoCode: course.code,
+            corso: course.title,
+            dataConclusione: statusEntry?.completion_date ?? null,
+            dataScadenza: statusEntry?.expiry_date ?? null,
+            stato: state as WorkerCourseRow["stato"],
+            upgradeInfo: null,
+            responsabile: employee.responsible_code,
+            referente: employee.referral ?? "",
+            note: statusEntry?.note ?? "",
+            origine: "obbligatorio",
+          };
+
+          rows.push(outputRow);
+          continue;
+        }
+
+        const substituteCourse = courseMap.get(substitute.substituteCourseId);
+        if (!substituteCourse) continue;
+        if (!requiredCourseIds.has(substitute.substituteCourseId)) {
+          suppressedAdditionalCourseIds.add(substitute.substituteCourseId);
+        }
+
+        const state = resolveCourseState(substitute.statusEntry, freeze, thresholdDate, false);
 
         const outputRow: WorkerCourseRow = {
           workerId: employee.id,
@@ -262,15 +320,18 @@ export async function GET(request: Request) {
           mansione: employee.job_title ?? "",
           cantiere: extractDisplayName(employee.sites),
           sottocantiere: extractDisplayName(employee.sub_sites),
-          corsoCode: course.code,
-          corso: course.title,
-          dataConclusione: statusEntry?.completion_date ?? null,
-          dataScadenza: statusEntry?.expiry_date ?? null,
+          corsoCode: substituteCourse.code,
+          corso: substituteCourse.title,
+          dataConclusione: substitute.statusEntry.completion_date ?? null,
+          dataScadenza: substitute.statusEntry.expiry_date ?? null,
           stato: state as WorkerCourseRow["stato"],
           upgradeInfo: null,
           responsabile: employee.responsible_code,
           referente: employee.referral ?? "",
-          note: statusEntry?.note ?? "",
+          note: mergeNotes(
+            mergeNotes(statusEntry?.note ?? null, substitute.statusEntry.note ?? null),
+            `Copre obbligo: ${course.code}`,
+          ),
           origine: "obbligatorio",
         };
 
@@ -630,6 +691,30 @@ async function fetchAllFreezes(supabase: Awaited<ReturnType<typeof createSupabas
   return allRows;
 }
 
+async function fetchAllRuleLinks(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+  const pageSize = 1000;
+  let from = 0;
+  let hasMore = true;
+  const allRows: RuleLinkRow[] = [];
+
+  while (hasMore) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("training_rule_links")
+      .select("from_course_id,to_course_id,relation_type")
+      .eq("relation_type", "substitutes")
+      .range(from, to);
+
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as RuleLinkRow[];
+    allRows.push(...rows);
+
+    if (rows.length < pageSize) hasMore = false;
+    else from += pageSize;
+  }
+  return allRows;
+}
+
 async function fetchAllEmployees(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
   const pageSize = 1000;
   let from = 0;
@@ -662,6 +747,68 @@ async function fetchAllEmployees(supabase: Awaited<ReturnType<typeof createSupab
   }
 
   return allRows;
+}
+
+function buildSubstitutersByToCourseId(links: RuleLinkRow[]) {
+  const map = new Map<number, Set<number>>();
+  links.forEach((row) => {
+    if (row.relation_type !== "substitutes") return;
+    const set = map.get(row.to_course_id);
+    if (!set) map.set(row.to_course_id, new Set([row.from_course_id]));
+    else set.add(row.from_course_id);
+  });
+  return map;
+}
+
+function buildSubstitutionTargetsByFromCourseId(links: RuleLinkRow[]) {
+  const map = new Map<number, Set<number>>();
+  links.forEach((row) => {
+    if (row.relation_type !== "substitutes") return;
+    const set = map.get(row.from_course_id);
+    if (!set) map.set(row.from_course_id, new Set([row.to_course_id]));
+    else set.add(row.to_course_id);
+  });
+  return map;
+}
+
+function isValidForSubstitution(row: CourseStatusRow, today: Date) {
+  if (row.manual_state === "escluso") return false;
+  if (row.manual_state === "programmato") return false;
+  if (row.planned_date && !row.completion_date) return false;
+  return isValidCourseStatus(row, today);
+}
+
+function pickBestSubstituteStatus(args: {
+  requiredCourseId: number;
+  statusEntry: CourseStatusRow | undefined;
+  employeeStatusRows: CourseStatusRow[];
+  substitutersByToCourseId: Map<number, Set<number>>;
+  today: Date;
+}) {
+  const { requiredCourseId, statusEntry, employeeStatusRows, substitutersByToCourseId, today } = args;
+  if (statusEntry?.manual_state === "escluso") return null;
+
+  const substituters = substitutersByToCourseId.get(requiredCourseId);
+  if (!substituters || substituters.size === 0) return null;
+
+  const candidates = employeeStatusRows.filter(
+    (row) => substituters.has(row.course_id) && isValidForSubstitution(row, today),
+  );
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    const aExpiry = a.expiry_date ?? "";
+    const bExpiry = b.expiry_date ?? "";
+    if (!aExpiry && bExpiry) return -1;
+    if (aExpiry && !bExpiry) return 1;
+    if (aExpiry && bExpiry && aExpiry !== bExpiry) return bExpiry.localeCompare(aExpiry);
+    const aComp = a.completion_date ?? "";
+    const bComp = b.completion_date ?? "";
+    return bComp.localeCompare(aComp);
+  });
+
+  const best = candidates[0];
+  return best ? { statusEntry: best, substituteCourseId: best.course_id } : null;
 }
 
 async function fetchAllScopeExclusions(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
@@ -797,6 +944,7 @@ function buildBaseAggregateRow({
   courseMap,
   statusMap,
   employeeStatusRows,
+  substitutersByToCourseId,
   freeze,
   thresholdDate,
   today,
@@ -807,6 +955,7 @@ function buildBaseAggregateRow({
   courseMap: Map<number, { id: number; code: string; title: string; is_active: boolean }>;
   statusMap: Map<string, CourseStatusRow>;
   employeeStatusRows: CourseStatusRow[];
+  substitutersByToCourseId: Map<number, Set<number>>;
   freeze: FreezeRow | undefined;
   thresholdDate: Date;
   today: Date;
@@ -845,6 +994,15 @@ function buildBaseAggregateRow({
   const effectiveSpecStatus = shouldUpgrade
     ? employeeStatusRows.find((row) => row.course_id === effectiveSpecCourseId)
     : formSpecRequiredStatus;
+
+  const substituteForSpec = pickBestSubstituteStatus({
+    requiredCourseId: effectiveSpecCourseId,
+    statusEntry: effectiveSpecStatus,
+    employeeStatusRows,
+    substitutersByToCourseId,
+    today,
+  });
+  if (substituteForSpec) return null;
 
   const formBaseState = resolveCourseState(formBaseStatus, freeze, thresholdDate, false);
   const rawSpecState = resolveCourseState(effectiveSpecStatus, freeze, thresholdDate, false);
