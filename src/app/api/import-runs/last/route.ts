@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from("import_runs")
-      .select("id,source,file_name,status,created_at,imported_by")
+      .select("id,source,file_name,status,created_at,imported_by,total_rows,processed_rows,error_rows")
       .eq("source", source)
       .order("created_at", { ascending: false })
       .limit(1);
@@ -32,6 +32,9 @@ export async function GET(request: Request) {
           status: string;
           created_at: string;
           imported_by: string | null;
+          total_rows: number;
+          processed_rows: number;
+          error_rows: number;
         }
       | undefined;
 
@@ -54,6 +57,9 @@ export async function GET(request: Request) {
             status: run.status,
             createdAt: run.created_at,
             importedByName,
+            totalRows: run.total_rows,
+            processedRows: run.processed_rows,
+            errorRows: run.error_rows,
           }
         : null,
     });
@@ -64,4 +70,3 @@ export async function GET(request: Request) {
     );
   }
 }
-

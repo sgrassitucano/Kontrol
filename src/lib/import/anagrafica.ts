@@ -446,7 +446,7 @@ async function commitImport(args: {
       file_name: fileName,
       imported_by: importedBy,
       total_rows: args.summary.totalRows,
-      processed_rows: validRows.length,
+      processed_rows: 0,
       error_rows: errors.length,
       status: "preview",
     })
@@ -480,9 +480,33 @@ async function commitImport(args: {
   const commitErrors: ImportErrorRow[] = [];
   let committedRows = 0;
 
+  const payload: Array<{
+    row: RawEmployeeRow;
+    record: {
+      matricola: string;
+      tax_code: string;
+      first_name: string;
+      last_name: string;
+      birth_date: string | null;
+      birth_place: string;
+      responsible_code: string;
+      job_title: string;
+      job_title_notes: string | null;
+      phone: string | null;
+      mobile: string | null;
+      email_primary: string | null;
+      email_secondary: string | null;
+      referral: string | null;
+      theoretical_weekly_minutes: number;
+      site_id: number;
+      sub_site_id: number | null;
+      status: "attivo";
+      last_imported_at: string;
+    };
+  }> = [];
+
   for (const row of validRows) {
     const siteId = siteMap.get(row.siteNormalizedName);
-
     if (!siteId) {
       commitErrors.push(
         mkError(
@@ -499,8 +523,9 @@ async function commitImport(args: {
       ? subSiteMap.get(`${siteId}:${row.subSiteNormalizedName}`) ?? null
       : null;
 
-    const { error } = await supabase.from("employees").upsert(
-      {
+    payload.push({
+      row,
+      record: {
         matricola: row.matricola,
         tax_code: row.taxCode,
         first_name: row.firstName,
@@ -521,22 +546,60 @@ async function commitImport(args: {
         status: "attivo",
         last_imported_at: nowIso,
       },
-      { onConflict: "tax_code" },
-    );
+    });
+  }
 
-    if (error) {
-      commitErrors.push(
-        mkError(
-          row.rowNumber,
-          row,
-          "employee_upsert_error",
-          `Errore salvataggio dipendente: ${error.message}`,
-        ),
+  for (const chunk of chunkArray(payload, 400)) {
+    const { error } = await supabase
+      .from("employees")
+      .upsert(
+        chunk.map((item) => item.record),
+        { onConflict: "tax_code" },
       );
+
+    if (!error) {
+      committedRows += chunk.length;
+      if (importRunId) {
+        await supabase
+          .from("import_runs")
+          .update({
+            processed_rows: committedRows,
+            error_rows: errors.length + commitErrors.length,
+            status: "preview",
+          })
+          .eq("id", importRunId);
+      }
       continue;
     }
 
-    committedRows += 1;
+    for (const item of chunk) {
+      const { error: rowError } = await supabase
+        .from("employees")
+        .upsert(item.record, { onConflict: "tax_code" });
+      if (rowError) {
+        commitErrors.push(
+          mkError(
+            item.row.rowNumber,
+            item.row,
+            "employee_upsert_error",
+            `Errore salvataggio dipendente: ${rowError.message}`,
+          ),
+        );
+        continue;
+      }
+      committedRows += 1;
+    }
+
+    if (importRunId) {
+      await supabase
+        .from("import_runs")
+        .update({
+          processed_rows: committedRows,
+          error_rows: errors.length + commitErrors.length,
+          status: "preview",
+        })
+        .eq("id", importRunId);
+    }
   }
 
   const importedTaxCodes = new Set(snapshotTaxCodes);

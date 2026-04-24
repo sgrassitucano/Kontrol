@@ -19,6 +19,9 @@ type LastImportRun = {
   status: string;
   createdAt: string;
   importedByName: string | null;
+  totalRows?: number;
+  processedRows?: number;
+  errorRows?: number;
 };
 
 function formatDateTimeIt(value: string) {
@@ -36,6 +39,7 @@ export default function GestioneImportPage() {
   const [lastRun, setLastRun] = useState<LastImportRun | null>(null);
   const progressTimerRef = useRef<number | null>(null);
   const runTokenRef = useRef(0);
+  const statusPollRef = useRef<number | null>(null);
 
   const derivedCounts = useMemo(() => {
     const warningRows = result?.errors?.filter((row) => row.errorType === "row_imported_with_issues").length ?? 0;
@@ -89,8 +93,19 @@ export default function GestioneImportPage() {
         window.clearInterval(progressTimerRef.current);
         progressTimerRef.current = null;
       }
+      if (statusPollRef.current !== null) {
+        window.clearInterval(statusPollRef.current);
+        statusPollRef.current = null;
+      }
     };
   }, []);
+
+  async function refreshLastRun() {
+    const response = await fetch("/api/import-runs/last?source=anagrafica", { method: "GET" });
+    const body = (await response.json()) as { run: LastImportRun | null; error?: string };
+    if (!response.ok || body.error) return;
+    setLastRun(body.run);
+  }
 
   async function runImport(mode: "preview" | "commit") {
     if (!selectedFile) return;
@@ -105,6 +120,13 @@ export default function GestioneImportPage() {
     setIsLoading(true);
     setServerError("");
     setProgress(0);
+    if (statusPollRef.current !== null) {
+      window.clearInterval(statusPollRef.current);
+      statusPollRef.current = null;
+    }
+    statusPollRef.current = window.setInterval(() => {
+      void refreshLastRun();
+    }, 2000);
     progressTimerRef.current = window.setInterval(() => {
       setProgress((value) => {
         if (runTokenRef.current !== token) return value;
@@ -119,9 +141,13 @@ export default function GestioneImportPage() {
       formData.append("mode", mode);
       formData.append("file", selectedFile);
 
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 180000);
+
       const response = await fetch("/api/gestione/import", {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
 
       const payload = (await response.json()) as ImportResponse | { error: string };
@@ -130,25 +156,33 @@ export default function GestioneImportPage() {
       }
 
       setResult(payload);
+      window.clearTimeout(timeoutId);
       if (runTokenRef.current === token && progressTimerRef.current !== null) {
         window.clearInterval(progressTimerRef.current);
         progressTimerRef.current = null;
       }
       setProgress(100);
       if (mode === "commit") {
-        const response = await fetch("/api/import-runs/last?source=anagrafica", { method: "GET" });
-        const body = (await response.json()) as { run: LastImportRun | null; error?: string };
-        if (response.ok && !body.error) setLastRun(body.run);
+        await refreshLastRun();
       }
     } catch (error) {
+      const isAbort = error instanceof Error && error.name === "AbortError";
       setServerError(
-        error instanceof Error ? error.message : "Errore imprevisto durante l'import.",
+        isAbort
+          ? "Richiesta lunga: l'import potrebbe essere ancora in corso. Controlla 'Ultimo import' e premi 'Aggiorna stato'."
+          : error instanceof Error
+            ? error.message
+            : "Errore imprevisto durante l'import.",
       );
       setProgress(0);
     } finally {
       if (runTokenRef.current === token && progressTimerRef.current !== null) {
         window.clearInterval(progressTimerRef.current);
         progressTimerRef.current = null;
+      }
+      if (runTokenRef.current === token && statusPollRef.current !== null) {
+        window.clearInterval(statusPollRef.current);
+        statusPollRef.current = null;
       }
       if (runTokenRef.current === token) setIsLoading(false);
     }
@@ -167,6 +201,9 @@ export default function GestioneImportPage() {
           <p className="mt-2 text-xs text-slate-500">
             Ultimo import: {formatDateTimeIt(lastRun.createdAt)}
             {lastRun.importedByName ? ` · ${lastRun.importedByName}` : ""} · {lastRun.fileName}
+            {typeof lastRun.processedRows === "number" && typeof lastRun.totalRows === "number"
+              ? ` · ${lastRun.processedRows}/${lastRun.totalRows}`
+              : ""}
           </p>
         ) : null}
       </section>
@@ -202,6 +239,14 @@ export default function GestioneImportPage() {
             className="rounded-xl border border-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-[var(--brand-primary)] transition hover:bg-[var(--brand-tint)]"
           >
             Conferma import
+          </button>
+          <button
+            type="button"
+            disabled={isLoading}
+            onClick={() => void refreshLastRun()}
+            className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+          >
+            Aggiorna stato
           </button>
         </div>
         <p className="mt-3 text-xs text-slate-500">
