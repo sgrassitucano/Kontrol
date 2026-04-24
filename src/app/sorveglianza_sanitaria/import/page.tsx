@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   SurveillanceImportErrorRow,
   SurveillanceImportPreviewRow,
@@ -15,11 +15,28 @@ type ImportResponse = {
   message: string;
 };
 
+type LastImportRun = {
+  id: string;
+  source: string;
+  fileName: string;
+  status: string;
+  createdAt: string;
+  importedByName: string | null;
+};
+
+function formatDateTimeIt(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("it-IT");
+}
+
 export default function SorveglianzaImportPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [serverError, setServerError] = useState<string>("");
   const [result, setResult] = useState<ImportResponse | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [lastRun, setLastRun] = useState<LastImportRun | null>(null);
 
   const counters = useMemo(() => {
     if (!result) {
@@ -47,11 +64,34 @@ export default function SorveglianzaImportPage() {
     };
   }, [result]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
+      const body = (await response.json()) as { run: LastImportRun | null; error?: string };
+      if (cancelled) return;
+      if (!response.ok || body.error) return;
+      setLastRun(body.run);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function runImport(mode: "preview" | "commit") {
     if (!selectedFile) return;
 
     setIsLoading(true);
     setServerError("");
+    setProgress(0);
+    const startedAt = Date.now();
+    const tick = window.setInterval(() => {
+      setProgress((value) => {
+        const cap = Date.now() - startedAt > 1500 ? 92 : 78;
+        const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
+        return next >= cap ? cap : next;
+      });
+    }, 250);
 
     try {
       const formData = new FormData();
@@ -69,9 +109,17 @@ export default function SorveglianzaImportPage() {
       }
 
       setResult(payload);
+      setProgress(100);
+      if (mode === "commit") {
+        const response = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
+        const body = (await response.json()) as { run: LastImportRun | null; error?: string };
+        if (response.ok && !body.error) setLastRun(body.run);
+      }
     } catch (error) {
       setServerError(error instanceof Error ? error.message : "Errore imprevisto durante l'import.");
+      setProgress(0);
     } finally {
+      window.clearInterval(tick);
       setIsLoading(false);
     }
   }
@@ -85,6 +133,12 @@ export default function SorveglianzaImportPage() {
         <p className="mt-2 text-sm leading-7 text-slate-500">
           Upload, anteprima e commit del tracciato anagrafica_sorveglianza (visita SI/NO, scadenza, limitazioni, note).
         </p>
+        {lastRun ? (
+          <p className="mt-2 text-xs text-slate-500">
+            Ultimo import: {formatDateTimeIt(lastRun.createdAt)}
+            {lastRun.importedByName ? ` · ${lastRun.importedByName}` : ""} · {lastRun.fileName}
+          </p>
+        ) : null}
       </section>
 
       <section className="rounded-[20px] border border-[var(--brand-line)] bg-white p-5">
@@ -130,6 +184,20 @@ export default function SorveglianzaImportPage() {
         ) : null}
         {serverError ? (
           <p className="mt-2 text-xs font-medium text-red-600">{serverError}</p>
+        ) : null}
+        {isLoading || progress > 0 ? (
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>Avanzamento</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-2 rounded-full bg-[var(--brand-primary)] transition-[width] duration-200"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
         ) : null}
       </section>
 

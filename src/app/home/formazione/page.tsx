@@ -180,6 +180,8 @@ export default function HomeFormazionePage() {
   const [importPreview, setImportPreview] = useState<ImportPreviewResult | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState("");
+  const [importProgress, setImportProgress] = useState(0);
+  const [importLastRun, setImportLastRun] = useState<{ createdAt: string; fileName: string; importedByName: string | null } | null>(null);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
@@ -225,6 +227,26 @@ export default function HomeFormazionePage() {
       }
     }
     void loadCourseCatalog();
+  }, []);
+
+  function formatDateTimeIt(value: string) {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleString("it-IT");
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
+      const body = (await response.json()) as { run: { createdAt: string; fileName: string; importedByName: string | null } | null; error?: string };
+      if (cancelled) return;
+      if (!response.ok || body.error) return;
+      setImportLastRun(body.run);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const loadRows = useCallback(async () => {
@@ -644,6 +666,15 @@ export default function HomeFormazionePage() {
     setImportLoading(true);
     setImportError("");
     setImportPreview(null);
+    setImportProgress(0);
+    const startedAt = Date.now();
+    const tick = window.setInterval(() => {
+      setImportProgress((value) => {
+        const cap = Date.now() - startedAt > 1500 ? 92 : 78;
+        const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
+        return next >= cap ? cap : next;
+      });
+    }, 250);
     try {
       const formData = new FormData();
       formData.set("mode", "preview");
@@ -658,9 +689,58 @@ export default function HomeFormazionePage() {
         throw new Error(body.error ?? "Errore preview import massivo.");
       }
       setImportPreview(body);
+      setImportProgress(100);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Errore preview import massivo.");
+      setImportProgress(0);
     } finally {
+      window.clearInterval(tick);
+      setImportLoading(false);
+    }
+  }
+
+  async function runImportCommit() {
+    if (!importFile) {
+      setImportError("Seleziona prima un file .xls/.xlsx da importare.");
+      return;
+    }
+
+    setImportLoading(true);
+    setImportError("");
+    setImportProgress(0);
+    const startedAt = Date.now();
+    const tick = window.setInterval(() => {
+      setImportProgress((value) => {
+        const cap = Date.now() - startedAt > 1500 ? 92 : 78;
+        const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
+        return next >= cap ? cap : next;
+      });
+    }, 250);
+    try {
+      const formData = new FormData();
+      formData.set("mode", "commit");
+      formData.set("file", importFile);
+
+      const response = await fetch("/api/formazione/import", {
+        method: "POST",
+        body: formData,
+      });
+      const body = (await response.json()) as ImportPreviewResult & { error?: string };
+      if (!response.ok || body.error) {
+        throw new Error(body.error ?? "Errore commit import massivo.");
+      }
+      setImportPreview(body);
+      setImportProgress(100);
+
+      const last = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
+      const lastBody = (await last.json()) as { run: { createdAt: string; fileName: string; importedByName: string | null } | null; error?: string };
+      if (last.ok && !lastBody.error) setImportLastRun(lastBody.run);
+      await loadRows();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Errore commit import massivo.");
+      setImportProgress(0);
+    } finally {
+      window.clearInterval(tick);
       setImportLoading(false);
     }
   }
@@ -1846,6 +1926,12 @@ export default function HomeFormazionePage() {
             <p className="mt-1 text-xs text-slate-500">
               Import massivo su template fisso: download modello, compila, carica, verifica preview, commit.
             </p>
+            {importLastRun ? (
+              <p className="mt-2 text-xs text-slate-500">
+                Ultimo import: {formatDateTimeIt(importLastRun.createdAt)}
+                {importLastRun.importedByName ? ` · ${importLastRun.importedByName}` : ""} · {importLastRun.fileName}
+              </p>
+            ) : null}
             <div className="mt-4 grid gap-3 md:grid-cols-4">
               {["Template", "Upload", "Preview", "Commit"].map((step, index) => (
                 <div
@@ -1911,6 +1997,20 @@ export default function HomeFormazionePage() {
               ) : null}
               {importError ? (
                 <p className="mt-2 text-xs font-medium text-red-600">{importError}</p>
+              ) : null}
+              {importLoading || importProgress > 0 ? (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Avanzamento</span>
+                    <span>{importProgress}%</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-2 rounded-full bg-[var(--brand-primary)] transition-[width] duration-200"
+                      style={{ width: `${importProgress}%` }}
+                    />
+                  </div>
+                </div>
               ) : null}
             </div>
 
@@ -2073,10 +2173,11 @@ export default function HomeFormazionePage() {
               <button
                 type="button"
                 className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
-                disabled
-                title="Commit verra attivato dopo validazione preview"
+                disabled={!importFile || !importPreview || importLoading}
+                title={importPreview ? "Esegui commit import massivo" : "Esegui prima la preview per controllare i dati"}
+                onClick={() => void runImportCommit()}
               >
-                Commit (prossimo step)
+                {importLoading ? "Import in corso..." : "Conferma import"}
               </button>
             </div>
           </div>

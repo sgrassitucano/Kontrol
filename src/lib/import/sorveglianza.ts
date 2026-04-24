@@ -5,7 +5,6 @@ type ImportMode = "preview" | "commit";
 
 type ImportParams = {
   fileBuffer: ArrayBuffer;
-  fileName: string;
   mode: ImportMode;
   supabase: SupabaseClient;
   importedBy?: string | null;
@@ -71,7 +70,6 @@ export type SurveillanceImportResult = {
 
 export async function processMedicalSurveillanceImport({
   fileBuffer,
-  fileName,
   mode,
   supabase,
   importedBy,

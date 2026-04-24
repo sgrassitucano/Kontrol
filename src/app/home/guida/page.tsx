@@ -144,8 +144,8 @@ export default function GuidaHomePage() {
               </li>
               <li>
                 <span className="font-semibold text-slate-800">MANAGER:</span> permessi di lettura/scrittura
-                sulle pagine a cui l'admin permette l'accesso; permesso di lettura/scrittura su
-                cantieri/operatori a lui assegnati dall'anagrafica lavoratori.
+                sulle pagine a cui l’admin permette l’accesso; permesso di lettura/scrittura su
+                cantieri/operatori a lui assegnati dall’anagrafica lavoratori.
               </li>
             </ul>
           </div>

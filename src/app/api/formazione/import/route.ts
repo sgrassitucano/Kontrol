@@ -40,16 +40,26 @@ export async function POST(request: Request) {
 
     const fileBuffer = await file.arrayBuffer();
     const supabase = createSupabaseAdminClient();
-    const result =
-      mode === "commit"
-        ? await commitLegacyTrainingImport({
-            fileBuffer,
-            supabase,
-          })
-        : await previewLegacyTrainingImport({
-            fileBuffer,
-            supabase,
-          });
+    const result = await (mode === "commit"
+      ? commitLegacyTrainingImport({ fileBuffer, supabase })
+      : previewLegacyTrainingImport({ fileBuffer, supabase }));
+
+    if (mode === "commit") {
+      const summary = (result as { summary?: unknown }).summary as
+        | { totalRows?: number; committedRows?: number; missingEmployees?: number; missingCourses?: number }
+        | undefined;
+      await supabase.from("import_runs").insert({
+        source: "formazione_legacy",
+        file_name: file.name,
+        imported_by: auth.userId,
+        total_rows: typeof summary?.totalRows === "number" ? summary.totalRows : 0,
+        processed_rows: typeof summary?.committedRows === "number" ? summary.committedRows : 0,
+        error_rows:
+          (typeof summary?.missingEmployees === "number" ? summary.missingEmployees : 0) +
+          (typeof summary?.missingCourses === "number" ? summary.missingCourses : 0),
+        status: "completed",
+      });
+    }
 
     return NextResponse.json(result);
   } catch (error) {
