@@ -1,9 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f8fc;
+  --background: #eef2f6;
   --foreground: #0f172a;
   --brand-primary: #2f5bd3;
+  --brand-primary-rgb: 47 91 211;
   --brand-ink: #0b1220;
   --brand-soft: #5b677a;
   --brand-line: #d9e1ee;
@@ -66,10 +67,10 @@ a {
 }
 
 ::selection {
-  background: rgba(47, 91, 211, 0.2);
+  background: rgb(var(--brand-primary-rgb) / 0.2);
 }
 
 :focus-visible {
-  outline: 3px solid rgba(47, 91, 211, 0.35);
+  outline: 3px solid rgb(var(--brand-primary-rgb) / 0.35);
   outline-offset: 2px;
 }

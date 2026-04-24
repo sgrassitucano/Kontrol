@@ -11,6 +11,7 @@ type UserRole = "admin" | "viewer" | "manager";
 type ProfilesRow = {
   id: string;
   email: string;
+  full_name: string | null;
   manager_code: string | null;
   role: UserRole;
   is_active: boolean;
@@ -37,6 +38,11 @@ function normalizeRole(value: unknown): UserRole | null {
   if (raw === "viewer") return "viewer";
   if (raw === "manager") return "manager";
   return null;
+}
+
+function normalizeFullName(value: unknown) {
+  const raw = String(value ?? "").trim();
+  return raw || null;
 }
 
 function isAppModule(value: unknown): value is AppModule {
@@ -80,7 +86,7 @@ export async function GET() {
       await Promise.all([
         supabase
           .from("profiles")
-          .select("id,email,manager_code,role,is_active")
+          .select("id,email,full_name,manager_code,role,is_active")
           .order("email"),
         supabase
           .from("module_permissions")
@@ -109,6 +115,7 @@ export async function GET() {
       return {
         id: p.id,
         email: p.email,
+        fullName: p.full_name ?? "",
         managerCode: p.manager_code ?? "",
         isActive: p.is_active,
         role,
@@ -133,6 +140,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       email: string;
       password: string;
+      fullName?: string;
       role?: UserRole;
       managerCode?: string;
       permissions?: PermissionInput[];
@@ -140,6 +148,7 @@ export async function POST(request: Request) {
 
     const email = normalizeEmail(body.email);
     const password = String(body.password ?? "").trim();
+    const fullName = normalizeFullName(body.fullName);
     const role = normalizeRole(body.role) ?? "manager";
     const managerCode = role === "manager" ? normalizeManagerCode(body.managerCode) : null;
 
@@ -168,7 +177,7 @@ export async function POST(request: Request) {
 
     const { error: profileError } = await supabaseAdmin
       .from("profiles")
-      .update({ manager_code: managerCode, role, is_active: true })
+      .update({ full_name: fullName, manager_code: managerCode, role, is_active: true })
       .eq("id", userId);
     if (profileError) throw new Error(profileError.message);
 
@@ -205,6 +214,7 @@ export async function PATCH(request: Request) {
       userId: string;
       email?: string;
       password?: string;
+      fullName?: string;
       role?: UserRole;
       managerCode?: string;
       isActive?: boolean;
@@ -216,6 +226,7 @@ export async function PATCH(request: Request) {
 
     const email = body.email !== undefined ? normalizeEmail(body.email) : null;
     const password = body.password !== undefined ? String(body.password ?? "").trim() : null;
+    const fullName = body.fullName !== undefined ? normalizeFullName(body.fullName) : undefined;
     const role = body.role !== undefined ? normalizeRole(body.role) : undefined;
     const managerCode = body.managerCode !== undefined ? normalizeManagerCode(body.managerCode) : undefined;
     const isActive = typeof body.isActive === "boolean" ? body.isActive : undefined;
@@ -245,8 +256,9 @@ export async function PATCH(request: Request) {
     const nextManagerCode =
       roleToApply === "manager" ? managerCode : roleToApply ? null : managerCode;
 
-    if (nextManagerCode !== undefined || isActive !== undefined || roleToApply !== undefined) {
+    if (fullName !== undefined || nextManagerCode !== undefined || isActive !== undefined || roleToApply !== undefined) {
       const profilePayload: Record<string, unknown> = {};
+      if (fullName !== undefined) profilePayload.full_name = fullName;
       if (nextManagerCode !== undefined) profilePayload.manager_code = nextManagerCode;
       if (isActive !== undefined) profilePayload.is_active = isActive;
       if (roleToApply !== undefined) profilePayload.role = roleToApply;

@@ -30,6 +30,38 @@ type AppShellProps = {
   children: ReactNode;
 };
 
+type MeResponse = {
+  modules?: Record<string, { canRead: boolean; canWrite: boolean }>;
+  profile?: {
+    email: string;
+    full_name: string | null;
+    role: "admin" | "viewer" | "manager";
+  };
+};
+
+function initialsFromIdentity(fullName: string | null | undefined, email: string | null | undefined) {
+  const source = String(fullName ?? "").trim();
+  if (source) {
+    const parts = source
+      .split(/\s+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const letters = (parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? parts[0]?.[1] ?? "");
+    return letters.toUpperCase() || "U";
+  }
+  const fallback = String(email ?? "").trim();
+  if (!fallback) return "U";
+  const normalized = fallback.replace(/[^a-z0-9]/gi, "");
+  const letters = (normalized[0] ?? "") + (normalized[1] ?? "");
+  return letters.toUpperCase() || "U";
+}
+
+function roleLabel(role: "admin" | "viewer" | "manager") {
+  if (role === "admin") return "ADMIN";
+  if (role === "viewer") return "VIEWER";
+  return "MANAGER";
+}
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -39,6 +71,7 @@ export function AppShell({ children }: AppShellProps) {
   const [sidebarOverride, setSidebarOverride] = useState<boolean | null>(null);
   const sidebarCollapsed = sidebarOverride ?? isTableFocusRoute;
   const [modulesByKey, setModulesByKey] = useState<Record<string, { canRead: boolean; canWrite: boolean }> | null>(null);
+  const [profile, setProfile] = useState<MeResponse["profile"] | null>(null);
 
   useEffect(() => {
     if (isLoginPage) return;
@@ -51,9 +84,10 @@ export function AppShell({ children }: AppShellProps) {
         return;
       }
       if (!response.ok) return;
-      const json = (await response.json()) as { modules?: Record<string, { canRead: boolean; canWrite: boolean }> };
+      const json = (await response.json()) as MeResponse;
       if (cancelled) return;
       setModulesByKey(json.modules ?? {});
+      setProfile(json.profile ?? null);
     })();
     return () => {
       cancelled = true;
@@ -92,121 +126,138 @@ export function AppShell({ children }: AppShellProps) {
             sidebarCollapsed ? "lg:w-[84px]" : "lg:w-[280px]",
           ].join(" ")}
         >
-          <div className="flex h-full flex-col rounded-[26px] border border-[var(--brand-line)] bg-[var(--brand-panel)] shadow-[var(--brand-shadow-soft)]">
-            <div className="rounded-[26px] bg-[var(--brand-panel-2)] p-4">
-              <div className="flex items-center justify-between gap-2">
-                {!sidebarCollapsed ? (
+          <div className="flex h-full flex-col">
+            <div className="relative flex items-center justify-center px-2 py-3">
+              {!sidebarCollapsed ? (
+                <div className="w-full">
                   <BrandMark />
-                ) : (
-                  <span className="text-xs font-semibold text-slate-500">GM</span>
-                )}
+                </div>
+              ) : (
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white text-xs font-semibold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+                  {initialsFromIdentity(profile?.full_name, profile?.email)}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setSidebarOverride((value) => !(value ?? isTableFocusRoute))}
+                className="absolute right-2 top-3 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+                title={sidebarCollapsed ? "Espandi menu" : "Comprimi menu"}
+              >
+                {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+              </button>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col px-2 pb-3">
+              <nav className="space-y-0.5">
+                {visibleModules.map((module) => {
+                  const active = isActive(pathname, module.href);
+                  const children = module.children ?? [];
+                  const showChildren = children.length > 0 && !sidebarCollapsed;
+                  const isGroupOnly = module.key === "gestione";
+                  const moduleIcon = getModuleIcon(module.key);
+                  const baseRowClass = sidebarCollapsed
+                    ? "flex items-center justify-center rounded-xl px-2 py-1.5 text-sm font-semibold transition"
+                    : "flex items-center justify-between rounded-xl px-3 py-1.5 text-sm font-semibold transition";
+                  const iconWrapClass = [
+                    "inline-flex h-8 w-8 items-center justify-center rounded-xl border transition",
+                    active
+                      ? "border-[var(--brand-primary)] bg-gradient-to-br from-[var(--brand-primary)] to-[#244ac0] text-white shadow-sm"
+                      : "border-[var(--brand-line)] bg-white text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]",
+                  ].join(" ");
+
+                  return (
+                    <div key={module.key} className="space-y-0.5">
+                      {isGroupOnly ? (
+                        <div
+                          onClick={() => {
+                            if (sidebarCollapsed) {
+                              setSidebarOverride(false);
+                            }
+                          }}
+                          className={[
+                            baseRowClass,
+                            active
+                              ? "bg-white text-[var(--brand-primary)] shadow-[inset_0_0_0_1px_var(--brand-line)]"
+                              : "text-slate-800 hover:bg-white/70 hover:text-[var(--brand-primary)]",
+                          ].join(" ")}
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <span aria-hidden className={iconWrapClass}>
+                              {moduleIcon}
+                            </span>
+                            {!sidebarCollapsed ? <span>{module.label}</span> : null}
+                          </span>
+                        </div>
+                      ) : (
+                        <Link
+                          href={module.href}
+                          onClick={(event) => {
+                            if (sidebarCollapsed) {
+                              event.preventDefault();
+                              setSidebarOverride(false);
+                            }
+                          }}
+                          className={[
+                            baseRowClass,
+                            active
+                              ? "bg-white text-[var(--brand-primary)] shadow-[inset_0_0_0_1px_var(--brand-line)]"
+                              : "text-slate-800 hover:bg-white/70 hover:text-[var(--brand-primary)]",
+                          ].join(" ")}
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <span aria-hidden className={iconWrapClass}>
+                              {moduleIcon}
+                            </span>
+                            {!sidebarCollapsed ? <span>{module.label}</span> : null}
+                          </span>
+                        </Link>
+                      )}
+                      {showChildren ? (
+                        <div className="ml-2 space-y-0.5 border-l border-[var(--brand-line)] pl-3">
+                          {children.map((child) => {
+                            const childActive = isActive(pathname, child.href);
+                            return (
+                              <Link
+                                key={child.href}
+                                href={child.href}
+                                className={[
+                                  "block rounded-lg px-2 py-0.5 text-[13px] transition",
+                                  childActive
+                                    ? "bg-white font-medium text-[var(--brand-primary)] shadow-[inset_0_0_0_1px_var(--brand-line)]"
+                                    : "text-slate-600 hover:bg-white/70 hover:text-[var(--brand-primary)]",
+                                ].join(" ")}
+                              >
+                                {child.label}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </nav>
+
+              <div className="mt-auto space-y-2 pt-3">
+                {!sidebarCollapsed && profile ? (
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <span className="min-w-0 truncate text-xs font-semibold text-slate-700">
+                      {profile.full_name?.trim() || profile.email}
+                    </span>
+                    <span className="shrink-0 rounded-full border border-[var(--brand-line)] bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                      {roleLabel(profile.role)}
+                    </span>
+                  </div>
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => setSidebarOverride((value) => !(value ?? isTableFocusRoute))}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
-                  title={sidebarCollapsed ? "Espandi menu" : "Comprimi menu"}
+                  onClick={logout}
+                  className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
                 >
-                  {sidebarCollapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+                  <LogOut className="h-5 w-5" />
+                  {!sidebarCollapsed ? "Esci" : null}
                 </button>
               </div>
-            <nav className="mt-4 space-y-1.5">
-              {visibleModules.map((module) => {
-                const active = isActive(pathname, module.href);
-                const children = module.children ?? [];
-                const showChildren = children.length > 0 && !sidebarCollapsed;
-                const isGroupOnly = module.key === "gestione";
-                const moduleIcon = getModuleIcon(module.key);
-                const baseRowClass = sidebarCollapsed
-                  ? "flex items-center justify-center rounded-xl px-2 py-2.5 text-sm font-semibold transition"
-                  : "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold transition";
-                const iconWrapClass = [
-                  "inline-flex h-10 w-10 items-center justify-center rounded-2xl border transition",
-                  active
-                    ? "border-[var(--brand-primary)] bg-gradient-to-br from-[var(--brand-primary)] to-[#244ac0] text-white shadow-sm"
-                    : "border-[var(--brand-line)] bg-white text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]",
-                ].join(" ");
-
-                return (
-                  <div key={module.key} className="space-y-1">
-                    {isGroupOnly ? (
-                      <div
-                        onClick={() => {
-                          if (sidebarCollapsed) {
-                            setSidebarOverride(false);
-                          }
-                        }}
-                        className={[
-                          baseRowClass,
-                          active
-                            ? "bg-[var(--brand-tint)] text-[var(--brand-primary)]"
-                            : "text-slate-800 hover:bg-white hover:text-[var(--brand-primary)]",
-                        ].join(" ")}
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          <span aria-hidden className={iconWrapClass}>
-                            {moduleIcon}
-                          </span>
-                          {!sidebarCollapsed ? <span>{module.label}</span> : null}
-                        </span>
-                      </div>
-                    ) : (
-                      <Link
-                        href={module.href}
-                        onClick={(event) => {
-                          if (sidebarCollapsed) {
-                            event.preventDefault();
-                            setSidebarOverride(false);
-                          }
-                        }}
-                        className={[
-                          baseRowClass,
-                          active
-                            ? "bg-[var(--brand-tint)] text-[var(--brand-primary)]"
-                            : "text-slate-800 hover:bg-white hover:text-[var(--brand-primary)]",
-                        ].join(" ")}
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          <span aria-hidden className={iconWrapClass}>
-                            {moduleIcon}
-                          </span>
-                          {!sidebarCollapsed ? <span>{module.label}</span> : null}
-                        </span>
-                      </Link>
-                    )}
-                    {showChildren ? (
-                      <div className="ml-2 space-y-1 border-l border-[var(--brand-line)] pl-3">
-                        {children.map((child) => {
-                          const childActive = isActive(pathname, child.href);
-                          return (
-                            <Link
-                              key={child.href}
-                              href={child.href}
-                              className={[
-                                "block rounded-lg px-2.5 py-1.5 text-[13px] transition",
-                                childActive
-                                  ? "bg-white font-medium text-[var(--brand-primary)]"
-                                  : "text-slate-600 hover:bg-white hover:text-[var(--brand-primary)]",
-                              ].join(" ")}
-                            >
-                              {child.label}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </nav>
-
-            <button
-              type="button"
-              onClick={logout}
-              className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
-            >
-              <LogOut className="h-5 w-5" />
-              {!sidebarCollapsed ? "Esci" : null}
-            </button>
             </div>
           </div>
         </aside>

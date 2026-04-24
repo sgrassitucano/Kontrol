@@ -16,6 +16,7 @@ const moduleKeys: AppModuleKey[] = [
 
 type ProfileRow = {
   email: string;
+  full_name: string | null;
   role: "admin" | "viewer" | "manager";
   manager_code: string | null;
   is_active: boolean;
@@ -32,7 +33,7 @@ export async function GET() {
 
   const { data: profileData, error: profileError } = await base.supabase
     .from("profiles")
-    .select("email,role,manager_code,is_active")
+    .select("email,full_name,role,manager_code,is_active")
     .eq("id", base.userId)
     .maybeSingle();
   if (profileError) {
@@ -41,6 +42,7 @@ export async function GET() {
 
   const profile = (profileData ?? {
     email: user.email ?? "",
+    full_name: null,
     role: "manager",
     manager_code: null,
     is_active: false,

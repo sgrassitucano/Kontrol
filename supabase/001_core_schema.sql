@@ -345,6 +345,20 @@ create table if not exists public.training_employee_course_exclusions (
   constraint training_employee_course_exclusions_unique unique (employee_id, course_id)
 );
 
+create table if not exists public.medical_surveillance_records (
+  id bigint generated always as identity primary key,
+  employee_id bigint not null references public.employees(id) on delete cascade,
+  provider text,
+  requires_visit boolean not null default true,
+  next_due_date date,
+  limitations text,
+  notes text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint medical_surveillance_records_employee_unique unique (employee_id)
+);
+
 create table if not exists public.import_runs (
   id uuid primary key default gen_random_uuid(),
   source text not null default 'anagrafica',
@@ -976,6 +990,7 @@ alter table public.employee_freeze_periods enable row level security;
 alter table public.training_scope_exclusions enable row level security;
 alter table public.training_employee_exclusions enable row level security;
 alter table public.training_employee_course_exclusions enable row level security;
+alter table public.medical_surveillance_records enable row level security;
 alter table public.dpi_items enable row level security;
 alter table public.dpi_matrix_rules enable row level security;
 alter table public.dpi_employee_items enable row level security;
@@ -1195,11 +1210,36 @@ create policy "training_employee_courses_read_by_scope"
   );
 
 drop policy if exists "training_employee_courses_write_management_only" on public.training_employee_courses;
-create policy "training_employee_courses_write_management_only"
+drop policy if exists "training_employee_courses_write_formazione" on public.training_employee_courses;
+create policy "training_employee_courses_write_formazione"
   on public.training_employee_courses
   for all
-  using (public.has_module_access('gestione', true))
-  with check (public.has_module_access('gestione', true));
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+
 
 drop policy if exists "dpi_items_read_operational" on public.dpi_items;
 create policy "dpi_items_read_operational"
@@ -1600,6 +1640,52 @@ create policy "training_employee_course_exclusions_write_formazione"
     )
   );
 
+drop policy if exists "medical_surveillance_records_read_by_scope" on public.medical_surveillance_records;
+create policy "medical_surveillance_records_read_by_scope"
+  on public.medical_surveillance_records
+  for select
+  using (
+    public.has_module_access('gestione')
+    or (
+      public.has_module_access('sorveglianza')
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+drop policy if exists "medical_surveillance_records_write_sorveglianza" on public.medical_surveillance_records;
+create policy "medical_surveillance_records_write_sorveglianza"
+  on public.medical_surveillance_records
+  for all
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
 drop policy if exists "import_runs_read_management_only" on public.import_runs;
 create policy "import_runs_read_management_only"
   on public.import_runs
@@ -1659,6 +1745,11 @@ create trigger training_employee_exclusions_set_updated_at
 drop trigger if exists training_employee_course_exclusions_set_updated_at on public.training_employee_course_exclusions;
 create trigger training_employee_course_exclusions_set_updated_at
   before update on public.training_employee_course_exclusions
+  for each row execute procedure public.set_updated_at();
+
+drop trigger if exists medical_surveillance_records_set_updated_at on public.medical_surveillance_records;
+create trigger medical_surveillance_records_set_updated_at
+  before update on public.medical_surveillance_records
   for each row execute procedure public.set_updated_at();
 
 drop trigger if exists dpi_items_set_updated_at on public.dpi_items;

@@ -172,6 +172,8 @@ export default function HomeFormazionePage() {
   const [eventType, setEventType] = useState<EventType>("PROGRAMMATO");
   const [eventDate, setEventDate] = useState("");
   const [eventNote, setEventNote] = useState("");
+  const [eventSaveError, setEventSaveError] = useState("");
+  const [eventSaving, setEventSaving] = useState(false);
   const [catalogCourses, setCatalogCourses] = useState<CourseOption[]>([]);
   const [jobEntities, setJobEntities] = useState<JobEntity[]>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -574,6 +576,11 @@ export default function HomeFormazionePage() {
     () => courseOptions.find((course) => course.code === eventSelectedCourseCode) ?? null,
     [courseOptions, eventSelectedCourseCode],
   );
+  const canSaveEvent = Boolean(
+    selectedEventWorker &&
+      selectedEventCourse &&
+      (!(eventType === "SVOLTO" || eventType === "MODIFICA_DATA") || Boolean(eventDate)),
+  );
 
   function resetEventForm() {
     setEventWorkerSearch("");
@@ -583,6 +590,43 @@ export default function HomeFormazionePage() {
     setEventType("PROGRAMMATO");
     setEventDate("");
     setEventNote("");
+    setEventSaveError("");
+    setEventSaving(false);
+  }
+
+  async function saveEvent() {
+    if (!selectedEventWorker || !selectedEventCourse) return;
+
+    setEventSaving(true);
+    setEventSaveError("");
+    try {
+      const response = await fetch("/api/formazione/eventi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: selectedEventWorker.workerId,
+          courseCode: selectedEventCourse.code,
+          type: eventType,
+          date: eventDate || undefined,
+          note: eventNote,
+        }),
+      });
+      const body = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || body.error) {
+        throw new Error(body.error ?? "Errore salvataggio evento.");
+      }
+
+      setIsEventModalOpen(false);
+      resetEventForm();
+      await loadRows();
+      if (isWorkerDetailOpen && workerDetailEmployeeId === selectedEventWorker.workerId) {
+        await loadWorkerDetail(workerDetailEmployeeId);
+      }
+    } catch (err) {
+      setEventSaveError(err instanceof Error ? err.message : "Errore salvataggio evento.");
+    } finally {
+      setEventSaving(false);
+    }
   }
 
   function resetImportForm() {
@@ -663,6 +707,7 @@ export default function HomeFormazionePage() {
     setEventType(row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO");
     setEventDate("");
     setEventNote("");
+    setEventSaveError("");
     setIsEventModalOpen(true);
   }
 
@@ -1768,12 +1813,16 @@ export default function HomeFormazionePage() {
               <button
                 type="button"
                 className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
-                disabled={!selectedEventWorker || !selectedEventCourse}
-                title="Step successivo: persistenza evento"
+                disabled={!canSaveEvent || eventSaving}
+                title="Salva evento"
+                onClick={() => void saveEvent()}
               >
-                Salva evento
+                {eventSaving ? "Salvo..." : "Salva evento"}
               </button>
             </div>
+            {eventSaveError ? (
+              <p className="mt-3 text-xs font-medium text-red-600">{eventSaveError}</p>
+            ) : null}
           </div>
         </section>
       ) : null}

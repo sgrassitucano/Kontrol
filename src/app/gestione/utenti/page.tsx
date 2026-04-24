@@ -10,6 +10,7 @@ type ApiPermission = { module: AppModuleKey; level: "read" | "write" };
 type ApiUser = {
   id: string;
   email: string;
+  fullName: string;
   role: "admin" | "manager" | "viewer";
   managerCode: string;
   isActive: boolean;
@@ -40,6 +41,7 @@ export default function GestioneUtentiPage() {
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [newFullName, setNewFullName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<ApiUser["role"]>("manager");
@@ -48,6 +50,7 @@ export default function GestioneUtentiPage() {
   const [tableRefreshAt, setTableRefreshAt] = useState<Date | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
+  const [editFullName, setEditFullName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editRole, setEditRole] = useState<ApiUser["role"]>("manager");
@@ -91,6 +94,7 @@ export default function GestioneUtentiPage() {
   }
 
   async function handleCreateUser() {
+    const fullName = newFullName.trim();
     const email = newEmail.trim();
     const password = newPassword.trim();
     const managerCode = newManagerCode.trim();
@@ -105,6 +109,7 @@ export default function GestioneUtentiPage() {
         body: JSON.stringify({
           email,
           password,
+          fullName,
           role: newRole,
           managerCode: newRole === "manager" ? managerCode : "",
           permissions: newRole === "manager" ? normalizePermissions(newPermissions) : [],
@@ -114,6 +119,7 @@ export default function GestioneUtentiPage() {
       if (!response.ok || body.error) {
         throw new Error(body.error ?? "Errore creazione utente.");
       }
+      setNewFullName("");
       setNewEmail("");
       setNewPassword("");
       setNewRole("manager");
@@ -129,6 +135,7 @@ export default function GestioneUtentiPage() {
 
   function openEdit(user: ApiUser) {
     setEditingUser(user);
+    setEditFullName(user.fullName ?? "");
     setEditEmail(user.email);
     setEditPassword("");
     setEditRole(user.role);
@@ -141,6 +148,7 @@ export default function GestioneUtentiPage() {
   function closeEdit() {
     setIsEditOpen(false);
     setEditingUser(null);
+    setEditFullName("");
     setEditEmail("");
     setEditPassword("");
     setEditRole("manager");
@@ -159,6 +167,7 @@ export default function GestioneUtentiPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           userId: editingUser.id,
+          fullName: editFullName.trim(),
           email: editEmail.trim(),
           password: editPassword.trim() ? editPassword.trim() : undefined,
           role: editRole,
@@ -196,7 +205,14 @@ export default function GestioneUtentiPage() {
         <h2 className="text-base font-semibold text-[var(--brand-ink)]">
           Nuovo utente
         </h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          <input
+            type="text"
+            value={newFullName}
+            onChange={(event) => setNewFullName(event.target.value)}
+            placeholder="Nome e cognome"
+            className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-700"
+          />
           <input
             type="email"
             value={newEmail}
@@ -296,6 +312,7 @@ export default function GestioneUtentiPage() {
             <thead className="bg-[var(--brand-panel)] text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-5 py-3">Utente</th>
+                <th className="px-5 py-3">Nome</th>
                 <th className="px-5 py-3">Ruolo</th>
                 <th className="px-5 py-3">Codice manager</th>
                 <th className="px-5 py-3">Permessi</th>
@@ -308,6 +325,7 @@ export default function GestioneUtentiPage() {
                   <td className="px-5 py-4 font-medium text-[var(--brand-ink)]">
                     {user.email}
                   </td>
+                  <td className="px-5 py-4 text-slate-600">{user.fullName || "-"}</td>
                   <td className="px-5 py-4 text-slate-600">{user.role}</td>
                   <td className="px-5 py-4 text-slate-600">{user.managerCode || "-"}</td>
                   <td className="px-5 py-4">
@@ -358,6 +376,15 @@ export default function GestioneUtentiPage() {
             </div>
             <div className="overflow-auto px-5 py-4">
               <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Nome e cognome</span>
+                  <input
+                    type="text"
+                    value={editFullName}
+                    onChange={(event) => setEditFullName(event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+                  />
+                </label>
                 <label className="space-y-1">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Email</span>
                   <input
