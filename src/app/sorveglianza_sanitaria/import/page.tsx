@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   SurveillanceImportErrorRow,
   SurveillanceImportPreviewRow,
@@ -37,6 +37,8 @@ export default function SorveglianzaImportPage() {
   const [result, setResult] = useState<ImportResponse | null>(null);
   const [progress, setProgress] = useState(0);
   const [lastRun, setLastRun] = useState<LastImportRun | null>(null);
+  const progressTimerRef = useRef<number | null>(null);
+  const runTokenRef = useRef(0);
 
   const counters = useMemo(() => {
     if (!result) {
@@ -78,22 +80,36 @@ export default function SorveglianzaImportPage() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current !== null) {
+        window.clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+    };
+  }, []);
+
   async function runImport(mode: "preview" | "commit") {
     if (!selectedFile) return;
+
+    runTokenRef.current += 1;
+    const token = runTokenRef.current;
+    if (progressTimerRef.current !== null) {
+      window.clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
 
     setIsLoading(true);
     setServerError("");
     setProgress(0);
-    const startedAt = Date.now();
-    const tick = window.setInterval(() => {
+    progressTimerRef.current = window.setInterval(() => {
       setProgress((value) => {
-        if (value >= 95) return value;
-        const cap = Date.now() - startedAt > 1500 ? 92 : 78;
-        if (value >= cap) return value;
-        const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
-        return next >= cap ? cap : next;
+        if (runTokenRef.current !== token) return value;
+        if (value >= 99) return 99;
+        const step = value < 60 ? 4 : value < 85 ? 2 : 1;
+        return Math.min(99, value + step);
       });
-    }, 250);
+    }, 350);
 
     try {
       const formData = new FormData();
@@ -111,7 +127,10 @@ export default function SorveglianzaImportPage() {
       }
 
       setResult(payload);
-      window.clearInterval(tick);
+      if (runTokenRef.current === token && progressTimerRef.current !== null) {
+        window.clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
       setProgress(100);
       if (mode === "commit") {
         const response = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
@@ -122,8 +141,11 @@ export default function SorveglianzaImportPage() {
       setServerError(error instanceof Error ? error.message : "Errore imprevisto durante l'import.");
       setProgress(0);
     } finally {
-      window.clearInterval(tick);
-      setIsLoading(false);
+      if (runTokenRef.current === token && progressTimerRef.current !== null) {
+        window.clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+      if (runTokenRef.current === token) setIsLoading(false);
     }
   }
 

@@ -182,6 +182,8 @@ export default function HomeFormazionePage() {
   const [importError, setImportError] = useState("");
   const [importProgress, setImportProgress] = useState(0);
   const [importLastRun, setImportLastRun] = useState<{ createdAt: string; fileName: string; importedByName: string | null } | null>(null);
+  const importProgressTimerRef = useRef<number | null>(null);
+  const importRunTokenRef = useRef(0);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
@@ -227,6 +229,15 @@ export default function HomeFormazionePage() {
       }
     }
     void loadCourseCatalog();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (importProgressTimerRef.current !== null) {
+        window.clearInterval(importProgressTimerRef.current);
+        importProgressTimerRef.current = null;
+      }
+    };
   }, []);
 
   function formatDateTimeIt(value: string) {
@@ -666,17 +677,21 @@ export default function HomeFormazionePage() {
     setImportLoading(true);
     setImportError("");
     setImportPreview(null);
+    importRunTokenRef.current += 1;
+    const token = importRunTokenRef.current;
+    if (importProgressTimerRef.current !== null) {
+      window.clearInterval(importProgressTimerRef.current);
+      importProgressTimerRef.current = null;
+    }
     setImportProgress(0);
-    const startedAt = Date.now();
-    const tick = window.setInterval(() => {
+    importProgressTimerRef.current = window.setInterval(() => {
       setImportProgress((value) => {
-        if (value >= 95) return value;
-        const cap = Date.now() - startedAt > 1500 ? 92 : 78;
-        if (value >= cap) return value;
-        const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
-        return next >= cap ? cap : next;
+        if (importRunTokenRef.current !== token) return value;
+        if (value >= 99) return 99;
+        const step = value < 60 ? 4 : value < 85 ? 2 : 1;
+        return Math.min(99, value + step);
       });
-    }, 250);
+    }, 350);
     try {
       const formData = new FormData();
       formData.set("mode", "preview");
@@ -691,13 +706,19 @@ export default function HomeFormazionePage() {
         throw new Error(body.error ?? "Errore preview import massivo.");
       }
       setImportPreview(body);
-      window.clearInterval(tick);
+      if (importRunTokenRef.current === token && importProgressTimerRef.current !== null) {
+        window.clearInterval(importProgressTimerRef.current);
+        importProgressTimerRef.current = null;
+      }
       setImportProgress(100);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Errore preview import massivo.");
       setImportProgress(0);
     } finally {
-      window.clearInterval(tick);
+      if (importRunTokenRef.current === token && importProgressTimerRef.current !== null) {
+        window.clearInterval(importProgressTimerRef.current);
+        importProgressTimerRef.current = null;
+      }
       setImportLoading(false);
     }
   }
@@ -710,17 +731,21 @@ export default function HomeFormazionePage() {
 
     setImportLoading(true);
     setImportError("");
+    importRunTokenRef.current += 1;
+    const token = importRunTokenRef.current;
+    if (importProgressTimerRef.current !== null) {
+      window.clearInterval(importProgressTimerRef.current);
+      importProgressTimerRef.current = null;
+    }
     setImportProgress(0);
-    const startedAt = Date.now();
-    const tick = window.setInterval(() => {
+    importProgressTimerRef.current = window.setInterval(() => {
       setImportProgress((value) => {
-        if (value >= 95) return value;
-        const cap = Date.now() - startedAt > 1500 ? 92 : 78;
-        if (value >= cap) return value;
-        const next = value + (value < 30 ? 6 : value < 70 ? 3 : 2);
-        return next >= cap ? cap : next;
+        if (importRunTokenRef.current !== token) return value;
+        if (value >= 99) return 99;
+        const step = value < 60 ? 4 : value < 85 ? 2 : 1;
+        return Math.min(99, value + step);
       });
-    }, 250);
+    }, 350);
     try {
       const formData = new FormData();
       formData.set("mode", "commit");
@@ -735,7 +760,10 @@ export default function HomeFormazionePage() {
         throw new Error(body.error ?? "Errore commit import massivo.");
       }
       setImportPreview(body);
-      window.clearInterval(tick);
+      if (importRunTokenRef.current === token && importProgressTimerRef.current !== null) {
+        window.clearInterval(importProgressTimerRef.current);
+        importProgressTimerRef.current = null;
+      }
       setImportProgress(100);
 
       const last = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
@@ -746,7 +774,10 @@ export default function HomeFormazionePage() {
       setImportError(err instanceof Error ? err.message : "Errore commit import massivo.");
       setImportProgress(0);
     } finally {
-      window.clearInterval(tick);
+      if (importRunTokenRef.current === token && importProgressTimerRef.current !== null) {
+        window.clearInterval(importProgressTimerRef.current);
+        importProgressTimerRef.current = null;
+      }
       setImportLoading(false);
     }
   }
