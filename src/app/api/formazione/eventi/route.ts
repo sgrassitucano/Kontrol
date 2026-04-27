@@ -85,20 +85,80 @@ export async function POST(request: Request) {
     const courseId = (course as { id: number }).id;
 
     if (type === "ANNULLA") {
-      const payload: Record<string, unknown> = {
-        planned_date: null,
-        manual_state: null,
-        updated_by: auth.userId,
-      };
-      if (note !== null) payload.note = note;
-
-      const { error: updateError } = await auth.supabase
+      const { data: existing, error: existingError } = await auth.supabase
         .from("training_employee_courses")
-        .update(payload)
-        .in("employee_id", employeeIds)
-        .eq("course_id", courseId);
-      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
-      return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
+        .select("employee_id,completion_date,planned_date,manual_state")
+        .eq("course_id", courseId)
+        .in("employee_id", employeeIds);
+      if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+
+      const completedIds = new Set<number>();
+      const plannedIds = new Set<number>();
+
+      (existing ?? []).forEach((row) => {
+        const r = row as {
+          employee_id: number;
+          completion_date: string | null;
+          planned_date: string | null;
+          manual_state: string | null;
+        };
+        if (r.completion_date) {
+          completedIds.add(r.employee_id);
+          return;
+        }
+        if (r.planned_date || r.manual_state === "programmato") {
+          plannedIds.add(r.employee_id);
+        }
+      });
+
+      const toExclude = employeeIds.filter((id) => !completedIds.has(id) && !plannedIds.has(id));
+      const toClearPlanned = employeeIds.filter((id) => plannedIds.has(id));
+
+      if (dryRun) {
+        return NextResponse.json({
+          ok: true,
+          excluded: toExclude.length,
+          clearedPlanned: toClearPlanned.length,
+          completed: completedIds.size,
+        });
+      }
+
+      if (toClearPlanned.length > 0) {
+        const payload: Record<string, unknown> = {
+          planned_date: null,
+          manual_state: null,
+          updated_by: auth.userId,
+        };
+        if (note !== null) payload.note = note;
+
+        const { error: updateError } = await auth.supabase
+          .from("training_employee_courses")
+          .update(payload)
+          .in("employee_id", toClearPlanned)
+          .eq("course_id", courseId);
+        if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+
+      if (toExclude.length > 0) {
+        const { error: exclusionError } = await auth.supabase.from("training_employee_course_exclusions").upsert(
+          toExclude.map((employeeId) => ({
+            employee_id: employeeId,
+            course_id: courseId,
+            is_active: true,
+            note,
+            created_by: auth.userId,
+          })),
+          { onConflict: "employee_id,course_id" },
+        );
+        if (exclusionError) return NextResponse.json({ error: exclusionError.message }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        excluded: toExclude.length,
+        clearedPlanned: toClearPlanned.length,
+        skippedCompleted: completedIds.size,
+      });
     }
 
     if (type === "PROGRAMMATO") {

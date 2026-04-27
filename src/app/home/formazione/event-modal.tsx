@@ -112,6 +112,37 @@ export function EventModal(props: {
       const employeeIds = selectedEventWorkers.map((w) => w.workerId);
       const typeToSend: EventType = eventTab === "da_fare" ? "DA_FARE" : eventType;
 
+      if (typeToSend === "ANNULLA") {
+        const previewResponse = await fetch("/api/formazione/eventi", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            employeeIds,
+            courseCode: selectedEventCourse.code,
+            type: "ANNULLA",
+            note: eventNote,
+            dryRun: true,
+          }),
+        });
+        const previewBody = (await previewResponse.json()) as {
+          error?: string;
+          excluded?: number;
+          clearedPlanned?: number;
+          completed?: number;
+        };
+        if (!previewResponse.ok || previewBody.error) {
+          throw new Error(previewBody.error ?? "Errore salvataggio evento.");
+        }
+
+        const completed = Number(previewBody.completed ?? 0);
+        if (completed > 0) {
+          const ok = window.confirm(
+            `Ci sono ${completed} dipendenti che risultano già “SVOLTO” per questo corso. Procedo comunque ad annullare per gli altri?`,
+          );
+          if (!ok) return;
+        }
+      }
+
       if (typeToSend === "DA_FARE") {
         const previewResponse = await fetch("/api/formazione/eventi", {
           method: "POST",
