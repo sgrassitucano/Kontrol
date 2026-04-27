@@ -154,14 +154,13 @@ export function EventModal(props: {
         throw new Error(body.error ?? "Errore salvataggio evento.");
       }
 
-      onClose();
       await onSaved(employeeIds);
     } catch (err) {
       setEventSaveError(err instanceof Error ? err.message : "Errore salvataggio evento.");
     } finally {
       setEventSaving(false);
     }
-  }, [eventDate, eventNote, eventTab, eventType, onClose, onSaved, selectedEventCourse, selectedEventWorkers]);
+  }, [eventDate, eventNote, eventTab, eventType, onSaved, selectedEventCourse, selectedEventWorkers]);
 
   if (!isOpen) return null;
 
@@ -379,4 +378,3 @@ export function EventModal(props: {
     </section>
   );
 }
-
