@@ -359,6 +359,16 @@ create table if not exists public.medical_surveillance_records (
   constraint medical_surveillance_records_employee_unique unique (employee_id)
 );
 
+create table if not exists public.medical_surveillance_job_rules (
+  job_code_norm text primary key,
+  always_exempt boolean not null default false,
+  exempt_below_weekly_minutes integer,
+  note text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists public.import_runs (
   id uuid primary key default gen_random_uuid(),
   source text not null default 'anagrafica',
@@ -991,6 +1001,7 @@ alter table public.training_scope_exclusions enable row level security;
 alter table public.training_employee_exclusions enable row level security;
 alter table public.training_employee_course_exclusions enable row level security;
 alter table public.medical_surveillance_records enable row level security;
+alter table public.medical_surveillance_job_rules enable row level security;
 alter table public.dpi_items enable row level security;
 alter table public.dpi_matrix_rules enable row level security;
 alter table public.dpi_employee_items enable row level security;
@@ -1686,6 +1697,22 @@ create policy "medical_surveillance_records_write_sorveglianza"
     )
   );
 
+drop policy if exists "medical_surveillance_job_rules_read" on public.medical_surveillance_job_rules;
+create policy "medical_surveillance_job_rules_read"
+  on public.medical_surveillance_job_rules
+  for select
+  using (
+    public.has_module_access('gestione')
+    or public.has_module_access('sorveglianza')
+  );
+
+drop policy if exists "medical_surveillance_job_rules_write" on public.medical_surveillance_job_rules;
+create policy "medical_surveillance_job_rules_write"
+  on public.medical_surveillance_job_rules
+  for all
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
 drop policy if exists "import_runs_read_management_only" on public.import_runs;
 create policy "import_runs_read_management_only"
   on public.import_runs
@@ -1750,6 +1777,11 @@ create trigger training_employee_course_exclusions_set_updated_at
 drop trigger if exists medical_surveillance_records_set_updated_at on public.medical_surveillance_records;
 create trigger medical_surveillance_records_set_updated_at
   before update on public.medical_surveillance_records
+  for each row execute procedure public.set_updated_at();
+
+drop trigger if exists medical_surveillance_job_rules_set_updated_at on public.medical_surveillance_job_rules;
+create trigger medical_surveillance_job_rules_set_updated_at
+  before update on public.medical_surveillance_job_rules
   for each row execute procedure public.set_updated_at();
 
 drop trigger if exists dpi_items_set_updated_at on public.dpi_items;

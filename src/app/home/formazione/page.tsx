@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeJobCode } from "@/lib/training/normalize";
+import { EventModal } from "./event-modal";
 
 type WorkerCourseRow = {
   workerId: number;
@@ -39,7 +40,16 @@ type JobEntity = {
 };
 
 type CourseOption = { code: string; title: string };
-type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA";
+type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE";
+type EventModalInit = {
+  tab: "evento" | "da_fare";
+  courseCode: string;
+  courseSearch: string;
+  type: Exclude<EventType, "DA_FARE">;
+  date: string;
+  note: string;
+  token: number;
+};
 type ImportPreviewIssue = {
   rowNumber: number;
   matricola: string;
@@ -165,15 +175,16 @@ export default function HomeFormazionePage() {
   const [dashboardTotalByAnagrafica, setDashboardTotalByAnagrafica] = useState(0);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [eventWorkerSearch, setEventWorkerSearch] = useState("");
-  const [eventCourseSearch, setEventCourseSearch] = useState("");
-  const [eventSelectedWorkerId, setEventSelectedWorkerId] = useState<number | null>(null);
-  const [eventSelectedCourseCode, setEventSelectedCourseCode] = useState("");
-  const [eventType, setEventType] = useState<EventType>("PROGRAMMATO");
-  const [eventDate, setEventDate] = useState("");
-  const [eventNote, setEventNote] = useState("");
-  const [eventSaveError, setEventSaveError] = useState("");
-  const [eventSaving, setEventSaving] = useState(false);
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState<Set<number>>(() => new Set());
+  const [eventModalInit, setEventModalInit] = useState<EventModalInit>({
+    tab: "evento",
+    courseCode: "",
+    courseSearch: "",
+    type: "PROGRAMMATO",
+    date: "",
+    note: "",
+    token: 0,
+  });
   const [catalogCourses, setCatalogCourses] = useState<CourseOption[]>([]);
   const [jobEntities, setJobEntities] = useState<JobEntity[]>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -281,7 +292,17 @@ export default function HomeFormazionePage() {
         throw new Error(body.error ?? "Errore caricamento formazione lavoratori.");
       }
 
-      setRows(body.rows ?? []);
+      const nextRows = body.rows ?? [];
+      setRows(nextRows);
+      const nextWorkerIds = new Set(nextRows.map((r) => r.workerId));
+      setSelectedWorkerIds((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Set<number>();
+        prev.forEach((id) => {
+          if (nextWorkerIds.has(id)) next.add(id);
+        });
+        return next;
+      });
       setTotalActiveEmployees(body.totalActiveEmployees ?? 0);
       setEligibleEmployees(body.eligibleEmployees ?? 0);
       setEligibleOperativiEmployees(body.eligibleOperativiEmployees ?? 0);
@@ -540,6 +561,50 @@ export default function HomeFormazionePage() {
     setTableScrollWidth(width);
   }, [filteredRows.length]);
 
+  const selectionStats = useMemo(() => {
+    const visibleIdsSet = new Set<number>();
+    filteredRows.forEach((row) => visibleIdsSet.add(row.workerId));
+    const visibleIds = Array.from(visibleIdsSet.values());
+    let selectedVisible = 0;
+    visibleIds.forEach((id) => {
+      if (selectedWorkerIds.has(id)) selectedVisible += 1;
+    });
+    return {
+      visibleIds,
+      visibleCount: visibleIds.length,
+      selectedVisible,
+      allVisibleSelected: visibleIds.length > 0 && selectedVisible === visibleIds.length,
+      someVisibleSelected: selectedVisible > 0 && selectedVisible < visibleIds.length,
+    };
+  }, [filteredRows, selectedWorkerIds]);
+
+  const selectAllVisibleRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (!selectAllVisibleRef.current) return;
+    selectAllVisibleRef.current.indeterminate = selectionStats.someVisibleSelected;
+  }, [selectionStats.someVisibleSelected]);
+
+  const toggleWorkerSelection = useCallback((workerId: number) => {
+    setSelectedWorkerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(workerId)) next.delete(workerId);
+      else next.add(workerId);
+      return next;
+    });
+  }, []);
+
+  const setAllVisibleSelection = useCallback((checked: boolean) => {
+    setSelectedWorkerIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        selectionStats.visibleIds.forEach((id) => next.add(id));
+      } else {
+        selectionStats.visibleIds.forEach((id) => next.delete(id));
+      }
+      return next;
+    });
+  }, [selectionStats.visibleIds]);
+
   function syncHorizontalScroll(source: "top" | "middle") {
     if (syncingRef.current) return;
     syncingRef.current = true;
@@ -579,88 +644,25 @@ export default function HomeFormazionePage() {
     });
   }, [rows]);
 
-  const filteredEventWorkers = useMemo(() => {
-    const q = eventWorkerSearch.trim().toLowerCase();
-    const list = !q
-      ? workerOptions
-      : workerOptions.filter((worker) =>
-          `${worker.matricola} ${worker.fullName} ${worker.cantiere} ${worker.sottocantiere}`
-            .toLowerCase()
-            .includes(q),
-        );
-    return list.slice(0, 10);
-  }, [eventWorkerSearch, workerOptions]);
+  const clearSelection = useCallback(() => {
+    setSelectedWorkerIds(new Set());
+  }, []);
 
-  const filteredEventCourses = useMemo(() => {
-    const q = eventCourseSearch.trim().toLowerCase();
-    const list = !q
-      ? courseOptions
-      : courseOptions.filter((course) =>
-          `${course.code} ${course.title}`.toLowerCase().includes(q),
-        );
-    return list;
-  }, [courseOptions, eventCourseSearch]);
-
-  const selectedEventWorker = useMemo(
-    () => workerOptions.find((worker) => worker.workerId === eventSelectedWorkerId) ?? null,
-    [eventSelectedWorkerId, workerOptions],
+  const openEventModal = useCallback(
+    (init?: Partial<Omit<EventModalInit, "token">>) => {
+      setEventModalInit((prev) => ({
+        tab: init?.tab ?? "evento",
+        courseCode: init?.courseCode ?? "",
+        courseSearch: init?.courseSearch ?? "",
+        type: init?.type ?? "PROGRAMMATO",
+        date: init?.date ?? "",
+        note: init?.note ?? "",
+        token: prev.token + 1,
+      }));
+      setIsEventModalOpen(true);
+    },
+    [],
   );
-  const selectedEventCourse = useMemo(
-    () => courseOptions.find((course) => course.code === eventSelectedCourseCode) ?? null,
-    [courseOptions, eventSelectedCourseCode],
-  );
-  const canSaveEvent = Boolean(
-    selectedEventWorker &&
-      selectedEventCourse &&
-      (!(eventType === "SVOLTO" || eventType === "MODIFICA_DATA") || Boolean(eventDate)),
-  );
-
-  function resetEventForm() {
-    setEventWorkerSearch("");
-    setEventCourseSearch("");
-    setEventSelectedWorkerId(null);
-    setEventSelectedCourseCode("");
-    setEventType("PROGRAMMATO");
-    setEventDate("");
-    setEventNote("");
-    setEventSaveError("");
-    setEventSaving(false);
-  }
-
-  async function saveEvent() {
-    if (!selectedEventWorker || !selectedEventCourse) return;
-
-    setEventSaving(true);
-    setEventSaveError("");
-    try {
-      const response = await fetch("/api/formazione/eventi", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          employeeId: selectedEventWorker.workerId,
-          courseCode: selectedEventCourse.code,
-          type: eventType,
-          date: eventDate || undefined,
-          note: eventNote,
-        }),
-      });
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore salvataggio evento.");
-      }
-
-      setIsEventModalOpen(false);
-      resetEventForm();
-      await loadRows();
-      if (isWorkerDetailOpen && workerDetailEmployeeId === selectedEventWorker.workerId) {
-        await loadWorkerDetail(workerDetailEmployeeId);
-      }
-    } catch (err) {
-      setEventSaveError(err instanceof Error ? err.message : "Errore salvataggio evento.");
-    } finally {
-      setEventSaving(false);
-    }
-  }
 
   function resetImportForm() {
     setImportFile(null);
@@ -812,20 +814,32 @@ export default function HomeFormazionePage() {
   }
 
   function openQuickAction(row: WorkerCourseRow) {
-    setEventWorkerSearch(`${row.cognome} ${row.nome}`.trim());
-    setEventSelectedWorkerId(row.workerId);
+    setSelectedWorkerIds((prev) => {
+      const next = new Set(prev);
+      next.add(row.workerId);
+      return next;
+    });
+
     if (row.corsoCode.startsWith("FORM_BASE+")) {
-      setEventCourseSearch("");
-      setEventSelectedCourseCode("");
-    } else {
-      setEventCourseSearch(`${row.corsoCode} ${row.corso}`);
-      setEventSelectedCourseCode(row.corsoCode);
+      openEventModal({
+        tab: "evento",
+        courseCode: "",
+        courseSearch: "",
+        type: row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO",
+        date: "",
+        note: "",
+      });
+      return;
     }
-    setEventType(row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO");
-    setEventDate("");
-    setEventNote("");
-    setEventSaveError("");
-    setIsEventModalOpen(true);
+
+    openEventModal({
+      tab: "evento",
+      courseCode: row.corsoCode,
+      courseSearch: `${row.corsoCode} ${row.corso}`,
+      type: row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO",
+      date: "",
+      note: "",
+    });
   }
 
   const pageDashboardData = useMemo(() => {
@@ -914,18 +928,27 @@ export default function HomeFormazionePage() {
               Elenco lavoratori per corso e stato scadenza.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => {
-                resetEventForm();
-                setIsEventModalOpen(true);
-              }}
+              onClick={() => openEventModal()}
               className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
               title="Nuovo evento corso"
             >
               + Evento
             </button>
+            <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm text-slate-700">
+              <span className="font-semibold text-[var(--brand-ink)]">{selectedWorkerIds.size}</span>
+              <span>selezionati</span>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-white disabled:opacity-60"
+                disabled={selectedWorkerIds.size === 0}
+              >
+                Pulisci
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -1070,6 +1093,7 @@ export default function HomeFormazionePage() {
             className="min-w-full table-fixed text-left text-xs [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap"
           >
             <colgroup>
+              <col style={{ width: 56 }} />
               <col style={{ width: 120 }} />
               <col style={{ width: 170 }} />
               <col style={{ width: 170 }} />
@@ -1088,6 +1112,16 @@ export default function HomeFormazionePage() {
             </colgroup>
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <input
+                    ref={selectAllVisibleRef}
+                    type="checkbox"
+                    checked={selectionStats.allVisibleSelected}
+                    onChange={(event) => setAllVisibleSelection(event.target.checked)}
+                    aria-label="Seleziona tutti i lavoratori visibili"
+                    disabled={selectionStats.visibleCount === 0}
+                  />
+                </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Matricola</th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Cognome</th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Nome</th>
@@ -1105,6 +1139,7 @@ export default function HomeFormazionePage() {
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Note</th>
               </tr>
               <tr>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2" />
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
                   <input value={columnFilters.matricola} onChange={(event) => setColumnFilters((v) => ({ ...v, matricola: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
                 </th>
@@ -1170,6 +1205,14 @@ export default function HomeFormazionePage() {
                   key={`${row.workerId}-${row.corsoCode}`}
                   className="border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60"
                 >
+                  <td className="px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedWorkerIds.has(row.workerId)}
+                      onChange={() => toggleWorkerSelection(row.workerId)}
+                      aria-label={`Seleziona ${row.cognome} ${row.nome} (${row.matricola})`}
+                    />
+                  </td>
                   <td className="px-4 py-2.5 text-slate-600">{row.matricola}</td>
                   <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.cognome}>{row.cognome}</td>
                   <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.nome}>{row.nome}</td>
@@ -1260,7 +1303,7 @@ export default function HomeFormazionePage() {
               ))}
               {!isLoading && filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={16} className="px-4 py-8 text-center text-sm text-slate-500">
                     Nessun dato disponibile.
                   </td>
                 </tr>
@@ -1801,148 +1844,26 @@ export default function HomeFormazionePage() {
         </section>
       ) : null}
 
-      {isEventModalOpen ? (
-        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-2xl rounded-2xl border border-[var(--brand-line)] bg-white p-5 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-[var(--brand-ink)]">Nuovo Evento Corso</h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsEventModalOpen(false);
-                  resetEventForm();
-                }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="mt-1 text-xs text-slate-500">
-              Selezione guidata con ricerca su anagrafica e catalogo corsi.
-            </p>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-600">Ricerca lavoratore</label>
-                <input
-                  value={eventWorkerSearch}
-                  onChange={(event) => setEventWorkerSearch(event.target.value)}
-                  className="w-full rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
-                  placeholder="Matricola, cognome, nome, cantiere..."
-                />
-                <div className="max-h-44 overflow-auto rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)]">
-                  {filteredEventWorkers.map((worker) => (
-                    <button
-                      key={worker.workerId}
-                      type="button"
-                      onClick={() => setEventSelectedWorkerId(worker.workerId)}
-                      className={[
-                        "w-full border-b border-[var(--brand-line)] px-3 py-2 text-left text-xs transition last:border-b-0",
-                        worker.workerId === eventSelectedWorkerId
-                          ? "bg-[var(--brand-tint)] text-[var(--brand-primary)]"
-                          : "hover:bg-white",
-                      ].join(" ")}
-                    >
-                      <div className="font-semibold">{worker.fullName}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {worker.matricola} - {worker.cantiere} / {worker.sottocantiere}
-                      </div>
-                    </button>
-                  ))}
-                  {filteredEventWorkers.length === 0 ? (
-                    <p className="px-3 py-3 text-xs text-slate-500">Nessun lavoratore trovato.</p>
-                  ) : null}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-600">Titolo corso</label>
-                <input
-                  value={eventCourseSearch}
-                  onChange={(event) => setEventCourseSearch(event.target.value)}
-                  className="w-full rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
-                  placeholder="Filtra corsi..."
-                />
-                <select
-                  value={eventSelectedCourseCode}
-                  onChange={(event) => setEventSelectedCourseCode(event.target.value)}
-                  className="w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
-                >
-                  <option value="">Seleziona corso</option>
-                  {filteredEventCourses.map((course) => (
-                    <option key={course.code} value={course.code}>
-                      {course.title} ({course.code})
-                    </option>
-                  ))}
-                </select>
-                {filteredEventCourses.length === 0 ? (
-                  <p className="px-1 text-xs text-slate-500">Nessun corso trovato.</p>
-                ) : null}
-              </div>
-            </div>
-            <div className="mt-3 grid gap-2 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-3 text-xs text-slate-600 md:grid-cols-2">
-              <div>
-                <span className="font-semibold text-[var(--brand-ink)]">Lavoratore: </span>
-                {selectedEventWorker
-                  ? `${selectedEventWorker.fullName} (${selectedEventWorker.matricola})`
-                  : "non selezionato"}
-              </div>
-              <div>
-                <span className="font-semibold text-[var(--brand-ink)]">Corso: </span>
-                {selectedEventCourse
-                  ? `${selectedEventCourse.code} - ${selectedEventCourse.title}`
-                  : "non selezionato"}
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <select
-                value={eventType}
-                onChange={(event) => setEventType(event.target.value as EventType)}
-                className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
-              >
-                <option value="PROGRAMMATO">PROGRAMMATO</option>
-                <option value="SVOLTO">SVOLTO</option>
-                <option value="MODIFICA_DATA">MODIFICA_DATA</option>
-                <option value="ANNULLA">ANNULLA</option>
-              </select>
-              <input
-                type="date"
-                value={eventDate}
-                onChange={(event) => setEventDate(event.target.value)}
-                className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
-              />
-              <input
-                value={eventNote}
-                onChange={(event) => setEventNote(event.target.value)}
-                className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm md:col-span-2"
-                placeholder="Note evento"
-              />
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsEventModalOpen(false);
-                  resetEventForm();
-                }}
-                className="rounded-xl border border-[var(--brand-line)] px-4 py-2 text-sm font-semibold text-slate-600"
-              >
-                Chiudi
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
-                disabled={!canSaveEvent || eventSaving}
-                title="Salva evento"
-                onClick={() => void saveEvent()}
-              >
-                {eventSaving ? "Salvo..." : "Salva evento"}
-              </button>
-            </div>
-            {eventSaveError ? (
-              <p className="mt-3 text-xs font-medium text-red-600">{eventSaveError}</p>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
+      <EventModal
+        isOpen={isEventModalOpen}
+        onClose={() => setIsEventModalOpen(false)}
+        selectedWorkerIds={selectedWorkerIds}
+        toggleWorkerSelection={toggleWorkerSelection}
+        clearSelection={clearSelection}
+        workerOptions={workerOptions}
+        courseOptions={courseOptions}
+        initial={eventModalInit}
+        onSaved={async (employeeIds) => {
+          await loadRows();
+          if (
+            isWorkerDetailOpen &&
+            typeof workerDetailEmployeeId === "number" &&
+            employeeIds.includes(workerDetailEmployeeId)
+          ) {
+            await loadWorkerDetail(workerDetailEmployeeId);
+          }
+        }}
+      />
 
       {isImportModalOpen ? (
         <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">

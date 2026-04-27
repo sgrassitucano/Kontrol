@@ -1,6 +1,19 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 import type { AppModuleKey } from "@/lib/modules";
 
+export async function getCurrentUserContext(supabase: Awaited<ReturnType<typeof createSupabaseRouteHandlerClient>>) {
+  const [{ data: role, error: roleError }, { data: isActive, error: isActiveError }] = await Promise.all([
+    supabase.rpc("current_user_role"),
+    supabase.rpc("current_user_is_active"),
+  ]);
+  if (roleError) throw new Error(roleError.message);
+  if (isActiveError) throw new Error(isActiveError.message);
+  return {
+    role: (role ?? "manager") as "admin" | "viewer" | "manager",
+    isActive: Boolean(isActive),
+  };
+}
+
 export async function requireUser() {
   const supabase = await createSupabaseRouteHandlerClient();
   const {

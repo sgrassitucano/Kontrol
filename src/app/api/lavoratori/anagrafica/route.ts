@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAnyOperationalAccess } from "@/lib/api/access";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUserContext, requireAnyOperationalAccess } from "@/lib/api/access";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 type EmployeeListRow = {
   workerId: number;
@@ -35,8 +36,10 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const query = (url.searchParams.get("q") ?? "").toLowerCase().trim();
-    const supabase = auth.supabase;
-    const employees = await fetchAllEmployees(supabase);
+    const ctx = await getCurrentUserContext(auth.supabase);
+    const employeesSupabase =
+      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
+    const employees = await fetchAllEmployees(employeesSupabase);
 
     const rows: EmployeeListRow[] = employees
       .map((employee) => ({
@@ -81,7 +84,7 @@ export async function GET(request: Request) {
   }
 }
 
-async function fetchAllEmployees(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function fetchAllEmployees(supabase: SupabaseClient) {
   const pageSize = 1000;
   let from = 0;
   let hasMore = true;

@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { applyCalibri10WithBoldHeader } from "@/lib/excel";
 import { normalizeJobCode } from "@/lib/training/normalize";
-import { requireModuleAccess } from "@/lib/api/access";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUserContext, requireModuleAccess } from "@/lib/api/access";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
 type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean };
 
 type EmployeeRow = {
@@ -106,6 +107,9 @@ export async function GET(request: Request) {
     const expiringDays = Number(url.searchParams.get("expiringDays") ?? "30");
 
     const supabase = auth.supabase;
+    const ctx = await getCurrentUserContext(supabase);
+    const dataSupabase =
+      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : supabase;
 
     const [
       employees,
@@ -118,15 +122,15 @@ export async function GET(request: Request) {
       employeeExclusions,
       courseExclusions,
     ] = await Promise.all([
-      fetchAllEmployees(supabase),
-      supabase.from("training_courses").select("id,code,title,is_active"),
-      fetchAllRules(supabase),
-      fetchAllCourseRows(supabase),
-      fetchAllFreezes(supabase),
-      fetchAllRuleLinks(supabase),
-      fetchAllScopeExclusions(supabase),
-      fetchAllTrainingEmployeeExclusions(supabase),
-      fetchAllTrainingEmployeeCourseExclusions(supabase),
+      fetchAllEmployees(dataSupabase),
+      dataSupabase.from("training_courses").select("id,code,title,is_active"),
+      fetchAllRules(dataSupabase),
+      fetchAllCourseRows(dataSupabase),
+      fetchAllFreezes(dataSupabase),
+      fetchAllRuleLinks(dataSupabase),
+      fetchAllScopeExclusions(dataSupabase),
+      fetchAllTrainingEmployeeExclusions(dataSupabase),
+      fetchAllTrainingEmployeeCourseExclusions(dataSupabase),
     ]);
 
     if (coursesError) {
@@ -622,7 +626,7 @@ function buildStatusByEmployeeMap(rows: CourseStatusRow[]) {
   return map;
 }
 
-async function fetchAllRules(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function fetchAllRules(supabase: SupabaseClient) {
   const pageSize = 1000;
   let from = 0;
   let hasMore = true;
@@ -645,7 +649,7 @@ async function fetchAllRules(supabase: Awaited<ReturnType<typeof createSupabaseS
   return allRows;
 }
 
-async function fetchAllCourseRows(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function fetchAllCourseRows(supabase: SupabaseClient) {
   const pageSize = 1000;
   let from = 0;
   let hasMore = true;
@@ -668,7 +672,7 @@ async function fetchAllCourseRows(supabase: Awaited<ReturnType<typeof createSupa
   return allRows;
 }
 
-async function fetchAllFreezes(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function fetchAllFreezes(supabase: SupabaseClient) {
   const pageSize = 1000;
   let from = 0;
   let hasMore = true;
@@ -691,7 +695,7 @@ async function fetchAllFreezes(supabase: Awaited<ReturnType<typeof createSupabas
   return allRows;
 }
 
-async function fetchAllRuleLinks(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function fetchAllRuleLinks(supabase: SupabaseClient) {
   const pageSize = 1000;
   let from = 0;
   let hasMore = true;
@@ -715,7 +719,7 @@ async function fetchAllRuleLinks(supabase: Awaited<ReturnType<typeof createSupab
   return allRows;
 }
 
-async function fetchAllEmployees(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function fetchAllEmployees(supabase: SupabaseClient) {
   const pageSize = 1000;
   let from = 0;
   let hasMore = true;
@@ -811,7 +815,7 @@ function pickBestSubstituteStatus(args: {
   return best ? { statusEntry: best, substituteCourseId: best.course_id } : null;
 }
 
-async function fetchAllScopeExclusions(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function fetchAllScopeExclusions(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("training_scope_exclusions")
     .select("scope_type,site_id,sub_site_id,is_active")
@@ -824,7 +828,7 @@ async function fetchAllScopeExclusions(supabase: Awaited<ReturnType<typeof creat
   return (data ?? []) as ScopeExclusionRow[];
 }
 
-async function fetchAllTrainingEmployeeExclusions(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function fetchAllTrainingEmployeeExclusions(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("training_employee_exclusions")
     .select("employee_id,is_active")
@@ -838,7 +842,7 @@ async function fetchAllTrainingEmployeeExclusions(supabase: Awaited<ReturnType<t
 }
 
 async function fetchAllTrainingEmployeeCourseExclusions(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: SupabaseClient,
 ) {
   const { data, error } = await supabase
     .from("training_employee_course_exclusions")
