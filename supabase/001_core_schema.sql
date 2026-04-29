@@ -579,11 +579,9 @@ as $$
   select case
     when auth.uid() is null then false
     when internal.current_user_is_active() = false then false
-    when internal.current_user_role() in ('admin', 'viewer') then true
+    when internal.has_any_operational_access() then true
     when internal.has_module_access('gestione') then true
-    when coalesce(internal.current_manager_code(), '') = '' then false
-    else employee_responsible_code = internal.current_manager_code()
-      or coalesce(employee_referral, '') = internal.current_manager_code()
+    else false
   end;
 $$;
 
@@ -607,15 +605,9 @@ as $$
   select case
     when auth.uid() is null then false
     when internal.current_user_is_active() = false then false
-    when internal.current_user_role() in ('admin', 'viewer') then true
+    when internal.has_any_operational_access() then true
     when internal.has_module_access('gestione') then true
-    else exists (
-      select 1
-      from public.employees e
-      where e.site_id = target_site_id
-        and e.status = 'attivo'
-        and internal.can_access_employee(e.responsible_code, e.referral)
-    )
+    else false
   end;
 $$;
 
@@ -629,15 +621,9 @@ as $$
   select case
     when auth.uid() is null then false
     when internal.current_user_is_active() = false then false
-    when internal.current_user_role() in ('admin', 'viewer') then true
+    when internal.has_any_operational_access() then true
     when internal.has_module_access('gestione') then true
-    else exists (
-      select 1
-      from public.employees e
-      where e.sub_site_id = target_sub_site_id
-        and e.status = 'attivo'
-        and internal.can_access_employee(e.responsible_code, e.referral)
-    )
+    else false
   end;
 $$;
 

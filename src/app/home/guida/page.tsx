@@ -20,7 +20,7 @@ const guideByKey: Record<string, GuideSection> = {
     funzioniPrincipali: [
       "Controllo rapido “chi è in forza” e “dove lavora”.",
       "Verifica stati collegati senza cambiare pagina.",
-      "Vista per responsabile: un MANAGER vede solo i suoi lavoratori.",
+      "Visibilità globale: gli utenti abilitati vedono tutti i lavoratori.",
     ],
   },
   formazione: {
