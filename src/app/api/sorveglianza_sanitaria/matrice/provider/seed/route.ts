@@ -1,30 +1,48 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserContext, requireAnyModuleAccess } from "@/lib/api/access";
+import { requireAnyModuleAccess } from "@/lib/api/access";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
 
 type EmployeeRow = { id: number; site_id: number; sub_site_id: number | null };
 type RecordRow = { employee_id: number; provider: string | null };
+type ImportRow = { matricola: string; taxCode: string; provider: string };
 
-export async function POST() {
+export async function POST(request: Request) {
   const auth = await requireAnyModuleAccess(["gestione", "sorveglianza"], true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const ctx = await getCurrentUserContext(auth.supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
+    const admin = createSupabaseAdminClient();
+    const file = await readOptionalFile(request);
 
-    const [employees, records] = await Promise.all([fetchEmployees(dataSupabase), fetchRecords(dataSupabase)]);
-
+    const employees = await fetchEmployees(admin);
     const providerByEmployeeId = new Map<number, string>();
-    records.forEach((row) => {
-      const value = String(row.provider ?? "").trim();
-      if (!value) return;
-      providerByEmployeeId.set(row.employee_id, value);
-    });
+
+    if (file) {
+      const buffer = await file.arrayBuffer();
+      const parsed = parseImportFile(buffer);
+      const lookup = await buildEmployeeLookup(admin, parsed);
+      parsed.forEach((row) => {
+        const provider = String(row.provider ?? "").trim();
+        if (!provider) return;
+        const employeeId =
+          (row.taxCode ? lookup.byTaxCode.get(row.taxCode) : undefined) ??
+          (row.matricola ? lookup.byMatricola.get(row.matricola) : undefined) ??
+          null;
+        if (!employeeId) return;
+        providerByEmployeeId.set(employeeId, provider);
+      });
+    } else {
+      const records = await fetchRecords(admin);
+      records.forEach((row) => {
+        const value = String(row.provider ?? "").trim();
+        if (!value) return;
+        providerByEmployeeId.set(row.employee_id, value);
+      });
+    }
 
     const providersBySubSiteId = new Map<number, Map<string, number>>();
     const providersBySiteIdNoSub = new Map<number, Map<string, number>>();
@@ -152,7 +170,7 @@ export async function POST() {
 
     const rowsToUpsert = [...siteAssignmentRows, ...subSiteAssignmentRows];
     if (rowsToUpsert.length > 0) {
-      const { error } = await dataSupabase
+      const { error } = await admin
         .from("medical_surveillance_provider_assignments")
         .upsert(rowsToUpsert, { onConflict: "scope_type,site_id,sub_site_id" });
       if (error) throw new Error(error.message);
@@ -160,6 +178,7 @@ export async function POST() {
 
     return NextResponse.json({
       ok: true,
+      source: file ? "file" : "records",
       seeded: rowsToUpsert.length,
       sites: siteAssignmentRows.length,
       subSites: subSiteAssignmentRows.length,
@@ -182,4 +201,139 @@ async function fetchRecords(supabase: SupabaseClient) {
   const { data, error } = await supabase.from("medical_surveillance_records").select("employee_id,provider");
   if (error) throw new Error(error.message);
   return (data ?? []) as RecordRow[];
+}
+
+async function readOptionalFile(request: Request): Promise<File | null> {
+  try {
+    const formData = await request.formData();
+    const file = formData.get("file");
+    if (file instanceof File) return file;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHeaderCell(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function buildHeaderIndex(headerRow: unknown[]) {
+  const index = new Map<string, number[]>();
+  headerRow.forEach((cell, i) => {
+    const key = normalizeHeaderCell(cell);
+    if (!key) return;
+    const list = index.get(key);
+    if (!list) index.set(key, [i]);
+    else list.push(i);
+  });
+  return index;
+}
+
+function cleanCell(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function getFirstByName(row: unknown[], headerIndex: Map<string, number[]>, name: string) {
+  const key = normalizeHeaderCell(name);
+  const indices = headerIndex.get(key);
+  if (!indices || indices.length === 0) return "";
+  for (const idx of indices) {
+    const value = cleanCell(row[idx]);
+    if (value) return value;
+  }
+  return "";
+}
+
+function detectHeaderRowIndex(rows: unknown[][]) {
+  const candidates = rows.slice(0, 30);
+  for (let i = 0; i < candidates.length; i += 1) {
+    const row = candidates[i] ?? [];
+    const normalized = row.map((c) => normalizeHeaderCell(c));
+    if (normalized.includes("matricola") && normalized.includes("codice fiscale")) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+function parseImportFile(fileBuffer: ArrayBuffer): ImportRow[] {
+  const workbook = XLSX.read(Buffer.from(fileBuffer), { cellDates: true });
+  const sheetName =
+    workbook.SheetNames.find((name) => name.toLowerCase().includes("anagrafica_sorveglianza")) ??
+    workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const rows = (XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    raw: false,
+    defval: "",
+  }) ?? []) as unknown[][];
+
+  const headerRowIndex = detectHeaderRowIndex(rows);
+  const headerRow = rows[headerRowIndex] ?? [];
+  const headerIndex = buildHeaderIndex(headerRow);
+  const dataRows = rows.slice(headerRowIndex + 1);
+
+  const out: ImportRow[] = [];
+  dataRows.forEach((row) => {
+    const firstCell = cleanCell(row[0]);
+    if (firstCell.toLowerCase().startsWith("totale")) return;
+
+    const matricola = cleanCell(getFirstByName(row, headerIndex, "matricola"));
+    const taxCode = cleanCell(getFirstByName(row, headerIndex, "codice fiscale")).toUpperCase();
+    const provider =
+      cleanCell(getFirstByName(row, headerIndex, "provider")) ||
+      cleanCell(getFirstByName(row, headerIndex, "medico")) ||
+      cleanCell(getFirstByName(row, headerIndex, "medico/ente")) ||
+      cleanCell(getFirstByName(row, headerIndex, "ente")) ||
+      cleanCell(getFirstByName(row, headerIndex, "medico competente"));
+
+    if (!matricola && !taxCode) return;
+    if (!provider) return;
+    out.push({ matricola, taxCode, provider });
+  });
+
+  return out;
+}
+
+async function buildEmployeeLookup(supabase: SupabaseClient, rows: ImportRow[]) {
+  const taxCodes = Array.from(new Set(rows.map((r) => r.taxCode).filter(Boolean)));
+  const matricole = Array.from(new Set(rows.map((r) => r.matricola).filter(Boolean)));
+
+  const byTaxCode = new Map<string, number>();
+  const byMatricola = new Map<string, number>();
+
+  const taxChunks = chunk(taxCodes, 500);
+  for (const part of taxChunks) {
+    const { data, error } = await supabase.from("employees").select("id,tax_code,matricola").in("tax_code", part);
+    if (error) throw new Error(error.message);
+    ((data ?? []) as Array<{ id: number; tax_code: string; matricola: string }>).forEach((row) => {
+      byTaxCode.set(String(row.tax_code ?? "").toUpperCase(), row.id);
+      byMatricola.set(String(row.matricola ?? "").trim(), row.id);
+    });
+  }
+
+  const remainingMatricole = matricole.filter((m) => !byMatricola.has(m));
+  const matricolaChunks = chunk(remainingMatricole, 500);
+  for (const part of matricolaChunks) {
+    const { data, error } = await supabase.from("employees").select("id,tax_code,matricola").in("matricola", part);
+    if (error) throw new Error(error.message);
+    ((data ?? []) as Array<{ id: number; tax_code: string; matricola: string }>).forEach((row) => {
+      byTaxCode.set(String(row.tax_code ?? "").toUpperCase(), row.id);
+      byMatricola.set(String(row.matricola ?? "").trim(), row.id);
+    });
+  }
+
+  return { byTaxCode, byMatricola };
+}
+
+function chunk<T>(items: T[], size: number) {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModuleHeader } from "@/components/module-ui";
 
 type JobCode = { code: string; label: string };
@@ -81,6 +81,8 @@ export default function SorveglianzaMatricePage() {
   const [providerLoading, setProviderLoading] = useState(false);
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
   const [providerDrafts, setProviderDrafts] = useState<Record<string, { provider: string; enabled: boolean; note: string }>>({});
+  const [providerSeedLoading, setProviderSeedLoading] = useState(false);
+  const providerSeedInputRef = useRef<HTMLInputElement | null>(null);
 
   const [error, setError] = useState("");
 
@@ -322,17 +324,25 @@ export default function SorveglianzaMatricePage() {
     [loadProvider, providerDrafts],
   );
 
-  const seedProvider = useCallback(async () => {
+  const seedProvider = useCallback(
+    async (file: File) => {
+      setProviderSeedLoading(true);
     setError("");
-    try {
-      const response = await fetch("/api/sorveglianza_sanitaria/matrice/provider/seed", { method: "POST" });
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || body.error) throw new Error(body.error ?? "Errore seed.");
-      await loadProvider();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore seed provider.");
-    }
-  }, [loadProvider]);
+      try {
+        const formData = new FormData();
+        formData.set("file", file);
+        const response = await fetch("/api/sorveglianza_sanitaria/matrice/provider/seed", { method: "POST", body: formData });
+        const body = (await response.json()) as { ok?: boolean; error?: string; seeded?: number; source?: string };
+        if (!response.ok || body.error) throw new Error(body.error ?? "Errore seed.");
+        await loadProvider();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Errore seed provider.");
+      } finally {
+        setProviderSeedLoading(false);
+      }
+    },
+    [loadProvider],
+  );
 
   return (
     <div className="space-y-4">
@@ -653,13 +663,25 @@ export default function SorveglianzaMatricePage() {
                 Assegna un provider a cantiere o sottocantiere. Se un cantiere ha provider diversi, usa “MISTO” sul cantiere.
               </p>
             </div>
+            <input
+              ref={providerSeedInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                event.target.value = "";
+                if (!file) return;
+                void seedProvider(file);
+              }}
+            />
             <button
               type="button"
-              onClick={() => void seedProvider()}
+              onClick={() => providerSeedInputRef.current?.click()}
               className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
-              disabled={!providerPayload?.supportsRules}
+              disabled={!providerPayload?.supportsRules || providerSeedLoading}
             >
-              Ricostruisci da import
+              {providerSeedLoading ? "Carico file…" : "Ricostruisci da file import"}
             </button>
           </div>
           <div className="max-h-[75vh] overflow-auto">
