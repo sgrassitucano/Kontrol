@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
-import { processMedicalSurveillanceImport } from "@/lib/import/sorveglianza";
+import { processMedicalSurveillanceImport, seedProvidersFromMedicalSurveillanceImportFile } from "@/lib/import/sorveglianza";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -32,6 +32,20 @@ export async function POST(request: Request) {
 
     if (mode === "commit") {
       const admin = createSupabaseAdminClient();
+      try {
+        const seeded = await seedProvidersFromMedicalSurveillanceImportFile({
+          fileBuffer: buffer,
+          supabase: admin,
+          importedBy: auth.userId,
+        });
+        if (seeded.seeded > 0) {
+          result.message = `${result.message} Provider: aggiornate ${seeded.seeded} assegnazioni.`;
+        } else {
+          result.message = `${result.message} Provider: nessuna assegnazione aggiornata (campo provider vuoto o match anagrafica mancante).`;
+        }
+      } catch {
+        result.message = `${result.message} Provider: seed fallito.`;
+      }
       await admin.from("import_runs").insert({
         source: "sorveglianza",
         file_name: file.name,
