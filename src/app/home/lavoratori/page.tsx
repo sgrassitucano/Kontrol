@@ -77,6 +77,9 @@ type EquipmentAssignmentRow = {
   } | null;
 };
 
+type SortKey = "cognome" | "nome" | "mansione" | "cantiere" | "sottocantiere" | "responsabile" | "referente";
+type SortDir = "asc" | "desc";
+
 export default function HomeLavoratoriPage() {
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -136,6 +139,37 @@ export default function HomeLavoratoriPage() {
       return searchable.includes(q);
     });
   }, [rows, search]);
+
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "cognome", dir: "asc" });
+
+  const sorted = useMemo(() => {
+    const compareText = (a: string, b: string) =>
+      a.localeCompare(b, "it", { sensitivity: "base", numeric: true });
+    const dirMul = sort.dir === "asc" ? 1 : -1;
+    const list = [...filtered];
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (sort.key === "cognome") cmp = compareText(a.cognome, b.cognome) || compareText(a.nome, b.nome);
+      else if (sort.key === "nome") cmp = compareText(a.nome, b.nome) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "mansione") cmp = compareText(a.mansione, b.mansione) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "cantiere") cmp = compareText(a.cantiere, b.cantiere) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "sottocantiere")
+        cmp = compareText(a.sottocantiere, b.sottocantiere) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "responsabile") cmp = compareText(a.responsabile, b.responsabile) || compareText(a.cognome, b.cognome);
+      else cmp = compareText(a.referente, b.referente) || compareText(a.cognome, b.cognome);
+      return cmp * dirMul;
+    });
+    return list;
+  }, [filtered, sort.dir, sort.key]);
+
+  const toggleSort = (key: SortKey) => {
+    setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+  };
+
+  const sortIcon = (col: SortKey) => {
+    if (sort.key !== col) return <span className="text-[10px] text-slate-400">↕</span>;
+    return <span className="text-[10px] text-slate-700">{sort.dir === "asc" ? "↑" : "↓"}</span>;
+  };
 
   async function openDetail(employee: EmployeeRow) {
     setSelected(employee);
@@ -218,18 +252,54 @@ export default function HomeLavoratoriPage() {
           <table className="w-full table-fixed text-left text-xs">
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Cognome</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Nome</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Mansione</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Cantiere</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Sottocantiere</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Responsabile</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Referente</th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("cognome")} className="inline-flex items-center gap-1">
+                    Cognome {sortIcon("cognome")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("nome")} className="inline-flex items-center gap-1">
+                    Nome {sortIcon("nome")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("mansione")} className="inline-flex items-center gap-1">
+                    Mansione {sortIcon("mansione")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("cantiere")} className="inline-flex items-center gap-1">
+                    Cantiere {sortIcon("cantiere")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("sottocantiere")}
+                    className="inline-flex items-center gap-1"
+                  >
+                    Sottocantiere {sortIcon("sottocantiere")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("responsabile")}
+                    className="inline-flex items-center gap-1"
+                  >
+                    Responsabile {sortIcon("responsabile")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("referente")} className="inline-flex items-center gap-1">
+                    Referente {sortIcon("referente")}
+                  </button>
+                </th>
                 <th className="sticky top-0 z-30 bg-[var(--brand-panel)] px-4 py-2 text-right">Dett.</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((row, idx) => (
+              {sorted.map((row, idx) => (
                 <tr
                   key={row.workerId}
                   className={[
@@ -284,7 +354,7 @@ export default function HomeLavoratoriPage() {
                   </td>
                 </tr>
               ))}
-              {!isLoading && filtered.length === 0 ? (
+              {!isLoading && sorted.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
                     Nessun dato disponibile.

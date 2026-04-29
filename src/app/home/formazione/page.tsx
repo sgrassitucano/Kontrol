@@ -111,6 +111,23 @@ type ColumnFilters = {
   note: string;
 };
 
+type SortKey =
+  | "matricola"
+  | "cognome"
+  | "nome"
+  | "mansione"
+  | "cantiere"
+  | "sottocantiere"
+  | "responsabile"
+  | "referente"
+  | "corso"
+  | "dataConclusione"
+  | "dataScadenza"
+  | "origine"
+  | "stato"
+  | "note";
+type SortDir = "asc" | "desc";
+
 const INITIAL_COLUMN_FILTERS: ColumnFilters = {
   matricola: "",
   cognome: "",
@@ -587,6 +604,73 @@ export default function HomeFormazionePage() {
       return true;
     });
   }, [columnFilters, dashboardCategoryFilter, dashboardStateFilter, rows, search]);
+
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "cognome", dir: "asc" });
+
+  const sortedRows = useMemo(() => {
+    const compareText = (a: string, b: string) =>
+      a.localeCompare(b, "it", { sensitivity: "base", numeric: true });
+    const compareNullableText = (a: string | null, b: string | null) => {
+      const av = String(a ?? "").trim();
+      const bv = String(b ?? "").trim();
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return compareText(av, bv);
+    };
+    const compareNullableIso = (a: string | null, b: string | null) => {
+      const av = String(a ?? "").trim();
+      const bv = String(b ?? "").trim();
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return av.localeCompare(bv);
+    };
+    const statusRank = (s: WorkerCourseRow["stato"]) => {
+      if (s === "scaduto") return 1;
+      if (s === "da fare") return 2;
+      if (s === "upgrade") return 3;
+      if (s === "in scadenza") return 4;
+      if (s === "programmato") return 5;
+      if (s === "sospeso") return 6;
+      if (s === "escluso") return 7;
+      return 8;
+    };
+
+    const dirMul = sort.dir === "asc" ? 1 : -1;
+    const list = [...filteredRows];
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (sort.key === "matricola") cmp = compareText(a.matricola, b.matricola);
+      else if (sort.key === "cognome") cmp = compareText(a.cognome, b.cognome) || compareText(a.nome, b.nome);
+      else if (sort.key === "nome") cmp = compareText(a.nome, b.nome) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "mansione") cmp = compareText(a.mansione, b.mansione) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "cantiere") cmp = compareText(a.cantiere, b.cantiere) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "sottocantiere")
+        cmp = compareText(a.sottocantiere, b.sottocantiere) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "responsabile")
+        cmp = compareText(a.responsabile, b.responsabile) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "referente") cmp = compareText(a.referente, b.referente) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "corso")
+        cmp = compareText(`${a.corsoCode} ${a.corso}`, `${b.corsoCode} ${b.corso}`) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "dataConclusione") cmp = compareNullableIso(a.dataConclusione, b.dataConclusione);
+      else if (sort.key === "dataScadenza") cmp = compareNullableIso(a.dataScadenza, b.dataScadenza);
+      else if (sort.key === "origine") cmp = compareText(a.origine, b.origine) || compareText(a.cognome, b.cognome);
+      else if (sort.key === "stato") cmp = statusRank(a.stato) - statusRank(b.stato) || compareText(a.cognome, b.cognome);
+      else cmp = compareNullableText(a.note, b.note) || compareText(a.cognome, b.cognome);
+      return cmp * dirMul;
+    });
+    return list;
+  }, [filteredRows, sort.dir, sort.key]);
+
+  const toggleSort = useCallback((key: SortKey) => {
+    setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+  }, []);
+
+  const sortIcon = (col: SortKey) => {
+    if (sort.key !== col) return <span className="text-[10px] text-slate-400">↕</span>;
+    return <span className="text-[10px] text-slate-700">{sort.dir === "asc" ? "↑" : "↓"}</span>;
+  };
 
   const applyDashboardFilter = useCallback((next: DashboardFilter | null) => {
     if (!next) {
@@ -1265,21 +1349,93 @@ export default function HomeFormazionePage() {
                     disabled={selectionStats.visibleCount === 0}
                   />
                 </th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Matricola</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Cognome</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Nome</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Mansione</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Cantiere</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Sottocantiere</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Responsabile</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Referente</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Corso</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Data conclusione</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Data scadenza</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Origine</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Stato</th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("matricola")} className="inline-flex items-center gap-1">
+                    Matricola {sortIcon("matricola")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("cognome")} className="inline-flex items-center gap-1">
+                    Cognome {sortIcon("cognome")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("nome")} className="inline-flex items-center gap-1">
+                    Nome {sortIcon("nome")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("mansione")} className="inline-flex items-center gap-1">
+                    Mansione {sortIcon("mansione")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("cantiere")} className="inline-flex items-center gap-1">
+                    Cantiere {sortIcon("cantiere")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("sottocantiere")}
+                    className="inline-flex items-center gap-1"
+                  >
+                    Sottocantiere {sortIcon("sottocantiere")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("responsabile")}
+                    className="inline-flex items-center gap-1"
+                  >
+                    Responsabile {sortIcon("responsabile")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("referente")} className="inline-flex items-center gap-1">
+                    Referente {sortIcon("referente")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("corso")} className="inline-flex items-center gap-1">
+                    Corso {sortIcon("corso")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("dataConclusione")}
+                    className="inline-flex items-center gap-1"
+                  >
+                    Data conclusione {sortIcon("dataConclusione")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("dataScadenza")}
+                    className="inline-flex items-center gap-1"
+                  >
+                    Data scadenza {sortIcon("dataScadenza")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("origine")} className="inline-flex items-center gap-1">
+                    Origine {sortIcon("origine")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("stato")} className="inline-flex items-center gap-1">
+                    Stato {sortIcon("stato")}
+                  </button>
+                </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Azione</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Note</th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button type="button" onClick={() => toggleSort("note")} className="inline-flex items-center gap-1">
+                    Note {sortIcon("note")}
+                  </button>
+                </th>
               </tr>
               <tr>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2" />
@@ -1343,7 +1499,7 @@ export default function HomeFormazionePage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => (
+              {sortedRows.map((row) => (
                 <tr
                   key={`${row.workerId}-${row.corsoCode}`}
                   className="border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60"
@@ -1444,7 +1600,7 @@ export default function HomeFormazionePage() {
                   </td>
                 </tr>
               ))}
-              {!isLoading && filteredRows.length === 0 ? (
+              {!isLoading && sortedRows.length === 0 ? (
                 <tr>
                   <td colSpan={16} className="px-4 py-8 text-center text-sm text-slate-500">
                     Nessun dato disponibile.
