@@ -138,3 +138,38 @@ export async function POST(request: Request) {
   }
 }
 
+export async function DELETE(request: Request) {
+  const auth = await requireModuleAccess("formazione", true);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  try {
+    const body = (await request.json()) as Partial<{ kind: string; employeeId: number; courseId: number }>;
+    const kind = String(body.kind ?? "").trim();
+    const employeeId = Number(body.employeeId);
+    const courseId = Number(body.courseId);
+
+    if (kind !== "course") {
+      return NextResponse.json({ error: "kind non valido." }, { status: 400 });
+    }
+    if (!employeeId || Number.isNaN(employeeId)) {
+      return NextResponse.json({ error: "employeeId non valido." }, { status: 400 });
+    }
+    if (!courseId || Number.isNaN(courseId)) {
+      return NextResponse.json({ error: "courseId non valido." }, { status: 400 });
+    }
+
+    const { error } = await auth.supabase
+      .from("training_employee_course_exclusions")
+      .delete()
+      .eq("employee_id", employeeId)
+      .eq("course_id", courseId);
+    if (error) throw new Error(error.message);
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Errore cancellazione esclusione." },
+      { status: 500 },
+    );
+  }
+}

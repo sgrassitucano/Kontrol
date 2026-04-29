@@ -350,6 +350,7 @@ create table if not exists public.medical_surveillance_records (
   employee_id bigint not null references public.employees(id) on delete cascade,
   provider text,
   requires_visit boolean not null default true,
+  is_planned boolean not null default false,
   next_due_date date,
   limitations text,
   notes text,
@@ -367,6 +368,64 @@ create table if not exists public.medical_surveillance_job_rules (
   created_by uuid references public.profiles(id),
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.medical_surveillance_scope_rules (
+  id bigint generated always as identity primary key,
+  scope_type public.training_scope_type not null,
+  site_id bigint references public.sites(id) on delete cascade,
+  sub_site_id bigint references public.sub_sites(id) on delete cascade,
+  requires_visit boolean not null default true,
+  note text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint medical_surveillance_scope_rules_scope_check check (
+    (scope_type = 'site' and site_id is not null and sub_site_id is null) or
+    (scope_type = 'sub_site' and site_id is null and sub_site_id is not null)
+  ),
+  constraint medical_surveillance_scope_rules_unique unique (scope_type, site_id, sub_site_id)
+);
+
+create table if not exists public.medical_surveillance_provider_assignments (
+  id bigint generated always as identity primary key,
+  scope_type public.training_scope_type not null,
+  site_id bigint references public.sites(id) on delete cascade,
+  sub_site_id bigint references public.sub_sites(id) on delete cascade,
+  provider text not null,
+  is_active boolean not null default true,
+  note text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint medical_surveillance_provider_assignments_scope_check check (
+    (scope_type = 'site' and site_id is not null and sub_site_id is null) or
+    (scope_type = 'sub_site' and site_id is null and sub_site_id is not null)
+  ),
+  constraint medical_surveillance_provider_assignments_unique unique (scope_type, site_id, sub_site_id)
+);
+
+create table if not exists public.medical_surveillance_employee_exclusions (
+  id bigint generated always as identity primary key,
+  employee_id bigint not null references public.employees(id) on delete cascade,
+  is_active boolean not null default true,
+  note text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint medical_surveillance_employee_exclusions_unique unique (employee_id)
+);
+
+create table if not exists public.medical_surveillance_employee_overrides (
+  id bigint generated always as identity primary key,
+  employee_id bigint not null references public.employees(id) on delete cascade,
+  requires_visit boolean not null,
+  is_active boolean not null default true,
+  note text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint medical_surveillance_employee_overrides_unique unique (employee_id)
 );
 
 create table if not exists public.import_runs (
@@ -394,7 +453,14 @@ create table if not exists public.import_run_errors (
   created_at timestamptz not null default timezone('utc', now())
 );
 
-create or replace function public.set_updated_at()
+create schema if not exists internal;
+revoke all on schema internal from public;
+grant usage on schema internal to anon, authenticated, service_role;
+
+drop function if exists public.set_updated_at();
+drop function if exists public.handle_new_user();
+
+create or replace function internal.set_updated_at()
 returns trigger
 language plpgsql
 security definer
@@ -406,7 +472,7 @@ begin
 end;
 $$;
 
-create or replace function public.handle_new_user()
+create or replace function internal.handle_new_user()
 returns trigger
 language plpgsql
 security definer
@@ -420,7 +486,7 @@ begin
 end;
 $$;
 
-create or replace function public.current_manager_code()
+create or replace function internal.current_manager_code()
 returns text
 language sql
 stable
@@ -432,7 +498,7 @@ as $$
   where p.id = auth.uid();
 $$;
 
-create or replace function public.current_user_role()
+create or replace function internal.current_user_role()
 returns public.user_role
 language sql
 stable
@@ -445,7 +511,7 @@ as $$
   );
 $$;
 
-create or replace function public.current_user_is_active()
+create or replace function internal.current_user_is_active()
 returns boolean
 language sql
 stable
@@ -455,7 +521,7 @@ as $$
   select coalesce((select p.is_active from public.profiles p where p.id = auth.uid()), false);
 $$;
 
-create or replace function public.has_module_access(
+create or replace function internal.has_module_access(
   target_module public.app_module,
   require_write boolean default false
 )
@@ -467,9 +533,9 @@ set search_path = public
 as $$
   select case
     when auth.uid() is null then false
-    when public.current_user_is_active() = false then false
-    when public.current_user_role() = 'admin' then true
-    when public.current_user_role() = 'viewer' then (require_write = false and target_module <> 'gestione')
+    when internal.current_user_is_active() = false then false
+    when internal.current_user_role() = 'admin' then true
+    when internal.current_user_role() = 'viewer' then (require_write = false and target_module <> 'gestione')
     else exists (
       select 1
       from public.module_permissions mp
@@ -480,7 +546,7 @@ as $$
   end;
 $$;
 
-create or replace function public.has_any_operational_access()
+create or replace function internal.has_any_operational_access()
 returns boolean
 language sql
 stable
@@ -489,8 +555,8 @@ set search_path = public
 as $$
   select case
     when auth.uid() is null then false
-    when public.current_user_is_active() = false then false
-    when public.current_user_role() in ('admin', 'viewer') then true
+    when internal.current_user_is_active() = false then false
+    when internal.current_user_role() in ('admin', 'viewer') then true
     else exists (
       select 1
       from public.module_permissions mp
@@ -500,7 +566,7 @@ as $$
   end;
 $$;
 
-create or replace function public.can_access_employee(
+create or replace function internal.can_access_employee(
   employee_responsible_code text,
   employee_referral text
 )
@@ -512,78 +578,176 @@ set search_path = public
 as $$
   select case
     when auth.uid() is null then false
-    when public.current_user_is_active() = false then false
-    when public.current_user_role() in ('admin', 'viewer') then true
-    when public.has_module_access('gestione') then true
-    when coalesce(public.current_manager_code(), '') = '' then false
-    else employee_responsible_code = public.current_manager_code()
-      or coalesce(employee_referral, '') = public.current_manager_code()
+    when internal.current_user_is_active() = false then false
+    when internal.current_user_role() in ('admin', 'viewer') then true
+    when internal.has_module_access('gestione') then true
+    when coalesce(internal.current_manager_code(), '') = '' then false
+    else employee_responsible_code = internal.current_manager_code()
+      or coalesce(employee_referral, '') = internal.current_manager_code()
   end;
+$$;
+
+create or replace function internal.can_access_employee(employee_responsible_code text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select internal.can_access_employee(employee_responsible_code, null::text);
+$$;
+
+create or replace function internal.can_access_site(target_site_id bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when auth.uid() is null then false
+    when internal.current_user_is_active() = false then false
+    when internal.current_user_role() in ('admin', 'viewer') then true
+    when internal.has_module_access('gestione') then true
+    else exists (
+      select 1
+      from public.employees e
+      where e.site_id = target_site_id
+        and e.status = 'attivo'
+        and internal.can_access_employee(e.responsible_code, e.referral)
+    )
+  end;
+$$;
+
+create or replace function internal.can_access_sub_site(target_sub_site_id bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when auth.uid() is null then false
+    when internal.current_user_is_active() = false then false
+    when internal.current_user_role() in ('admin', 'viewer') then true
+    when internal.has_module_access('gestione') then true
+    else exists (
+      select 1
+      from public.employees e
+      where e.sub_site_id = target_sub_site_id
+        and e.status = 'attivo'
+        and internal.can_access_employee(e.responsible_code, e.referral)
+    )
+  end;
+$$;
+
+grant execute on all functions in schema internal to anon, authenticated, service_role;
+
+create or replace function public.current_manager_code()
+returns text
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select internal.current_manager_code();
+$$;
+
+create or replace function public.current_user_role()
+returns public.user_role
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select internal.current_user_role();
+$$;
+
+create or replace function public.current_user_is_active()
+returns boolean
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select internal.current_user_is_active();
+$$;
+
+create or replace function public.has_module_access(
+  target_module public.app_module,
+  require_write boolean default false
+)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select internal.has_module_access(target_module, require_write);
+$$;
+
+create or replace function public.has_any_operational_access()
+returns boolean
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select internal.has_any_operational_access();
+$$;
+
+create or replace function public.can_access_employee(
+  employee_responsible_code text,
+  employee_referral text
+)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select internal.can_access_employee(employee_responsible_code, employee_referral);
 $$;
 
 create or replace function public.can_access_employee(employee_responsible_code text)
 returns boolean
 language sql
 stable
-security definer
+security invoker
 set search_path = public
 as $$
-  select public.can_access_employee(employee_responsible_code, null::text);
+  select internal.can_access_employee(employee_responsible_code);
 $$;
 
 create or replace function public.can_access_site(target_site_id bigint)
 returns boolean
 language sql
 stable
-security definer
+security invoker
 set search_path = public
 as $$
-  select case
-    when auth.uid() is null then false
-    when public.current_user_is_active() = false then false
-    when public.current_user_role() in ('admin', 'viewer') then true
-    when public.has_module_access('gestione') then true
-    else exists (
-      select 1
-      from public.employees e
-      where e.site_id = target_site_id
-        and e.status = 'attivo'
-        and public.can_access_employee(e.responsible_code, e.referral)
-    )
-  end;
+  select internal.can_access_site(target_site_id);
 $$;
 
 create or replace function public.can_access_sub_site(target_sub_site_id bigint)
 returns boolean
 language sql
 stable
-security definer
+security invoker
 set search_path = public
 as $$
-  select case
-    when auth.uid() is null then false
-    when public.current_user_is_active() = false then false
-    when public.current_user_role() in ('admin', 'viewer') then true
-    when public.has_module_access('gestione') then true
-    else exists (
-      select 1
-      from public.employees e
-      where e.sub_site_id = target_sub_site_id
-        and e.status = 'attivo'
-        and public.can_access_employee(e.responsible_code, e.referral)
-    )
-  end;
+  select internal.can_access_sub_site(target_sub_site_id);
 $$;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+  for each row execute procedure internal.handle_new_user();
 
 drop trigger if exists profiles_set_updated_at on public.profiles;
 create trigger profiles_set_updated_at
   before update on public.profiles
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 do $$
 begin
@@ -697,22 +861,22 @@ set
 drop trigger if exists fleet_assets_set_updated_at on public.fleet_assets;
 create trigger fleet_assets_set_updated_at
   before update on public.fleet_assets
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists fleet_obligation_types_set_updated_at on public.fleet_obligation_types;
 create trigger fleet_obligation_types_set_updated_at
   before update on public.fleet_obligation_types
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists fleet_asset_obligations_set_updated_at on public.fleet_asset_obligations;
 create trigger fleet_asset_obligations_set_updated_at
   before update on public.fleet_asset_obligations
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists fleet_asset_assignments_set_updated_at on public.fleet_asset_assignments;
 create trigger fleet_asset_assignments_set_updated_at
   before update on public.fleet_asset_assignments
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 do $$
 begin
@@ -960,25 +1124,39 @@ create table if not exists public.turni_month_locks (
   constraint turni_month_locks_unique unique (year, month)
 );
 
+create table if not exists public.turni_site_month_targets (
+  id bigint generated always as identity primary key,
+  year integer not null check (year between 2000 and 2100),
+  month integer not null check (month between 1 and 12),
+  site_id bigint not null references public.sites(id) on delete cascade,
+  sub_site_id bigint references public.sub_sites(id) on delete cascade,
+  theoretical_minutes integer not null check (theoretical_minutes >= 0),
+  note text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint turni_site_month_targets_unique unique (year, month, site_id, sub_site_id)
+);
+
 drop trigger if exists module_permissions_set_updated_at on public.module_permissions;
 create trigger module_permissions_set_updated_at
   before update on public.module_permissions
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists sites_set_updated_at on public.sites;
 create trigger sites_set_updated_at
   before update on public.sites
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists sub_sites_set_updated_at on public.sub_sites;
 create trigger sub_sites_set_updated_at
   before update on public.sub_sites
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists employees_set_updated_at on public.employees;
 create trigger employees_set_updated_at
   before update on public.employees
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 alter table public.profiles enable row level security;
 alter table public.module_permissions enable row level security;
@@ -1002,6 +1180,10 @@ alter table public.training_employee_exclusions enable row level security;
 alter table public.training_employee_course_exclusions enable row level security;
 alter table public.medical_surveillance_records enable row level security;
 alter table public.medical_surveillance_job_rules enable row level security;
+alter table public.medical_surveillance_scope_rules enable row level security;
+alter table public.medical_surveillance_provider_assignments enable row level security;
+alter table public.medical_surveillance_employee_exclusions enable row level security;
+alter table public.medical_surveillance_employee_overrides enable row level security;
 alter table public.dpi_items enable row level security;
 alter table public.dpi_matrix_rules enable row level security;
 alter table public.dpi_employee_items enable row level security;
@@ -1012,12 +1194,13 @@ alter table public.turni_employee_shifts enable row level security;
 alter table public.turni_shift_breaks enable row level security;
 alter table public.turni_employee_absences enable row level security;
 alter table public.turni_month_locks enable row level security;
+alter table public.turni_site_month_targets enable row level security;
 
 drop policy if exists "profiles_select_own_or_management" on public.profiles;
 create policy "profiles_select_own_or_management"
   on public.profiles
   for select
-  using (auth.uid() = id or public.has_module_access('gestione'));
+  using ((select auth.uid()) = id or public.has_module_access('gestione'));
 
 drop policy if exists "profiles_update_management_only" on public.profiles;
 create policy "profiles_update_management_only"
@@ -1030,7 +1213,7 @@ drop policy if exists "module_permissions_select_own_or_management" on public.mo
 create policy "module_permissions_select_own_or_management"
   on public.module_permissions
   for select
-  using (auth.uid() = user_id or public.has_module_access('gestione'));
+  using ((select auth.uid()) = user_id or public.has_module_access('gestione'));
 
 drop policy if exists "module_permissions_write_management_only" on public.module_permissions;
 create policy "module_permissions_write_management_only"
@@ -1081,11 +1264,25 @@ create policy "employees_read_by_scope"
   );
 
 drop policy if exists "employees_write_management_only" on public.employees;
-create policy "employees_write_management_only"
+drop policy if exists "employees_insert_management_only" on public.employees;
+drop policy if exists "employees_update_management_only" on public.employees;
+drop policy if exists "employees_delete_management_only" on public.employees;
+
+create policy "employees_insert_management_only"
   on public.employees
-  for all
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "employees_update_management_only"
+  on public.employees
+  for update
   using (public.has_module_access('gestione', true))
   with check (public.has_module_access('gestione', true));
+
+create policy "employees_delete_management_only"
+  on public.employees
+  for delete
+  using (public.has_module_access('gestione', true));
 
 drop policy if exists "fleet_assets_read" on public.fleet_assets;
 create policy "fleet_assets_read"
@@ -1146,11 +1343,25 @@ create policy "fleet_asset_assignments_read"
   using (public.has_module_access('gestione') or public.has_module_access('mezzi_attrezzature'));
 
 drop policy if exists "fleet_asset_assignments_write" on public.fleet_asset_assignments;
-create policy "fleet_asset_assignments_write"
+drop policy if exists "fleet_asset_assignments_insert" on public.fleet_asset_assignments;
+drop policy if exists "fleet_asset_assignments_update" on public.fleet_asset_assignments;
+drop policy if exists "fleet_asset_assignments_delete" on public.fleet_asset_assignments;
+
+create policy "fleet_asset_assignments_insert"
   on public.fleet_asset_assignments
-  for all
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_asset_assignments_update"
+  on public.fleet_asset_assignments
+  for update
   using (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true))
   with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_asset_assignments_delete"
+  on public.fleet_asset_assignments
+  for delete
+  using (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
 
 drop policy if exists "training_courses_read_operational" on public.training_courses;
 create policy "training_courses_read_operational"
@@ -1259,11 +1470,25 @@ create policy "dpi_items_read_operational"
   using (public.has_module_access('gestione') or public.has_module_access('dpi') or public.has_module_access('lavoratori'));
 
 drop policy if exists "dpi_items_write_management_only" on public.dpi_items;
-create policy "dpi_items_write_management_only"
+drop policy if exists "dpi_items_insert_management_only" on public.dpi_items;
+drop policy if exists "dpi_items_update_management_only" on public.dpi_items;
+drop policy if exists "dpi_items_delete_management_only" on public.dpi_items;
+
+create policy "dpi_items_insert_management_only"
   on public.dpi_items
-  for all
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "dpi_items_update_management_only"
+  on public.dpi_items
+  for update
   using (public.has_module_access('gestione', true))
   with check (public.has_module_access('gestione', true));
+
+create policy "dpi_items_delete_management_only"
+  on public.dpi_items
+  for delete
+  using (public.has_module_access('gestione', true));
 
 drop policy if exists "dpi_matrix_rules_read_operational" on public.dpi_matrix_rules;
 create policy "dpi_matrix_rules_read_operational"
@@ -1272,11 +1497,25 @@ create policy "dpi_matrix_rules_read_operational"
   using (public.has_module_access('gestione') or public.has_module_access('dpi') or public.has_module_access('lavoratori'));
 
 drop policy if exists "dpi_matrix_rules_write_management_only" on public.dpi_matrix_rules;
-create policy "dpi_matrix_rules_write_management_only"
+drop policy if exists "dpi_matrix_rules_insert_management_only" on public.dpi_matrix_rules;
+drop policy if exists "dpi_matrix_rules_update_management_only" on public.dpi_matrix_rules;
+drop policy if exists "dpi_matrix_rules_delete_management_only" on public.dpi_matrix_rules;
+
+create policy "dpi_matrix_rules_insert_management_only"
   on public.dpi_matrix_rules
-  for all
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "dpi_matrix_rules_update_management_only"
+  on public.dpi_matrix_rules
+  for update
   using (public.has_module_access('gestione', true))
   with check (public.has_module_access('gestione', true));
+
+create policy "dpi_matrix_rules_delete_management_only"
+  on public.dpi_matrix_rules
+  for delete
+  using (public.has_module_access('gestione', true));
 
 drop policy if exists "dpi_employee_items_read_by_scope" on public.dpi_employee_items;
 create policy "dpi_employee_items_read_by_scope"
@@ -1296,11 +1535,25 @@ create policy "dpi_employee_items_read_by_scope"
   );
 
 drop policy if exists "dpi_employee_items_write_management_only" on public.dpi_employee_items;
-create policy "dpi_employee_items_write_management_only"
+drop policy if exists "dpi_employee_items_insert_management_only" on public.dpi_employee_items;
+drop policy if exists "dpi_employee_items_update_management_only" on public.dpi_employee_items;
+drop policy if exists "dpi_employee_items_delete_management_only" on public.dpi_employee_items;
+
+create policy "dpi_employee_items_insert_management_only"
   on public.dpi_employee_items
-  for all
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "dpi_employee_items_update_management_only"
+  on public.dpi_employee_items
+  for update
   using (public.has_module_access('gestione', true))
   with check (public.has_module_access('gestione', true));
+
+create policy "dpi_employee_items_delete_management_only"
+  on public.dpi_employee_items
+  for delete
+  using (public.has_module_access('gestione', true));
 
 drop policy if exists "turni_site_templates_read" on public.turni_site_templates;
 create policy "turni_site_templates_read"
@@ -1522,6 +1775,37 @@ create policy "turni_month_locks_write"
   using (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
   with check (public.has_module_access('gestione', true) or public.has_module_access('turni', true));
 
+drop policy if exists "turni_site_month_targets_read" on public.turni_site_month_targets;
+create policy "turni_site_month_targets_read"
+  on public.turni_site_month_targets
+  for select
+  using (
+    (public.has_module_access('gestione') or public.has_module_access('turni'))
+    and (
+      (sub_site_id is null and public.can_access_site(site_id))
+      or (sub_site_id is not null and public.can_access_sub_site(sub_site_id))
+    )
+  );
+
+drop policy if exists "turni_site_month_targets_write" on public.turni_site_month_targets;
+create policy "turni_site_month_targets_write"
+  on public.turni_site_month_targets
+  for all
+  using (
+    (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
+    and (
+      (sub_site_id is null and public.can_access_site(site_id))
+      or (sub_site_id is not null and public.can_access_sub_site(sub_site_id))
+    )
+  )
+  with check (
+    (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
+    and (
+      (sub_site_id is null and public.can_access_site(site_id))
+      or (sub_site_id is not null and public.can_access_sub_site(sub_site_id))
+    )
+  );
+
 drop policy if exists "employee_freeze_periods_read_by_scope" on public.employee_freeze_periods;
 create policy "employee_freeze_periods_read_by_scope"
   on public.employee_freeze_periods
@@ -1540,11 +1824,25 @@ create policy "employee_freeze_periods_read_by_scope"
   );
 
 drop policy if exists "employee_freeze_periods_write_management_only" on public.employee_freeze_periods;
-create policy "employee_freeze_periods_write_management_only"
+drop policy if exists "employee_freeze_periods_insert_management_only" on public.employee_freeze_periods;
+drop policy if exists "employee_freeze_periods_update_management_only" on public.employee_freeze_periods;
+drop policy if exists "employee_freeze_periods_delete_management_only" on public.employee_freeze_periods;
+
+create policy "employee_freeze_periods_insert_management_only"
   on public.employee_freeze_periods
-  for all
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "employee_freeze_periods_update_management_only"
+  on public.employee_freeze_periods
+  for update
   using (public.has_module_access('gestione', true))
   with check (public.has_module_access('gestione', true));
+
+create policy "employee_freeze_periods_delete_management_only"
+  on public.employee_freeze_periods
+  for delete
+  using (public.has_module_access('gestione', true));
 
 drop policy if exists "training_scope_exclusions_read_operational" on public.training_scope_exclusions;
 create policy "training_scope_exclusions_read_operational"
@@ -1713,6 +2011,168 @@ create policy "medical_surveillance_job_rules_write"
   using (public.has_module_access('gestione', true))
   with check (public.has_module_access('gestione', true));
 
+drop policy if exists "medical_surveillance_scope_rules_read" on public.medical_surveillance_scope_rules;
+create policy "medical_surveillance_scope_rules_read"
+  on public.medical_surveillance_scope_rules
+  for select
+  using (
+    public.has_module_access('gestione')
+    or public.has_module_access('sorveglianza')
+  );
+
+drop policy if exists "medical_surveillance_scope_rules_write" on public.medical_surveillance_scope_rules;
+create policy "medical_surveillance_scope_rules_write"
+  on public.medical_surveillance_scope_rules
+  for all
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+drop policy if exists "medical_surveillance_provider_assignments_read" on public.medical_surveillance_provider_assignments;
+create policy "medical_surveillance_provider_assignments_read"
+  on public.medical_surveillance_provider_assignments
+  for select
+  using (
+    public.has_module_access('gestione')
+    or public.has_module_access('sorveglianza')
+  );
+
+drop policy if exists "medical_surveillance_provider_assignments_write" on public.medical_surveillance_provider_assignments;
+drop policy if exists "medical_surveillance_provider_assignments_insert" on public.medical_surveillance_provider_assignments;
+drop policy if exists "medical_surveillance_provider_assignments_update" on public.medical_surveillance_provider_assignments;
+drop policy if exists "medical_surveillance_provider_assignments_delete" on public.medical_surveillance_provider_assignments;
+
+create policy "medical_surveillance_provider_assignments_insert"
+  on public.medical_surveillance_provider_assignments
+  for insert
+  with check (
+    (public.has_module_access('gestione', true) or public.has_module_access('sorveglianza', true))
+    and (
+      ((sub_site_id is null) and public.can_access_site(site_id))
+      or ((sub_site_id is not null) and public.can_access_sub_site(sub_site_id))
+    )
+  );
+
+create policy "medical_surveillance_provider_assignments_update"
+  on public.medical_surveillance_provider_assignments
+  for update
+  using (
+    (public.has_module_access('gestione', true) or public.has_module_access('sorveglianza', true))
+    and (
+      ((sub_site_id is null) and public.can_access_site(site_id))
+      or ((sub_site_id is not null) and public.can_access_sub_site(sub_site_id))
+    )
+  )
+  with check (
+    (public.has_module_access('gestione', true) or public.has_module_access('sorveglianza', true))
+    and (
+      ((sub_site_id is null) and public.can_access_site(site_id))
+      or ((sub_site_id is not null) and public.can_access_sub_site(sub_site_id))
+    )
+  );
+
+create policy "medical_surveillance_provider_assignments_delete"
+  on public.medical_surveillance_provider_assignments
+  for delete
+  using (
+    (public.has_module_access('gestione', true) or public.has_module_access('sorveglianza', true))
+    and (
+      ((sub_site_id is null) and public.can_access_site(site_id))
+      or ((sub_site_id is not null) and public.can_access_sub_site(sub_site_id))
+    )
+  );
+
+drop policy if exists "medical_surveillance_employee_exclusions_read" on public.medical_surveillance_employee_exclusions;
+create policy "medical_surveillance_employee_exclusions_read"
+  on public.medical_surveillance_employee_exclusions
+  for select
+  using (
+    public.has_module_access('gestione')
+    or (
+      public.has_module_access('sorveglianza')
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+drop policy if exists "medical_surveillance_employee_exclusions_write" on public.medical_surveillance_employee_exclusions;
+create policy "medical_surveillance_employee_exclusions_write"
+  on public.medical_surveillance_employee_exclusions
+  for all
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+drop policy if exists "medical_surveillance_employee_overrides_read" on public.medical_surveillance_employee_overrides;
+create policy "medical_surveillance_employee_overrides_read"
+  on public.medical_surveillance_employee_overrides
+  for select
+  using (
+    public.has_module_access('gestione')
+    or (
+      public.has_module_access('sorveglianza')
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+drop policy if exists "medical_surveillance_employee_overrides_write" on public.medical_surveillance_employee_overrides;
+create policy "medical_surveillance_employee_overrides_write"
+  on public.medical_surveillance_employee_overrides
+  for all
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
 drop policy if exists "import_runs_read_management_only" on public.import_runs;
 create policy "import_runs_read_management_only"
   on public.import_runs
@@ -1742,87 +2202,112 @@ create policy "import_run_errors_write_management_only"
 drop trigger if exists training_courses_set_updated_at on public.training_courses;
 create trigger training_courses_set_updated_at
   before update on public.training_courses
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists training_matrix_rules_set_updated_at on public.training_matrix_rules;
 create trigger training_matrix_rules_set_updated_at
   before update on public.training_matrix_rules
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists training_employee_courses_set_updated_at on public.training_employee_courses;
 create trigger training_employee_courses_set_updated_at
   before update on public.training_employee_courses
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists employee_freeze_periods_set_updated_at on public.employee_freeze_periods;
 create trigger employee_freeze_periods_set_updated_at
   before update on public.employee_freeze_periods
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists training_scope_exclusions_set_updated_at on public.training_scope_exclusions;
 create trigger training_scope_exclusions_set_updated_at
   before update on public.training_scope_exclusions
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists training_employee_exclusions_set_updated_at on public.training_employee_exclusions;
 create trigger training_employee_exclusions_set_updated_at
   before update on public.training_employee_exclusions
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists training_employee_course_exclusions_set_updated_at on public.training_employee_course_exclusions;
 create trigger training_employee_course_exclusions_set_updated_at
   before update on public.training_employee_course_exclusions
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists medical_surveillance_records_set_updated_at on public.medical_surveillance_records;
 create trigger medical_surveillance_records_set_updated_at
   before update on public.medical_surveillance_records
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists medical_surveillance_job_rules_set_updated_at on public.medical_surveillance_job_rules;
 create trigger medical_surveillance_job_rules_set_updated_at
   before update on public.medical_surveillance_job_rules
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
+
+drop trigger if exists medical_surveillance_scope_rules_set_updated_at on public.medical_surveillance_scope_rules;
+create trigger medical_surveillance_scope_rules_set_updated_at
+  before update on public.medical_surveillance_scope_rules
+  for each row execute procedure internal.set_updated_at();
+
+drop trigger if exists medical_surveillance_provider_assignments_set_updated_at on public.medical_surveillance_provider_assignments;
+create trigger medical_surveillance_provider_assignments_set_updated_at
+  before update on public.medical_surveillance_provider_assignments
+  for each row execute procedure internal.set_updated_at();
+
+drop trigger if exists medical_surveillance_employee_exclusions_set_updated_at on public.medical_surveillance_employee_exclusions;
+create trigger medical_surveillance_employee_exclusions_set_updated_at
+  before update on public.medical_surveillance_employee_exclusions
+  for each row execute procedure internal.set_updated_at();
+
+drop trigger if exists medical_surveillance_employee_overrides_set_updated_at on public.medical_surveillance_employee_overrides;
+create trigger medical_surveillance_employee_overrides_set_updated_at
+  before update on public.medical_surveillance_employee_overrides
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists dpi_items_set_updated_at on public.dpi_items;
 create trigger dpi_items_set_updated_at
   before update on public.dpi_items
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists dpi_matrix_rules_set_updated_at on public.dpi_matrix_rules;
 create trigger dpi_matrix_rules_set_updated_at
   before update on public.dpi_matrix_rules
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists dpi_employee_items_set_updated_at on public.dpi_employee_items;
 create trigger dpi_employee_items_set_updated_at
   before update on public.dpi_employee_items
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists turni_site_templates_set_updated_at on public.turni_site_templates;
 create trigger turni_site_templates_set_updated_at
   before update on public.turni_site_templates
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists turni_site_template_slots_set_updated_at on public.turni_site_template_slots;
 create trigger turni_site_template_slots_set_updated_at
   before update on public.turni_site_template_slots
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists turni_employee_site_assignments_set_updated_at on public.turni_employee_site_assignments;
 create trigger turni_employee_site_assignments_set_updated_at
   before update on public.turni_employee_site_assignments
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists turni_employee_shifts_set_updated_at on public.turni_employee_shifts;
 create trigger turni_employee_shifts_set_updated_at
   before update on public.turni_employee_shifts
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
 
 drop trigger if exists turni_employee_absences_set_updated_at on public.turni_employee_absences;
 create trigger turni_employee_absences_set_updated_at
   before update on public.turni_employee_absences
-  for each row execute procedure public.set_updated_at();
+  for each row execute procedure internal.set_updated_at();
+
+drop trigger if exists turni_site_month_targets_set_updated_at on public.turni_site_month_targets;
+create trigger turni_site_month_targets_set_updated_at
+  before update on public.turni_site_month_targets
+  for each row execute procedure internal.set_updated_at();
 
 -- Bootstrap iniziale:
 -- 1. crea il primo utente in Auth;

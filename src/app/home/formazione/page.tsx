@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeJobCode } from "@/lib/training/normalize";
+import { KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
 
 type WorkerCourseRow = {
@@ -142,6 +143,7 @@ const DASHBOARD_BASE_CODES = new Set([
   "CORSO_RLS",
   "CORSO_RSPP",
   "CORSO_DIR",
+  "CORSO_ASPP",
 ]);
 
 const DASHBOARD_STATES: DashboardStateKey[] = [
@@ -161,8 +163,13 @@ export default function HomeFormazionePage() {
   const [search, setSearch] = useState("");
   const [showExcludedEmployees, setShowExcludedEmployees] = useState(false);
   const [simulationDate, setSimulationDate] = useState(() => getDefaultSimulationDate());
+  const [simulationDateDraft, setSimulationDateDraft] = useState(() =>
+    formatIsoToItDate(getDefaultSimulationDate()),
+  );
+  const [expiringDays, setExpiringDays] = useState(30);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [filterError, setFilterError] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>(INITIAL_COLUMN_FILTERS);
@@ -203,7 +210,6 @@ export default function HomeFormazionePage() {
   const [dashboardCategoryFilter, setDashboardCategoryFilter] = useState<"base" | "operativi" | null>(null);
   const [dashboardStateFilter, setDashboardStateFilter] = useState<WorkerCourseRow["stato"][] | null>(null);
   const [isDashboardCollapsed, setIsDashboardCollapsed] = useState(false);
-  const didInitialLoadRef = useRef(false);
   const [isWorkerDetailOpen, setIsWorkerDetailOpen] = useState(false);
   const [workerDetailEmployeeId, setWorkerDetailEmployeeId] = useState<number | null>(null);
   const [workerDetailTitle, setWorkerDetailTitle] = useState("");
@@ -220,6 +226,20 @@ export default function HomeFormazionePage() {
   const [exclusionNoteKind, setExclusionNoteKind] = useState<"employee" | "course">("course");
   const [exclusionNoteCourseId, setExclusionNoteCourseId] = useState<number | null>(null);
   const [exclusionNoteDraft, setExclusionNoteDraft] = useState("");
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (simulationDateDraft.trim().length !== 10) return;
+      const next = parseStrictItDateToIso(simulationDateDraft);
+      if (!next) {
+        setFilterError("Data non valida (formato gg/mm/aaaa).");
+        return;
+      }
+      setFilterError("");
+      setSimulationDate(next);
+    }, 350);
+    return () => window.clearTimeout(id);
+  }, [simulationDateDraft]);
 
   useEffect(() => {
     async function loadCourseCatalog() {
@@ -271,12 +291,13 @@ export default function HomeFormazionePage() {
     };
   }, []);
 
-  const loadRows = useCallback(async () => {
+  const loadRows = useCallback(async (dateOverride?: string) => {
     setIsLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
-      params.set("expiringDays", String(getExpiringDaysFromDate(simulationDate)));
+      params.set("date", dateOverride ?? simulationDate);
+      params.set("expiringDays", String(expiringDays));
 
       params.set("panel", "formazione");
       if (showExcludedEmployees) params.set("includeExcluded", "1");
@@ -313,11 +334,9 @@ export default function HomeFormazionePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [showExcludedEmployees, simulationDate]);
+  }, [expiringDays, showExcludedEmployees, simulationDate]);
 
   useEffect(() => {
-    if (didInitialLoadRef.current) return;
-    didInitialLoadRef.current = true;
     const id = setTimeout(() => {
       void loadRows();
     }, 0);
@@ -332,7 +351,8 @@ export default function HomeFormazionePage() {
         const params = new URLSearchParams();
         params.set("panel", "formazione");
         params.set("employeeId", String(employeeId));
-        params.set("expiringDays", String(getExpiringDaysFromDate(simulationDate)));
+        params.set("date", simulationDate);
+        params.set("expiringDays", String(expiringDays));
         const [rowsResponse, exclusionsResponse] = await Promise.all([
           fetch(`/api/lavoratori/corsi?${params.toString()}`),
           fetch(`/api/formazione/esclusioni?employeeId=${employeeId}`),
@@ -363,7 +383,7 @@ export default function HomeFormazionePage() {
         setWorkerDetailLoading(false);
       }
     },
-    [simulationDate],
+    [expiringDays, simulationDate],
   );
 
   const openWorkerDetail = useCallback(
@@ -408,6 +428,26 @@ export default function HomeFormazionePage() {
       if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio esclusione.");
       await loadWorkerDetail(workerDetailEmployeeId);
       await loadRows();
+    },
+    [loadRows, loadWorkerDetail, workerDetailEmployeeId],
+  );
+
+  const deleteCourseExclusion = useCallback(
+    async (courseId: number) => {
+      if (!workerDetailEmployeeId) return;
+      try {
+        const response = await fetch("/api/formazione/esclusioni", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "course", employeeId: workerDetailEmployeeId, courseId }),
+        });
+        const body = (await response.json()) as { ok?: boolean; error?: string };
+        if (!response.ok || body.error) throw new Error(body.error ?? "Errore cancellazione esclusione.");
+        await loadWorkerDetail(workerDetailEmployeeId);
+        await loadRows();
+      } catch (err) {
+        setWorkerDetailError(err instanceof Error ? err.message : "Errore cancellazione esclusione.");
+      }
     },
     [loadRows, loadWorkerDetail, workerDetailEmployeeId],
   );
@@ -471,9 +511,11 @@ export default function HomeFormazionePage() {
 
     try {
       const params = new URLSearchParams();
-      params.set("expiringDays", "30");
+      params.set("date", simulationDate);
+      params.set("expiringDays", String(expiringDays));
 
       params.set("panel", "formazione");
+      if (showExcludedEmployees) params.set("includeExcluded", "1");
       const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`);
       const body = (await response.json()) as {
         rows?: WorkerCourseRow[];
@@ -788,8 +830,10 @@ export default function HomeFormazionePage() {
     setIsExporting(true);
     setExportError("");
     try {
-      const expiringDays = getExpiringDaysFromDate(simulationDate);
-      const response = await fetch(`/api/formazione/export?expiringDays=${encodeURIComponent(String(expiringDays))}`);
+      const params = new URLSearchParams();
+      params.set("date", simulationDate);
+      params.set("expiringDays", String(expiringDays));
+      const response = await fetch(`/api/formazione/export?${params.toString()}`);
       if (!response.ok) {
         const body = (await response.json()) as { error?: string };
         throw new Error(body.error ?? "Errore export.");
@@ -918,17 +962,11 @@ export default function HomeFormazionePage() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[var(--brand-ink)]">
-              Formazione
-            </h1>
-            <p className="mt-2 text-sm leading-7 text-slate-500">
-              Elenco lavoratori per corso e stato scadenza.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+      <ModuleHeader
+        title="Formazione"
+        description="Elenco lavoratori per corso e stato scadenza."
+        actions={
+          <>
             <button
               type="button"
               onClick={() => openEventModal()}
@@ -994,12 +1032,13 @@ export default function HomeFormazionePage() {
               </span>
               Dettaglio
             </button>
-          </div>
-        </div>
-        {exportError ? <p className="mt-2 text-xs font-medium text-red-600">{exportError}</p> : null}
-      </section>
+          </>
+        }
+      >
+        {exportError ? <p className="text-xs font-medium text-red-600">{exportError}</p> : null}
+      </ModuleHeader>
 
-      <section className="rounded-[16px] border border-[var(--brand-line)] bg-white p-4">
+      <PanelCard className="p-3">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-[var(--brand-ink)]">Cruscotto Operativo</h2>
@@ -1026,20 +1065,105 @@ export default function HomeFormazionePage() {
           </div>
         </div>
         {!isDashboardCollapsed ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <DashboardPanel title="Base" category="base" summary={pageDashboardData.base} onApplyFilter={applyDashboardFilter} />
-            <DashboardPanel
-              title="Operativi"
-              category="operativi"
-              summary={pageDashboardData.operativi}
-              onApplyFilter={applyDashboardFilter}
-            />
+          <div className="grid gap-3">
+            {(
+              [
+                { title: "Base", category: "base" as const, summary: pageDashboardData.base },
+                { title: "Operativi", category: "operativi" as const, summary: pageDashboardData.operativi },
+              ] as const
+            ).map((panel) => {
+              const summary = panel.summary;
+              const criticoCount =
+                summary.counts.scaduto +
+                summary.counts["da fare"] +
+                summary.counts.programmato +
+                summary.counts.upgrade;
+              const criticoPct = percentage(criticoCount, summary.total);
+
+              return (
+                <div key={panel.category} className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-bold text-[var(--brand-ink)]">{panel.title}</h3>
+                    <button
+                      type="button"
+                      onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
+                      className="rounded-lg border border-[var(--brand-line)] bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-[var(--brand-panel)]"
+                      title="Applica filtro alla tabella"
+                    >
+                      Totale {summary.total}
+                    </button>
+                  </div>
+
+                  <div className="mt-3">
+                    <KpiGrid className="grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
+                      <KpiCard
+                        label="Totale"
+                        value={summary.total}
+                        subValue="100%"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
+                      />
+                      <KpiCard
+                        label="Critico"
+                        value={criticoCount}
+                        subValue={`${criticoPct}%`}
+                        tone="danger"
+                        onClick={() =>
+                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "programmato", "upgrade"] })
+                        }
+                      />
+                      <KpiCard
+                        label="In scadenza"
+                        value={summary.counts["in scadenza"]}
+                        subValue={`${summary.percentages["in scadenza"]}%`}
+                        tone="warning"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["in scadenza"] })}
+                      />
+                      <KpiCard
+                        label="Da fare"
+                        value={summary.counts["da fare"]}
+                        subValue={`${summary.percentages["da fare"]}%`}
+                        tone="danger"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["da fare"] })}
+                      />
+                      <KpiCard
+                        label="Scaduto"
+                        value={summary.counts.scaduto}
+                        subValue={`${summary.percentages.scaduto}%`}
+                        tone="danger"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["scaduto"] })}
+                      />
+                      <KpiCard
+                        label="Programmato"
+                        value={summary.counts.programmato}
+                        subValue={`${summary.percentages.programmato}%`}
+                        tone="info"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["programmato"] })}
+                      />
+                      <KpiCard
+                        label="Upgrade"
+                        value={summary.counts.upgrade}
+                        subValue={`${summary.percentages.upgrade}%`}
+                        tone="purple"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["upgrade"] })}
+                      />
+                      <KpiCard
+                        label="Esclusi"
+                        value={summary.counts.escluso}
+                        subValue={`${summary.percentages.escluso}%`}
+                        tone="muted"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["escluso"] })}
+                      />
+                    </KpiGrid>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : null}
-      </section>
+      </PanelCard>
 
-      <section className="rounded-[16px] border border-[var(--brand-line)] bg-white p-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto]">
+      <PanelCard className="p-3">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_140px_auto]">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -1047,11 +1171,36 @@ export default function HomeFormazionePage() {
             className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
           />
           <input
-            type="date"
-            value={simulationDate}
-            onChange={(event) => setSimulationDate(event.target.value)}
+            value={simulationDateDraft}
+            inputMode="numeric"
+            onChange={(event) => {
+              setFilterError("");
+              setSimulationDateDraft(normalizeItDateDraft(event.target.value));
+            }}
+            onBlur={() => {
+              if (simulationDateDraft.trim().length !== 10) return;
+              const next = parseStrictItDateToIso(simulationDateDraft);
+              if (!next) {
+                setFilterError("Data non valida (formato gg/mm/aaaa).");
+                return;
+              }
+              setFilterError("");
+              setSimulationDate(next);
+              setSimulationDateDraft(formatIsoToItDate(next));
+            }}
+            placeholder="gg/mm/aaaa"
             className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
           />
+          <select
+            value={String(expiringDays)}
+            onChange={(event) => setExpiringDays(Number(event.target.value))}
+            className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+          >
+            <option value="7">7gg</option>
+            <option value="30">30gg</option>
+            <option value="60">60gg</option>
+            <option value="90">90gg</option>
+          </select>
           <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -1061,19 +1210,13 @@ export default function HomeFormazionePage() {
             />
             Mostra esclusi
           </label>
-          <button
-            type="button"
-            onClick={() => void loadRows()}
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-          >
-            Aggiorna
-          </button>
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          Simulazione su data selezionata da calendario.
+          Simulazione su data selezionata (in scadenza: {expiringDays}gg).
         </p>
+        {filterError ? <p className="mt-2 text-xs font-medium text-red-600">{filterError}</p> : null}
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
-      </section>
+      </PanelCard>
 
       <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
         <div
@@ -1659,6 +1802,7 @@ export default function HomeFormazionePage() {
                         <thead className="bg-[var(--brand-panel)] text-slate-500">
                           <tr className="uppercase tracking-wide">
                             <th className="px-3 py-2">Corso</th>
+                            <th className="px-3 py-2">Data corso</th>
                             <th className="px-3 py-2">Scadenza</th>
                             <th className="px-3 py-2">Stato</th>
                             <th className="px-3 py-2">Azione</th>
@@ -1680,34 +1824,78 @@ export default function HomeFormazionePage() {
                                     <span className="font-semibold text-slate-800">{r.corsoCode}</span> {r.corso}
                                   </td>
                                   <td className="px-3 py-2 font-medium tabular-nums text-slate-700">
+                                    {formatDateIt(r.dataConclusione)}
+                                  </td>
+                                  <td className="px-3 py-2 font-medium tabular-nums text-slate-700">
                                     {formatDateIt(r.dataScadenza)}
                                   </td>
                                   <td className="px-3 py-2">
                                     <span className={statusClassName(r.stato)}>{r.stato}</span>
                                   </td>
                                   <td className="px-3 py-2">
-                                    <button
-                                      type="button"
-                                      disabled={employeeExclusion.isActive || !courseId}
-                                      onClick={() => courseId && void requestCourseExclusionToggle(courseId)}
-                                      className={[
-                                        "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                                        employeeExclusion.isActive || !courseId
-                                          ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
-                                          : isExcluded
-                                            ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        disabled={employeeExclusion.isActive || !courseId}
+                                        onClick={() => {
+                                          if (!courseId) return;
+                                          setSelectedWorkerIds(new Set([r.workerId]));
+                                          openEventModal({
+                                            tab: "evento",
+                                            courseCode: r.corsoCode,
+                                            courseSearch: `${r.corsoCode} ${r.corso}`.trim(),
+                                            type: r.dataConclusione ? "MODIFICA_DATA" : "SVOLTO",
+                                            date: r.dataConclusione ?? "",
+                                            note: "",
+                                          });
+                                        }}
+                                        className={[
+                                          "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                                          employeeExclusion.isActive || !courseId
+                                            ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
                                             : "border-[var(--brand-line)] bg-white text-slate-700 hover:bg-slate-50",
-                                      ].join(" ")}
-                                    >
-                                      {isExcluded ? "Rimuovi esclusione" : "Escludi"}
-                                    </button>
+                                        ].join(" ")}
+                                      >
+                                        Modifica data
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={employeeExclusion.isActive || !courseId}
+                                        onClick={() => courseId && void requestCourseExclusionToggle(courseId)}
+                                        className={[
+                                          "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                                          employeeExclusion.isActive || !courseId
+                                            ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
+                                            : isExcluded
+                                              ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                              : "border-[var(--brand-line)] bg-white text-slate-700 hover:bg-slate-50",
+                                        ].join(" ")}
+                                      >
+                                        {isExcluded ? "Rimuovi esclusione" : "Escludi"}
+                                      </button>
+                                      {isExcluded && courseId ? (
+                                        <button
+                                          type="button"
+                                          disabled={employeeExclusion.isActive}
+                                          onClick={() => void deleteCourseExclusion(courseId)}
+                                          className={[
+                                            "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                                            employeeExclusion.isActive
+                                              ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
+                                              : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
+                                          ].join(" ")}
+                                        >
+                                          Elimina
+                                        </button>
+                                      ) : null}
+                                    </div>
                                   </td>
                                 </tr>
                               );
                             })}
                           {workerDetailRows.length === 0 ? (
                             <tr>
-                              <td colSpan={4} className="px-3 py-6 text-center text-sm text-slate-500">
+                              <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-500">
                                 Nessun corso disponibile.
                               </td>
                             </tr>
@@ -1760,12 +1948,13 @@ export default function HomeFormazionePage() {
                             <tr className="uppercase tracking-wide">
                               <th className="px-3 py-2">Corso</th>
                               <th className="px-3 py-2">Motivazione</th>
+                              <th className="px-3 py-2 text-right">Azioni</th>
                             </tr>
                           </thead>
                           <tbody>
                             {Array.from(courseExclusionNotes.entries()).length === 0 ? (
                               <tr>
-                                <td colSpan={2} className="px-3 py-6 text-center text-sm text-slate-500">
+                                <td colSpan={3} className="px-3 py-6 text-center text-sm text-slate-500">
                                   Nessuna esclusione attiva.
                                 </td>
                               </tr>
@@ -1784,6 +1973,21 @@ export default function HomeFormazionePage() {
                                     </td>
                                     <td className="px-3 py-2 text-slate-700">
                                       {r.courseId ? courseExclusionNotes.get(r.courseId) ?? "-" : "-"}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      <button
+                                        type="button"
+                                        disabled={!r.courseId}
+                                        onClick={() => r.courseId && void deleteCourseExclusion(r.courseId)}
+                                        className={[
+                                          "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                                          !r.courseId
+                                            ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
+                                            : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
+                                        ].join(" ")}
+                                      >
+                                        Cancella
+                                      </button>
                                     </td>
                                   </tr>
                                 ))
@@ -2273,143 +2477,6 @@ function StateCell({
   );
 }
 
-function DashboardPanel({
-  title,
-  category,
-  summary,
-  onApplyFilter,
-}: {
-  title: string;
-  category: DashboardCategory;
-  summary: DashboardSummary;
-  onApplyFilter: (filter: DashboardFilter | null) => void;
-}) {
-  const criticoCount =
-    summary.counts.scaduto +
-    summary.counts["da fare"] +
-    summary.counts.programmato +
-    summary.counts.upgrade;
-  const criticoPct = percentage(criticoCount, summary.total);
-
-  const items: Array<{
-    key: string;
-    label: string;
-    count: number;
-    pct: number;
-    states: WorkerCourseRow["stato"][] | null;
-    rowClass: string;
-    textClass: string;
-    barClass: string;
-  }> = [
-    {
-      key: "critico",
-      label: "Critico",
-      count: criticoCount,
-      pct: criticoPct,
-      states: ["scaduto", "da fare", "programmato", "upgrade"],
-      rowClass: "bg-red-50",
-      textClass: "text-red-700",
-      barClass: "bg-gradient-to-r from-red-600 to-red-500",
-    },
-    {
-      key: "in_scadenza",
-      label: "In scadenza (30 gg)",
-      count: summary.counts["in scadenza"],
-      pct: summary.percentages["in scadenza"],
-      states: ["in scadenza"],
-      rowClass: "bg-amber-50",
-      textClass: "text-amber-800",
-      barClass: "bg-gradient-to-r from-amber-500 to-amber-400",
-    },
-    {
-      key: "scaduto",
-      label: "di cui: Scaduto",
-      count: summary.counts.scaduto,
-      pct: summary.percentages.scaduto,
-      states: ["scaduto"],
-      rowClass: "bg-rose-50",
-      textClass: "text-rose-800",
-      barClass: "bg-gradient-to-r from-rose-500 to-rose-400",
-    },
-    {
-      key: "da_fare",
-      label: "di cui: Da fare",
-      count: summary.counts["da fare"],
-      pct: summary.percentages["da fare"],
-      states: ["da fare"],
-      rowClass: "bg-rose-50",
-      textClass: "text-rose-800",
-      barClass: "bg-gradient-to-r from-rose-500 to-rose-400",
-    },
-    {
-      key: "programmato",
-      label: "di cui: Programmato",
-      count: summary.counts.programmato,
-      pct: summary.percentages.programmato,
-      states: ["programmato"],
-      rowClass: "bg-sky-50",
-      textClass: "text-sky-800",
-      barClass: "bg-gradient-to-r from-sky-500 to-sky-400",
-    },
-    {
-      key: "upgrade",
-      label: "di cui: Upgrade rischio",
-      count: summary.counts.upgrade,
-      pct: summary.percentages.upgrade,
-      states: ["upgrade"],
-      rowClass: "bg-purple-50",
-      textClass: "text-purple-800",
-      barClass: "bg-gradient-to-r from-purple-500 to-purple-400",
-    },
-    {
-      key: "escluso",
-      label: "di cui: Esclusi",
-      count: summary.counts.escluso,
-      pct: summary.percentages.escluso,
-      states: ["escluso"],
-      rowClass: "bg-slate-50",
-      textClass: "text-slate-700",
-      barClass: "bg-gradient-to-r from-slate-500 to-slate-400",
-    },
-  ];
-
-  return (
-    <div className="rounded-xl border border-[var(--brand-line)] bg-white p-4 shadow-sm">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--brand-ink)]">{title}</h3>
-        <span className="text-xs text-slate-500">Totale {summary.total}</span>
-      </div>
-      <div className="space-y-2">
-        {items.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => onApplyFilter({ category, states: item.states })}
-            className={[
-              "w-full rounded-lg p-2 text-left transition hover:brightness-[0.98] active:brightness-[0.96]",
-              item.rowClass,
-            ].join(" ")}
-            title="Applica filtro alla tabella"
-          >
-            <div className="flex items-center justify-between text-xs">
-              <span className={`font-semibold ${item.textClass}`}>{item.label}</span>
-              <span className="font-semibold text-[var(--brand-ink)]">
-                {item.count} ({item.pct}%)
-              </span>
-            </div>
-            <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-white/70">
-              <div
-                className={`h-full ${item.barClass}`}
-                style={{ width: `${Math.min(100, Math.max(0, item.pct))}%` }}
-              />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function PreviewKpi({
   label,
   value,
@@ -2496,19 +2563,41 @@ function downloadCsvFile(fileName: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-function getDefaultSimulationDate() {
-  const date = new Date();
-  date.setDate(date.getDate() + 30);
-  return date.toISOString().slice(0, 10);
+function todayLocalIso() {
+  const d = new Date();
+  const y = String(d.getFullYear());
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-function getExpiringDaysFromDate(dateString: string) {
-  if (!dateString) return 30;
-  const selected = new Date(`${dateString}T00:00:00`);
-  if (Number.isNaN(selected.getTime())) return 30;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diffMs = selected.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  return Math.max(0, diffDays);
+function formatIsoToItDate(iso: string) {
+  const match = String(iso ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function normalizeItDateDraft(value: string) {
+  const digits = String(value ?? "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function parseStrictItDateToIso(value: string) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  const dd = match[1];
+  const mm = match[2];
+  const yyyy = match[3];
+  const iso = `${yyyy}-${mm}-${dd}`;
+  const dt = new Date(`${iso}T12:00:00`);
+  if (!Number.isFinite(dt.getTime())) return null;
+  const roundTrip = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  return roundTrip === iso ? iso : null;
+}
+
+function getDefaultSimulationDate() {
+  return todayLocalIso();
 }

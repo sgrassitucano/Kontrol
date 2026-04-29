@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { ModuleHeader } from "@/components/module-ui";
 
 type TabKey = "scadenze" | "asset" | "assegnazioni";
 
@@ -457,63 +458,11 @@ export default function HomeMezziPage() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[var(--brand-ink)]">
-              Mezzi e attrezzature
-            </h1>
-            <p className="mt-2 text-sm leading-7 text-slate-500">
-              Registro asset (mezzi targati e attrezzature) con scadenze e assegnazioni ai lavoratori.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-full bg-white p-1 ring-1 ring-[var(--brand-line)]">
-              <button
-                type="button"
-                onClick={() => setTab("scadenze")}
-                className={[
-                  "min-h-9 rounded-full px-4 text-sm font-semibold transition",
-                  tab === "scadenze"
-                    ? "bg-[var(--brand-primary)] text-white"
-                    : "text-slate-600 hover:bg-slate-50",
-                ].join(" ")}
-              >
-                Scadenze
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("asset")}
-                className={[
-                  "min-h-9 rounded-full px-4 text-sm font-semibold transition",
-                  tab === "asset"
-                    ? "bg-[var(--brand-primary)] text-white"
-                    : "text-slate-600 hover:bg-slate-50",
-                ].join(" ")}
-              >
-                Asset
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("assegnazioni")}
-                className={[
-                  "min-h-9 rounded-full px-4 text-sm font-semibold transition",
-                  tab === "assegnazioni"
-                    ? "bg-[var(--brand-primary)] text-white"
-                    : "text-slate-600 hover:bg-slate-50",
-                ].join(" ")}
-              >
-                Assegnazioni
-              </button>
-            </div>
-
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Ricerca…"
-              className="min-w-[260px] rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-            />
-
+      <ModuleHeader
+        title="Mezzi e attrezzature"
+        description="Registro asset (mezzi targati e attrezzature) con scadenze e assegnazioni ai lavoratori."
+        actions={
+          <>
             <button
               type="button"
               onClick={() => setIsAssetModalOpen(true)}
@@ -528,10 +477,59 @@ export default function HomeMezziPage() {
             >
               Assegna
             </button>
+          </>
+        }
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex rounded-full bg-white p-1 ring-1 ring-[var(--brand-line)]">
+            <button
+              type="button"
+              onClick={() => setTab("scadenze")}
+              className={[
+                "min-h-9 rounded-full px-4 text-sm font-semibold transition",
+                tab === "scadenze"
+                  ? "bg-[var(--brand-primary)] text-white"
+                  : "text-slate-600 hover:bg-slate-50",
+              ].join(" ")}
+            >
+              Scadenze
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("asset")}
+              className={[
+                "min-h-9 rounded-full px-4 text-sm font-semibold transition",
+                tab === "asset"
+                  ? "bg-[var(--brand-primary)] text-white"
+                  : "text-slate-600 hover:bg-slate-50",
+              ].join(" ")}
+            >
+              Asset
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("assegnazioni")}
+              className={[
+                "min-h-9 rounded-full px-4 text-sm font-semibold transition",
+                tab === "assegnazioni"
+                  ? "bg-[var(--brand-primary)] text-white"
+                  : "text-slate-600 hover:bg-slate-50",
+              ].join(" ")}
+            >
+              Assegnazioni
+            </button>
           </div>
+
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Ricerca…"
+            className="w-[320px] max-w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+          />
         </div>
+
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
-      </section>
+      </ModuleHeader>
 
       {tab === "scadenze" ? (
         <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">

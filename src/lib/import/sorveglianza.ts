@@ -249,9 +249,10 @@ function detectHeaderRowIndex(rows: unknown[][]) {
 
 function parseBooleanSiNo(value: string) {
   const raw = String(value ?? "").trim().toUpperCase();
+  if (!raw) return null;
   if (raw === "NO" || raw === "N" || raw === "0") return false;
   if (raw === "SI" || raw === "S" || raw === "1") return true;
-  return true;
+  return null;
 }
 
 function parseDateToIso(value: string) {
@@ -330,7 +331,19 @@ function parseWorkbook(fileBuffer: ArrayBuffer): { validRows: RawRow[]; errors: 
       return;
     }
 
-    const requiresVisit = parseBooleanSiNo(visitRaw);
+    const requiresVisitParsed = parseBooleanSiNo(visitRaw);
+    if (requiresVisitParsed === null) {
+      errors.push({
+        rowNumber,
+        matricola,
+        taxCode,
+        lastName,
+        firstName,
+        errorType: "invalid_visit_flag",
+        errorMessage: 'Valore non valido per "visita si/no" (attesi SI/NO). Importato come SI per sicurezza.',
+      });
+    }
+    const requiresVisit = requiresVisitParsed ?? true;
     const nextDueDate = parseDateToIso(dueRaw);
 
     validRows.push({

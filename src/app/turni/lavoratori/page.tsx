@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ModuleHeader } from "@/components/module-ui";
 
 type Zoom = "mese" | "settimana";
 type ShiftState = "planned" | "actual" | "cancelled";
@@ -38,7 +39,10 @@ type ShiftRow = {
 };
 
 function toIsoDate(value: Date) {
-  return value.toISOString().slice(0, 10);
+  const y = String(value.getFullYear());
+  const m = String(value.getMonth() + 1).padStart(2, "0");
+  const d = String(value.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 function startOfMonth(d: Date) {
@@ -191,7 +195,7 @@ export default function TurniLavoratoriPage() {
     return { year: d.getFullYear(), month: d.getMonth() + 1 };
   }, [refDate]);
 
-  async function loadLookups() {
+  const loadLookups = useCallback(async () => {
     const res = await fetch("/api/turni/lookups");
     const body = (await res.json()) as {
       sites?: LookupSite[];
@@ -203,17 +207,20 @@ export default function TurniLavoratoriPage() {
     setSites(body.sites ?? []);
     setSubSites(body.subSites ?? []);
     setEmployees(body.employees ?? []);
-    if (!employeeId && (body.employees?.length ?? 0) > 0) setEmployeeId(String(body.employees?.[0]?.id ?? ""));
-  }
+    setEmployeeId((prev) => {
+      if (prev) return prev;
+      return (body.employees?.length ?? 0) > 0 ? String(body.employees?.[0]?.id ?? "") : "";
+    });
+  }, []);
 
-  async function loadLocks() {
+  const loadLocks = useCallback(async () => {
     const res = await fetch(`/api/turni/locks?year=${monthKey.year}&month=${monthKey.month}`);
     const body = (await res.json()) as { locked?: boolean; error?: string };
     if (!res.ok || body.error) throw new Error(body.error ?? "Errore lock mese.");
     setMonthLocked(Boolean(body.locked));
-  }
+  }, [monthKey.month, monthKey.year]);
 
-  async function loadShifts() {
+  const loadShifts = useCallback(async () => {
     if (!selectedEmployee) return;
     const res = await fetch(
       `/api/turni/shifts?employeeId=${selectedEmployee}&startDate=${range.startDate}&endDate=${range.endDate}`,
@@ -221,9 +228,9 @@ export default function TurniLavoratoriPage() {
     const body = (await res.json()) as { rows?: ShiftRow[]; error?: string };
     if (!res.ok || body.error) throw new Error(body.error ?? "Errore caricamento turni.");
     setShifts(body.rows ?? []);
-  }
+  }, [range.endDate, range.startDate, selectedEmployee]);
 
-  async function reloadAll() {
+  const reloadAll = useCallback(async () => {
     setError("");
     try {
       await loadLocks();
@@ -231,17 +238,17 @@ export default function TurniLavoratoriPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore imprevisto.");
     }
-  }
+  }, [loadLocks, loadShifts]);
 
   useEffect(() => {
     setError("");
     loadLookups().catch((e) => setError(e instanceof Error ? e.message : "Errore lookup."));
-  }, []);
+  }, [loadLookups]);
 
   useEffect(() => {
     if (!selectedEmployee) return;
-    reloadAll();
-  }, [selectedEmployee, range.startDate, range.endDate, monthKey.year, monthKey.month]);
+    void reloadAll();
+  }, [reloadAll, selectedEmployee]);
 
   const shiftsByDay = useMemo(() => {
     const map = new Map<string, ShiftRow[]>();
@@ -513,14 +520,12 @@ export default function TurniLavoratoriPage() {
   }, [monthKey.year, monthKey.month, selectedEmployee]);
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Turni / Lavoratori</div>
-          <div className="mt-1 text-2xl font-bold text-slate-900">Turni</div>
-          <div className="mt-1 text-sm text-slate-600">Vista calendario personale del lavoratore.</div>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="space-y-4 p-6">
+      <ModuleHeader
+        title="Turni — Lavoratori"
+        description="Vista calendario personale del lavoratore."
+        actions={
+          <div className="flex items-center gap-2">
           <a
             href={exportHref}
             className="inline-flex items-center rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-[var(--brand-panel)]"
@@ -534,8 +539,9 @@ export default function TurniLavoratoriPage() {
           >
             Chiudi mese
           </button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
         <div className="flex items-center gap-2">

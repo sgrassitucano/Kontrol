@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ImportErrorRow, ImportPreviewRow, ImportSummary } from "@/lib/import/anagrafica";
+import { ModuleHeader, PanelCard } from "@/components/module-ui";
 
 type ImportResponse = {
   mode: "preview" | "commit";
@@ -40,6 +41,7 @@ export default function GestioneImportPage() {
   const progressTimerRef = useRef<number | null>(null);
   const runTokenRef = useRef(0);
   const statusPollRef = useRef<number | null>(null);
+  const lastRunPollRef = useRef<number | null>(null);
 
   const derivedCounts = useMemo(() => {
     const warningRows = result?.errors?.filter((row) => row.errorType === "row_imported_with_issues").length ?? 0;
@@ -88,6 +90,18 @@ export default function GestioneImportPage() {
   }, []);
 
   useEffect(() => {
+    lastRunPollRef.current = window.setInterval(() => {
+      void refreshLastRun();
+    }, 10000);
+    return () => {
+      if (lastRunPollRef.current !== null) {
+        window.clearInterval(lastRunPollRef.current);
+        lastRunPollRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (progressTimerRef.current !== null) {
         window.clearInterval(progressTimerRef.current);
@@ -96,6 +110,10 @@ export default function GestioneImportPage() {
       if (statusPollRef.current !== null) {
         window.clearInterval(statusPollRef.current);
         statusPollRef.current = null;
+      }
+      if (lastRunPollRef.current !== null) {
+        window.clearInterval(lastRunPollRef.current);
+        lastRunPollRef.current = null;
       }
     };
   }, []);
@@ -169,7 +187,7 @@ export default function GestioneImportPage() {
       const isAbort = error instanceof Error && error.name === "AbortError";
       setServerError(
         isAbort
-          ? "Richiesta lunga: l'import potrebbe essere ancora in corso. Controlla 'Ultimo import' e premi 'Aggiorna stato'."
+          ? "Richiesta lunga: l'import potrebbe essere ancora in corso. Controlla 'Ultimo import'."
           : error instanceof Error
             ? error.message
             : "Errore imprevisto durante l'import.",
@@ -190,13 +208,10 @@ export default function GestioneImportPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[24px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-[var(--brand-ink)]">
-          Import anagrafica
-        </h1>
-        <p className="mt-2 text-sm leading-7 text-slate-500">
-          Flusso admin per upload, anteprima, validazione e commit dei dati.
-        </p>
+      <ModuleHeader
+        title="Import anagrafica"
+        description="Flusso admin per upload, anteprima, validazione e commit dei dati."
+      >
         {lastRun ? (
           <p className="mt-2 text-xs text-slate-500">
             Ultimo import: {formatDateTimeIt(lastRun.createdAt)}
@@ -206,12 +221,10 @@ export default function GestioneImportPage() {
               : ""}
           </p>
         ) : null}
-      </section>
+      </ModuleHeader>
 
-      <section className="rounded-[20px] border border-[var(--brand-line)] bg-white p-5">
-        <h2 className="text-base font-semibold text-[var(--brand-ink)]">
-          Caricamento file
-        </h2>
+      <PanelCard>
+        <h2 className="text-base font-semibold text-[var(--brand-ink)]">Caricamento file</h2>
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
           <input
             type="file"
@@ -240,14 +253,6 @@ export default function GestioneImportPage() {
           >
             Conferma import
           </button>
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={() => void refreshLastRun()}
-            className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
-          >
-            Aggiorna stato
-          </button>
         </div>
         <p className="mt-3 text-xs text-slate-500">
           File selezionato: {selectedFile?.name || "nessuno"}
@@ -274,7 +279,7 @@ export default function GestioneImportPage() {
             </div>
           </div>
         ) : null}
-      </section>
+      </PanelCard>
 
       <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
         <StatCard label="Righe totali" value={counters.righeTotali} />

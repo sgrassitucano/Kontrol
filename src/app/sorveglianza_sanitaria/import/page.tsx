@@ -6,6 +6,7 @@ import type {
   SurveillanceImportPreviewRow,
   SurveillanceImportSummary,
 } from "@/lib/import/sorveglianza";
+import { ModuleHeader, PanelCard } from "@/components/module-ui";
 
 type ImportResponse = {
   mode: "preview" | "commit";
@@ -151,25 +152,20 @@ export default function SorveglianzaImportPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[24px] border border-[var(--brand-line)] bg-white p-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-[var(--brand-ink)]">
-          Import sorveglianza sanitaria
-        </h1>
-        <p className="mt-2 text-sm leading-7 text-slate-500">
-          Upload, anteprima e commit del tracciato anagrafica_sorveglianza (visita SI/NO, scadenza, limitazioni, note).
-        </p>
+      <ModuleHeader
+        title="Import sorveglianza sanitaria"
+        description="Upload, anteprima e commit del tracciato anagrafica_sorveglianza (visita SI/NO, scadenza, limitazioni, note)."
+      >
         {lastRun ? (
           <p className="mt-2 text-xs text-slate-500">
             Ultimo import: {formatDateTimeIt(lastRun.createdAt)}
             {lastRun.importedByName ? ` · ${lastRun.importedByName}` : ""} · {lastRun.fileName}
           </p>
         ) : null}
-      </section>
+      </ModuleHeader>
 
-      <section className="rounded-[20px] border border-[var(--brand-line)] bg-white p-5">
-        <h2 className="text-base font-semibold text-[var(--brand-ink)]">
-          Caricamento file
-        </h2>
+      <PanelCard>
+        <h2 className="text-base font-semibold text-[var(--brand-ink)]">Caricamento file</h2>
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
           <input
             type="file"
@@ -224,7 +220,7 @@ export default function SorveglianzaImportPage() {
             </div>
           </div>
         ) : null}
-      </section>
+      </PanelCard>
 
       <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
         <StatCard label="Righe totali" value={counters.righeTotali} />

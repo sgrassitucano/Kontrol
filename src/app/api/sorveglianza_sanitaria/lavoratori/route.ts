@@ -13,6 +13,8 @@ type EmployeeRow = {
   referral: string | null;
   job_title: string;
   theoretical_weekly_minutes: number;
+  site_id: number;
+  sub_site_id: number | null;
   sites: unknown;
   sub_sites: unknown;
 };
@@ -20,6 +22,7 @@ type EmployeeRow = {
 type SurveillanceRow = {
   employee_id: number;
   provider: string | null;
+  is_planned: boolean;
   next_due_date: string | null;
   limitations: string | null;
   notes: string | null;
@@ -38,6 +41,32 @@ type JobRuleRow = {
   exempt_below_weekly_minutes: number | null;
 };
 
+type ScopeRuleRow = {
+  scope_type: "site" | "sub_site";
+  site_id: number | null;
+  sub_site_id: number | null;
+  requires_visit: boolean;
+};
+
+type ProviderAssignmentRow = {
+  scope_type: "site" | "sub_site";
+  site_id: number | null;
+  sub_site_id: number | null;
+  provider: string;
+  is_active: boolean;
+};
+
+type EmployeeExclusionRow = {
+  employee_id: number;
+  is_active: boolean;
+};
+
+type EmployeeOverrideRow = {
+  employee_id: number;
+  requires_visit: boolean;
+  is_active: boolean;
+};
+
 type WorkerSurveillanceRow = {
   workerId: number;
   matricola: string;
@@ -50,7 +79,7 @@ type WorkerSurveillanceRow = {
   referente: string;
   visitaRichiesta: "SI" | "NO";
   scadenzaVisita: string | null;
-  stato: "idoneo" | "in scadenza" | "scaduto" | "da fare" | "sospeso" | "escluso";
+  stato: "idoneo" | "in scadenza" | "scaduto" | "da fare" | "programmato" | "sospeso" | "escluso";
   medico: string;
   limitazioni: string;
   note: string;
@@ -88,13 +117,15 @@ function computeState(args: {
   thresholdDate: Date;
   requiresVisit: boolean;
   nextDueDate: string | null;
+  isPlanned: boolean;
 }) {
-  const { today, thresholdDate, requiresVisit, nextDueDate } = args;
+  const { today, thresholdDate, requiresVisit, nextDueDate, isPlanned } = args;
   if (!requiresVisit) return "idoneo" as const;
-  if (!nextDueDate) return "da fare" as const;
+  if (!nextDueDate) return isPlanned ? ("programmato" as const) : ("da fare" as const);
   const due = new Date(nextDueDate);
-  if (Number.isNaN(due.getTime())) return "da fare" as const;
+  if (Number.isNaN(due.getTime())) return isPlanned ? ("programmato" as const) : ("da fare" as const);
   if (due < today) return "scaduto" as const;
+  if (isPlanned) return "programmato" as const;
   if (due <= thresholdDate) return "in scadenza" as const;
   return "idoneo" as const;
 }
@@ -125,21 +156,38 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const query = (url.searchParams.get("q") ?? "").toLowerCase().trim();
     const expiringDays = Number(url.searchParams.get("expiringDays") ?? "30");
+    const dateParam = url.searchParams.get("date");
     const includeExcluded = url.searchParams.get("includeExcluded") === "1";
 
-    const today = new Date();
-    const thresholdDate = new Date();
-    thresholdDate.setDate(thresholdDate.getDate() + (Number.isFinite(expiringDays) ? expiringDays : 30));
+    const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
+    const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
+
+    let today = new Date();
+    if (typeof dateParam === "string") {
+      const match = dateParam.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        const parsed = new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00`);
+        if (!Number.isNaN(parsed.getTime())) today = parsed;
+      }
+    }
+
+    const thresholdDate = new Date(today);
+    thresholdDate.setDate(thresholdDate.getDate() + expiringDaysSafe);
 
     const ctx = await getCurrentUserContext(auth.supabase);
     const dataSupabase =
       ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
 
-    const [employees, surveillanceRows, freezeRows, jobRules] = await Promise.all([
+    const [employees, surveillanceRows, freezeRows, jobRules, scopeRules, providerAssignments, employeeExclusions, employeeOverrides] =
+      await Promise.all([
       fetchAllEmployees(dataSupabase),
       fetchAllSurveillanceRows(dataSupabase),
       fetchAllFreezes(dataSupabase),
       fetchAllJobRules(dataSupabase),
+      fetchAllScopeRules(dataSupabase),
+      fetchAllProviderAssignments(dataSupabase),
+      fetchAllEmployeeExclusions(dataSupabase),
+      fetchAllEmployeeOverrides(dataSupabase),
     ]);
 
     const surveillanceByEmployeeId = new Map<number, SurveillanceRow>();
@@ -148,6 +196,32 @@ export async function GET(request: Request) {
     const activeFreezeByEmployeeId = buildActiveFreezeMap((freezeRows ?? []) as FreezeRow[], today);
     const jobRuleByCode = new Map<string, JobRuleRow>();
     (jobRules ?? []).forEach((row) => jobRuleByCode.set(row.job_code_norm, row));
+
+    const scopeRuleBySiteId = new Map<number, ScopeRuleRow>();
+    const scopeRuleBySubSiteId = new Map<number, ScopeRuleRow>();
+    (scopeRules ?? []).forEach((row) => {
+      if (row.scope_type === "site" && row.site_id) scopeRuleBySiteId.set(row.site_id, row);
+      if (row.scope_type === "sub_site" && row.sub_site_id) scopeRuleBySubSiteId.set(row.sub_site_id, row);
+    });
+
+    const providerBySiteId = new Map<number, ProviderAssignmentRow>();
+    const providerBySubSiteId = new Map<number, ProviderAssignmentRow>();
+    (providerAssignments ?? []).forEach((row) => {
+      if (!row.is_active) return;
+      if (row.scope_type === "site" && row.site_id) providerBySiteId.set(row.site_id, row);
+      if (row.scope_type === "sub_site" && row.sub_site_id) providerBySubSiteId.set(row.sub_site_id, row);
+    });
+
+    const excludedEmployeeIdSet = new Set<number>();
+    (employeeExclusions ?? []).forEach((row) => {
+      if (row.is_active) excludedEmployeeIdSet.add(row.employee_id);
+    });
+
+    const overridesByEmployeeId = new Map<number, EmployeeOverrideRow>();
+    (employeeOverrides ?? []).forEach((row) => {
+      if (!row.is_active) return;
+      overridesByEmployeeId.set(row.employee_id, row);
+    });
 
     let excludedByRule = 0;
     let frozenEmployees = 0;
@@ -162,14 +236,38 @@ export async function GET(request: Request) {
       const jobRule = jobRuleByCode.get(jobCode);
       const excludedByJob = shouldExcludeForJobRule(employee, jobRule);
 
-      const isExcluded = isExcludedFreeze || excludedByJob;
+      const isExcludedManual = excludedEmployeeIdSet.has(employee.id);
+      const isExcluded = isExcludedFreeze || excludedByJob || isExcludedManual;
       if (isExcluded) excludedByRule += 1;
       if (isExcluded && !includeExcluded) continue;
 
       const record = surveillanceByEmployeeId.get(employee.id) ?? null;
-      const requiresVisit = !isExcluded;
-      const baseState = freeze ? "sospeso" : computeState({ today, thresholdDate, requiresVisit, nextDueDate: record?.next_due_date ?? null });
+      const override = overridesByEmployeeId.get(employee.id) ?? null;
+      const scopeRule =
+        typeof employee.sub_site_id === "number" && employee.sub_site_id
+          ? scopeRuleBySubSiteId.get(employee.sub_site_id) ?? null
+          : null;
+      const siteRule = scopeRule ? null : scopeRuleBySiteId.get(employee.site_id) ?? null;
+
+      const derivedRequiresVisit = scopeRule?.requires_visit ?? siteRule?.requires_visit ?? !excludedByJob;
+      const requiresVisit = isExcluded ? false : override ? override.requires_visit : derivedRequiresVisit;
+
+      const baseState =
+        freeze && !isExcluded
+          ? ("sospeso" as const)
+          : computeState({
+              today,
+              thresholdDate,
+              requiresVisit,
+              nextDueDate: record?.next_due_date ?? null,
+              isPlanned: Boolean(record?.is_planned ?? false),
+            });
       const state = isExcluded ? "escluso" : baseState;
+
+      const providerFromAssignment =
+        typeof employee.sub_site_id === "number" && employee.sub_site_id
+          ? providerBySubSiteId.get(employee.sub_site_id)?.provider ?? null
+          : providerBySiteId.get(employee.site_id)?.provider ?? null;
 
       const row: WorkerSurveillanceRow = {
         workerId: employee.id,
@@ -184,7 +282,7 @@ export async function GET(request: Request) {
         visitaRichiesta: requiresVisit ? "SI" : "NO",
         scadenzaVisita: record?.next_due_date ?? null,
         stato: state,
-        medico: (record?.provider ?? "").trim() || "-",
+        medico: (record?.provider ?? "").trim() || (providerFromAssignment ?? "").trim() || "-",
         limitazioni: (record?.limitations ?? "").trim(),
         note: (record?.notes ?? "").trim(),
       };
@@ -216,6 +314,7 @@ export async function GET(request: Request) {
       inScadenza: 0,
       scaduto: 0,
       daFare: 0,
+      programmato: 0,
       sospeso: 0,
       escluso: 0,
     };
@@ -224,6 +323,7 @@ export async function GET(request: Request) {
       else if (r.stato === "in scadenza") counts.inScadenza += 1;
       else if (r.stato === "scaduto") counts.scaduto += 1;
       else if (r.stato === "da fare") counts.daFare += 1;
+      else if (r.stato === "programmato") counts.programmato += 1;
       else if (r.stato === "sospeso") counts.sospeso += 1;
       else counts.escluso += 1;
     });
@@ -258,7 +358,7 @@ async function fetchAllEmployees(supabase: SupabaseClient) {
     const { data, error } = await supabase
       .from("employees")
       .select(
-        "id,matricola,first_name,last_name,responsible_code,referral,job_title,theoretical_weekly_minutes,sites(display_name),sub_sites(display_name)",
+        "id,matricola,first_name,last_name,responsible_code,referral,job_title,theoretical_weekly_minutes,site_id,sub_site_id,sites(display_name),sub_sites(display_name)",
       )
       .eq("status", "attivo")
       .order("last_name")
@@ -283,7 +383,7 @@ async function fetchAllSurveillanceRows(supabase: SupabaseClient) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from("medical_surveillance_records")
-      .select("employee_id,provider,next_due_date,limitations,notes")
+      .select("employee_id,provider,is_planned,next_due_date,limitations,notes")
       .range(from, to);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as SurveillanceRow[];
@@ -325,3 +425,36 @@ async function fetchAllJobRules(supabase: SupabaseClient) {
   return (data ?? []) as JobRuleRow[];
 }
 
+async function fetchAllScopeRules(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("medical_surveillance_scope_rules")
+    .select("scope_type,site_id,sub_site_id,requires_visit");
+  if (error) return [] as ScopeRuleRow[];
+  return (data ?? []) as ScopeRuleRow[];
+}
+
+async function fetchAllProviderAssignments(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("medical_surveillance_provider_assignments")
+    .select("scope_type,site_id,sub_site_id,provider,is_active");
+  if (error) return [] as ProviderAssignmentRow[];
+  return (data ?? []) as ProviderAssignmentRow[];
+}
+
+async function fetchAllEmployeeExclusions(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("medical_surveillance_employee_exclusions")
+    .select("employee_id,is_active")
+    .eq("is_active", true);
+  if (error) return [] as EmployeeExclusionRow[];
+  return (data ?? []) as EmployeeExclusionRow[];
+}
+
+async function fetchAllEmployeeOverrides(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("medical_surveillance_employee_overrides")
+    .select("employee_id,requires_visit,is_active")
+    .eq("is_active", true);
+  if (error) return [] as EmployeeOverrideRow[];
+  return (data ?? []) as EmployeeOverrideRow[];
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
 
 type TurniTableRow = {
   workerId: number;
@@ -188,17 +189,11 @@ export default function HomeTurniPage() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[var(--brand-ink)]">
-              Turni
-            </h1>
-            <p className="mt-2 text-sm leading-7 text-slate-500">
-              Cruscotto mensile e tabella lavoratori. Le viste operative restano in “Cantiere” e “Lavoratori”.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+      <ModuleHeader
+        title="Turni"
+        description="Cruscotto mensile e tabella lavoratori. Le viste operative restano in “Cantiere” e “Lavoratori”."
+        actions={
+          <>
             <a
               href="/turni/cantiere"
               className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
@@ -211,26 +206,18 @@ export default function HomeTurniPage() {
             >
               Vista lavoratori
             </a>
-          </div>
-        </div>
-      </section>
+          </>
+        }
+      />
 
-      <section className="rounded-[16px] border border-[var(--brand-line)] bg-white p-4">
-        <div className="grid gap-3 lg:grid-cols-[220px_220px_auto]">
+      <PanelCard>
+        <div className="grid gap-3 lg:grid-cols-[220px_auto]">
           <input
             type="month"
             value={month}
             onChange={(e) => setMonth(e.target.value)}
             className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
           />
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
-            disabled={isLoading}
-          >
-            {isLoading ? "Aggiorno…" : "Aggiorna"}
-          </button>
           <div className="flex items-center justify-end gap-2">
             {dashboardAssignedFilter !== null || columnFilters.assegnato ? (
               <button
@@ -255,9 +242,9 @@ export default function HomeTurniPage() {
           </div>
         </div>
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
-      </section>
+      </PanelCard>
 
-      <section className="rounded-[16px] border border-[var(--brand-line)] bg-white p-4">
+      <PanelCard>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-bold text-[var(--brand-ink)]">Cruscotto</h2>
           {payload?.range ? (
@@ -267,92 +254,103 @@ export default function HomeTurniPage() {
           ) : null}
         </div>
         {!isDashboardCollapsed && workers && sites ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <DashboardCard
-              title={`Lavoratori (totale ${workers.totalWorkers})`}
-              rows={[
-                {
-                  key: "turni_ass",
-                  label: "Turni assegnati",
-                  value: workers.assignedShifts,
-                  pct: percentage(workers.assignedShifts, workers.expectedShifts),
-                  bar: percentage(workers.assignedShifts, workers.expectedShifts),
-                  tone: "success",
-                  onClick: () => setDashboardAssignedFilter(true),
-                },
-                {
-                  key: "ore_ass",
-                  label: "Ore totali assegnate",
-                  valueText: formatHours(workers.assignedMinutes),
-                  pct: percentage(workers.assignedMinutes, workers.expectedMinutes),
-                  bar: percentage(workers.assignedMinutes, workers.expectedMinutes),
-                  tone: "success",
-                  onClick: () => setDashboardAssignedFilter(true),
-                },
-                {
-                  key: "turni_no",
-                  label: "Turni non assegnati",
-                  value: workers.unassignedShifts,
-                  pct: percentage(workers.unassignedShifts, workers.expectedShifts),
-                  bar: percentage(workers.unassignedShifts, workers.expectedShifts),
-                  tone: "danger",
-                  onClick: () => setDashboardAssignedFilter(false),
-                },
-                {
-                  key: "ore_no",
-                  label: "Ore non assegnate",
-                  valueText: formatHours(workers.unassignedMinutes),
-                  pct: percentage(workers.unassignedMinutes, workers.expectedMinutes),
-                  bar: percentage(workers.unassignedMinutes, workers.expectedMinutes),
-                  tone: "danger",
-                  onClick: () => setDashboardAssignedFilter(false),
-                },
-              ]}
-            />
-            <DashboardCard
-              title={`Cantieri (totale ${sites.totalSites})`}
-              rows={[
-                {
-                  key: "cant_ass",
-                  label: "Cantieri con turni",
-                  value: sites.sitesWithAssigned,
-                  pct: percentage(sites.sitesWithAssigned, sites.totalSites),
-                  bar: percentage(sites.sitesWithAssigned, sites.totalSites),
-                  tone: "info",
-                  onClick: () => setDashboardAssignedFilter(true),
-                },
-                {
-                  key: "cant_no",
-                  label: "Cantieri senza turni",
-                  value: sites.sitesWithoutAssigned,
-                  pct: percentage(sites.sitesWithoutAssigned, sites.totalSites),
-                  bar: percentage(sites.sitesWithoutAssigned, sites.totalSites),
-                  tone: "warning",
-                  onClick: () => setDashboardAssignedFilter(false),
-                },
-                {
-                  key: "turni_no_site",
-                  label: "Turni non assegnati",
-                  value: sites.unassignedShifts,
-                  pct: percentage(sites.unassignedShifts, sites.expectedShifts),
-                  bar: percentage(sites.unassignedShifts, sites.expectedShifts),
-                  tone: "danger",
-                  onClick: () => setDashboardAssignedFilter(false),
-                },
-                {
-                  key: "ore_no_site",
-                  label: "Ore non assegnate",
-                  valueText: formatHours(sites.unassignedMinutes),
-                  pct: percentage(sites.unassignedMinutes, sites.expectedMinutes),
-                  bar: percentage(sites.unassignedMinutes, sites.expectedMinutes),
-                  tone: "danger",
-                  onClick: () => setDashboardAssignedFilter(false),
-                },
-              ]}
-            />
+          <div className="grid gap-3">
+            <div className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-bold text-[var(--brand-ink)]">Lavoratori</h3>
+                <button
+                  type="button"
+                  onClick={() => setDashboardAssignedFilter(null)}
+                  className="rounded-lg border border-[var(--brand-line)] bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-[var(--brand-panel)]"
+                  title="Rimuovi filtro"
+                >
+                  Totale {workers.totalWorkers}
+                </button>
+              </div>
+              <div className="mt-3">
+                <KpiGrid className="sm:grid-cols-2 md:grid-cols-5">
+                  <KpiCard label="Totale" value={workers.totalWorkers} subValue="100%" />
+                  <KpiCard
+                    label="Turni assegnati"
+                    value={workers.assignedShifts}
+                    subValue={`${percentage(workers.assignedShifts, workers.expectedShifts)}%`}
+                    tone="success"
+                    onClick={() => setDashboardAssignedFilter(true)}
+                  />
+                  <KpiCard
+                    label="Turni non assegnati"
+                    value={workers.unassignedShifts}
+                    subValue={`${percentage(workers.unassignedShifts, workers.expectedShifts)}%`}
+                    tone="danger"
+                    onClick={() => setDashboardAssignedFilter(false)}
+                  />
+                  <KpiCard
+                    label="Ore assegnate"
+                    value={formatHours(workers.assignedMinutes)}
+                    subValue={`${percentage(workers.assignedMinutes, workers.expectedMinutes)}%`}
+                    tone="success"
+                    onClick={() => setDashboardAssignedFilter(true)}
+                  />
+                  <KpiCard
+                    label="Ore non assegnate"
+                    value={formatHours(workers.unassignedMinutes)}
+                    subValue={`${percentage(workers.unassignedMinutes, workers.expectedMinutes)}%`}
+                    tone="danger"
+                    onClick={() => setDashboardAssignedFilter(false)}
+                  />
+                </KpiGrid>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-bold text-[var(--brand-ink)]">Cantieri</h3>
+                <button
+                  type="button"
+                  onClick={() => setDashboardAssignedFilter(null)}
+                  className="rounded-lg border border-[var(--brand-line)] bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-[var(--brand-panel)]"
+                  title="Rimuovi filtro"
+                >
+                  Totale {sites.totalSites}
+                </button>
+              </div>
+              <div className="mt-3">
+                <KpiGrid className="sm:grid-cols-2 md:grid-cols-5">
+                  <KpiCard label="Totale" value={sites.totalSites} subValue="100%" />
+                  <KpiCard
+                    label="Con turni"
+                    value={sites.sitesWithAssigned}
+                    subValue={`${percentage(sites.sitesWithAssigned, sites.totalSites)}%`}
+                    tone="info"
+                    onClick={() => setDashboardAssignedFilter(true)}
+                  />
+                  <KpiCard
+                    label="Senza turni"
+                    value={sites.sitesWithoutAssigned}
+                    subValue={`${percentage(sites.sitesWithoutAssigned, sites.totalSites)}%`}
+                    tone="warning"
+                    onClick={() => setDashboardAssignedFilter(false)}
+                  />
+                  <KpiCard
+                    label="Turni non assegnati"
+                    value={sites.unassignedShifts}
+                    subValue={`${percentage(sites.unassignedShifts, sites.expectedShifts)}%`}
+                    tone="danger"
+                    onClick={() => setDashboardAssignedFilter(false)}
+                  />
+                  <KpiCard
+                    label="Ore non assegnate"
+                    value={formatHours(sites.unassignedMinutes)}
+                    subValue={`${percentage(sites.unassignedMinutes, sites.expectedMinutes)}%`}
+                    tone="danger"
+                    onClick={() => setDashboardAssignedFilter(false)}
+                  />
+                </KpiGrid>
+              </div>
+            </div>
           </div>
         ) : null}
-      </section>
+      </PanelCard>
 
       <section className="rounded-[16px] border border-[var(--brand-line)] bg-white p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
@@ -498,67 +496,6 @@ export default function HomeTurniPage() {
           </table>
         </div>
       </section>
-    </div>
-  );
-}
-
-function DashboardCard({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: Array<{
-    key: string;
-    label: string;
-    value?: number;
-    valueText?: string;
-    pct: number;
-    bar: number;
-    tone: "danger" | "warning" | "success" | "info";
-    onClick: () => void;
-  }>;
-}) {
-  const toneClasses = (tone: "danger" | "warning" | "success" | "info") =>
-    tone === "danger"
-      ? { row: "bg-red-50", text: "text-red-700", bar: "bg-gradient-to-r from-red-600 to-red-500" }
-      : tone === "warning"
-        ? { row: "bg-amber-50", text: "text-amber-700", bar: "bg-gradient-to-r from-amber-500 to-amber-400" }
-        : tone === "success"
-          ? { row: "bg-emerald-50", text: "text-emerald-700", bar: "bg-gradient-to-r from-emerald-600 to-emerald-500" }
-          : { row: "bg-sky-50", text: "text-sky-700", bar: "bg-gradient-to-r from-sky-600 to-sky-500" };
-
-  return (
-    <div className="rounded-xl border border-[var(--brand-line)] bg-white p-4 shadow-sm">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--brand-ink)]">{title}</h3>
-      </div>
-      <div className="space-y-2">
-        {rows.map((r) => {
-          const cls = toneClasses(r.tone);
-          return (
-            <button
-              key={r.key}
-              type="button"
-              onClick={r.onClick}
-              className={`w-full rounded-lg p-2 text-left transition hover:brightness-[0.98] active:brightness-[0.96] ${cls.row}`}
-              title="Applica filtro alla tabella"
-            >
-              <div className="flex items-center justify-between text-xs">
-                <span className={`font-semibold ${cls.text}`}>{r.label}</span>
-                <span className="font-semibold text-[var(--brand-ink)]">
-                  {typeof r.value === "number" ? r.value : r.valueText} ({r.pct}%)
-                </span>
-              </div>
-              <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-white/70">
-                <div
-                  className={`h-full ${cls.bar}`}
-                  style={{ width: `${Math.min(100, Math.max(0, r.bar))}%` }}
-                />
-              </div>
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 }

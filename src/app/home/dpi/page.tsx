@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { KpiCard, KpiGrid, ModuleHeader, StatusPill } from "@/components/module-ui";
 
 type WorkerDpiRow = {
   workerId: number;
@@ -49,19 +50,43 @@ function formatDateIt(value: string | null) {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
-function statusBadgeClass(status: WorkerDpiRow["stato"]) {
-  const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] leading-none";
-  if (status === "scaduto") return `${base} border-red-200 bg-red-50 text-red-700`;
-  if (status === "da verificare") return `${base} border-amber-200 bg-amber-50 text-amber-800`;
-  if (status === "da consegnare") return `${base} border-red-200 bg-red-50 text-red-700`;
-  if (status === "programmato") return `${base} border-sky-200 bg-sky-50 text-sky-700`;
-  if (status === "idoneo") return `${base} border-emerald-200 bg-emerald-50 text-emerald-800`;
-  return `${base} border-indigo-200 bg-indigo-50 text-indigo-700`;
+function todayLocalIso() {
+  const d = new Date();
+  const y = String(d.getFullYear());
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatIsoToItDate(iso: string) {
+  const match = String(iso ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function normalizeItDateDraft(value: string) {
+  const digits = String(value ?? "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function parseStrictItDateToIso(value: string) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  const dd = match[1];
+  const mm = match[2];
+  const yyyy = match[3];
+  const iso = `${yyyy}-${mm}-${dd}`;
+  const dt = new Date(`${iso}T12:00:00`);
+  if (!Number.isFinite(dt.getTime())) return null;
+  const roundTrip = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  return roundTrip === iso ? iso : null;
 }
 
 function getDefaultSimulationDate() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalIso();
 }
 
 export default function HomeDpiPage() {
@@ -73,7 +98,11 @@ export default function HomeDpiPage() {
 
   const [search, setSearch] = useState("");
   const [simulationDate, setSimulationDate] = useState(() => getDefaultSimulationDate());
+  const [simulationDateDraft, setSimulationDateDraft] = useState(() =>
+    formatIsoToItDate(getDefaultSimulationDate()),
+  );
   const [expiringDays, setExpiringDays] = useState(30);
+  const [filterError, setFilterError] = useState("");
 
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [dpiItems, setDpiItems] = useState<DpiItem[]>([]);
@@ -100,7 +129,7 @@ export default function HomeDpiPage() {
     note: "",
   });
 
-  async function load() {
+  const load = useCallback(async () => {
     setIsLoading(true);
     setError("");
     setWarning("");
@@ -134,15 +163,11 @@ export default function HomeDpiPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [expiringDays, simulationDate]);
 
   useEffect(() => {
     void load();
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [simulationDate, expiringDays]);
+  }, [load]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -168,6 +193,19 @@ export default function HomeDpiPage() {
       return s.includes(q);
     });
   }, [rows, search]);
+
+  function pct(count: number, total: number) {
+    if (!total) return "0%";
+    return `${Number(((count / total) * 100).toFixed(1))}%`;
+  }
+
+  function statusTone(status: WorkerDpiRow["stato"]) {
+    if (status === "scaduto" || status === "da consegnare") return "danger" as const;
+    if (status === "da verificare") return "warning" as const;
+    if (status === "programmato") return "info" as const;
+    if (status === "idoneo" || status === "consegnato") return "success" as const;
+    return "neutral" as const;
+  }
 
   const dashboard = useMemo(() => {
     const byState: Record<string, Set<number>> = {
@@ -242,15 +280,11 @@ export default function HomeDpiPage() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[var(--brand-ink)]">DPI</h1>
-            <p className="mt-2 text-sm leading-7 text-slate-500">
-              Elenco lavoratori↔DPI richiesti dalla matrice e stato consegna/verifica.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+      <ModuleHeader
+        title="DPI"
+        description="Elenco lavoratori↔DPI richiesti dalla matrice e stato consegna/verifica."
+        actions={
+          <>
             <Link
               href="/dpi/matrice"
               className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
@@ -271,31 +305,62 @@ export default function HomeDpiPage() {
             >
               Assegna / Override
             </button>
-          </div>
-        </div>
+          </>
+        }
+      >
+        <KpiGrid className="sm:grid-cols-2 md:grid-cols-4">
+          <KpiCard
+            label="Scaduto"
+            value={dashboard.scaduto}
+            subValue={pct(dashboard.scaduto, totalActiveEmployees)}
+            tone="danger"
+          />
+          <KpiCard
+            label="Da verificare"
+            value={dashboard.daVerificare}
+            subValue={pct(dashboard.daVerificare, totalActiveEmployees)}
+            tone="warning"
+          />
+          <KpiCard
+            label="Da consegnare"
+            value={dashboard.daConsegnare}
+            subValue={pct(dashboard.daConsegnare, totalActiveEmployees)}
+            tone="danger"
+          />
+          <KpiCard
+            label="Programmato"
+            value={dashboard.programmato}
+            subValue={pct(dashboard.programmato, totalActiveEmployees)}
+            tone="info"
+          />
+        </KpiGrid>
 
-        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
-            <KpiCard label="Scaduto" value={dashboard.scaduto} total={totalActiveEmployees} tone="red" />
-            <KpiCard label="Da verificare" value={dashboard.daVerificare} total={totalActiveEmployees} tone="amber" />
-            <KpiCard label="Da consegnare" value={dashboard.daConsegnare} total={totalActiveEmployees} tone="red" />
-            <KpiCard label="Programmato" value={dashboard.programmato} total={totalActiveEmployees} tone="blue" />
-          </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="min-w-[220px]">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Ricerca…"
-                className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-              />
-            </div>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Ricerca…"
+              className="w-[320px] max-w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+            />
             <div className="flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Data</span>
               <input
-                type="date"
-                value={simulationDate}
-                onChange={(e) => setSimulationDate(e.target.value)}
+                value={simulationDateDraft}
+                inputMode="numeric"
+                onChange={(e) => {
+                  setFilterError("");
+                  setSimulationDateDraft(normalizeItDateDraft(e.target.value));
+                }}
+                onBlur={() => {
+                  if (simulationDateDraft.trim().length !== 10) return;
+                  const next = parseStrictItDateToIso(simulationDateDraft);
+                  if (!next) return setFilterError("Data non valida (formato gg/mm/aaaa).");
+                  setFilterError("");
+                  setSimulationDate(next);
+                  setSimulationDateDraft(formatIsoToItDate(next));
+                }}
+                placeholder="gg/mm/aaaa"
                 className="text-sm"
               />
             </div>
@@ -316,8 +381,9 @@ export default function HomeDpiPage() {
         </div>
 
         {warning ? <p className="mt-2 text-xs font-semibold text-amber-700">{warning}</p> : null}
+        {filterError ? <p className="mt-2 text-xs font-semibold text-red-600">{filterError}</p> : null}
         {error ? <p className="mt-2 text-xs font-semibold text-red-600">{error}</p> : null}
-      </section>
+      </ModuleHeader>
 
       <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
         <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
@@ -396,7 +462,7 @@ export default function HomeDpiPage() {
                       {formatDateIt(row.dataProssimoControllo)}
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className={statusBadgeClass(row.stato)}>{row.stato}</span>
+                      <StatusPill tone={statusTone(row.stato)}>{row.stato}</StatusPill>
                     </td>
                   </tr>
                 ))}
@@ -570,40 +636,6 @@ export default function HomeDpiPage() {
           </div>
         </Modal>
       ) : null}
-    </div>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  total,
-  tone,
-}: {
-  label: string;
-  value: number;
-  total: number;
-  tone: "red" | "amber" | "blue";
-}) {
-  const toneClasses =
-    tone === "red"
-      ? "border-red-200 bg-red-50 text-red-700"
-      : tone === "amber"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
-        : "border-sky-200 bg-sky-50 text-sky-700";
-
-  const pct = total > 0 ? Math.round((value / total) * 1000) / 10 : 0;
-
-  return (
-    <div className={`min-w-[180px] rounded-2xl border px-4 py-3 ${toneClasses}`}>
-      <div className="text-[11px] font-bold uppercase tracking-[0.18em]">{label}</div>
-      <div className="mt-2 flex items-baseline justify-between gap-2">
-        <div className="text-2xl font-black tabular-nums">{value}</div>
-        <div className="text-xs font-semibold tabular-nums">{pct}%</div>
-      </div>
-      <div className="mt-1 text-[11px] font-medium opacity-80">
-        su {total} lavoratori
-      </div>
     </div>
   );
 }

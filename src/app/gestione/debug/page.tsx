@@ -1,21 +1,20 @@
-import { PageFrame } from "@/components/page-frame";
+import { ModuleHeader, PanelCard } from "@/components/module-ui";
 
 export default function GestioneDebugPage() {
   return (
-    <PageFrame
-      eyebrow="Gestione / Debug"
-      title="Debug"
-      description="Pagina tecnica per controlli, verifiche e diagnostica del sistema. Per ora e una shell deliberatamente neutra, pronta a ricevere strumenti solo quando saranno definiti."
-      sections={[
-        {
-          title: "Destinazione prevista",
-          items: [
-            "Controlli sui dati importati.",
-            "Verifiche dei log di import e delle anomalie rilevate.",
-            "Strumenti di supporto all'analisi senza alterare la fonte dati dominante.",
-          ],
-        },
-      ]}
-    />
+    <div className="space-y-4">
+      <ModuleHeader
+        title="Debug"
+        description="Pagina tecnica per controlli, verifiche e diagnostica del sistema."
+      />
+      <PanelCard>
+        <h2 className="text-base font-semibold text-[var(--brand-ink)]">Destinazione prevista</h2>
+        <ul className="mt-4 space-y-2 text-sm text-slate-500">
+          <li>Controlli sui dati importati.</li>
+          <li>Verifiche dei log di import e delle anomalie rilevate.</li>
+          <li>Strumenti di supporto all&apos;analisi senza alterare la fonte dati dominante.</li>
+        </ul>
+      </PanelCard>
+    </div>
   );
 }

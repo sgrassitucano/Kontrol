@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ModuleHeader, PanelCard } from "@/components/module-ui";
 
 type ScopeType = "job" | "site" | "sub_site";
 
@@ -259,16 +260,10 @@ export default function FormazioneMatricePage() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[var(--brand-ink)]">
-              Matrice formazione
-            </h1>
-            <p className="mt-1 text-xs leading-6 text-slate-500">
-              Click su cella per accendere o spegnere il corso obbligatorio. Le modifiche vengono salvate subito.
-            </p>
-          </div>
+      <ModuleHeader
+        title="Matrice formazione"
+        description="Click su cella per accendere o spegnere il corso obbligatorio. Le modifiche vengono salvate subito."
+        actions={
           <button
             type="button"
             onClick={() => void seedFromCsv()}
@@ -278,10 +273,10 @@ export default function FormazioneMatricePage() {
           >
             {isSeeding ? "Aggiorno..." : "Aggiorna da CSV"}
           </button>
-        </div>
-      </section>
+        }
+      />
 
-      <section className="rounded-[16px] border border-[var(--brand-line)] bg-white p-4">
+      <PanelCard className="p-4">
         <div className="grid gap-2 md:grid-cols-[200px_minmax(0,1fr)_minmax(0,1fr)_150px_auto_auto]">
           <select
             className="rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
@@ -322,7 +317,7 @@ export default function FormazioneMatricePage() {
           </span>
         </div>
         {error ? <p className="mt-3 text-xs font-medium text-red-600">{error}</p> : null}
-      </section>
+      </PanelCard>
 
       <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
         <div

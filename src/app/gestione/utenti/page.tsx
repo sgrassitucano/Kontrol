@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { moduleDefinitions, type AppModuleKey } from "@/lib/modules";
+import { ModuleHeader, PanelCard } from "@/components/module-ui";
 
 type PermissionLevel = "none" | "read" | "write";
 
@@ -191,20 +192,13 @@ export default function GestioneUtentiPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[24px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-[var(--brand-ink)]">
-          Gestione utenti
-        </h1>
-        <p className="mt-2 text-sm leading-7 text-slate-500">
-          Configura i permessi per modulo. Le sottopagine ereditano sempre il
-          permesso della pagina madre.
-        </p>
-      </section>
+      <ModuleHeader
+        title="Gestione utenti"
+        description="Configura i permessi per modulo. Le sottopagine ereditano sempre il permesso della pagina madre."
+      />
 
-      <section className="rounded-[20px] border border-[var(--brand-line)] bg-white p-5">
-        <h2 className="text-base font-semibold text-[var(--brand-ink)]">
-          Nuovo utente
-        </h2>
+      <PanelCard>
+        <h2 className="text-base font-semibold text-[var(--brand-ink)]">Nuovo utente</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-5">
           <input
             type="text"
@@ -285,21 +279,13 @@ export default function GestioneUtentiPage() {
           >
             {isSaving ? "Salvo…" : "Crea"}
           </button>
-          <button
-            type="button"
-            onClick={() => void loadUsers()}
-            className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
-            disabled={isLoading || isSaving}
-          >
-            Aggiorna tabella
-          </button>
           <span className="text-xs text-slate-500">
             Ultimo refresh: {tableRefreshText}
           </span>
           {isLoading ? <span className="text-xs text-slate-500">Caricamento…</span> : null}
         </div>
         {error ? <p className="mt-3 text-xs font-medium text-red-600">{error}</p> : null}
-      </section>
+      </PanelCard>
 
       <section className="overflow-hidden rounded-[20px] border border-[var(--brand-line)] bg-white">
         <div className="border-b border-[var(--brand-line)] px-5 py-4">

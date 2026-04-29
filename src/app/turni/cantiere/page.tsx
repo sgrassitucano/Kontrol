@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ModuleHeader } from "@/components/module-ui";
 
 type Zoom = "mese" | "settimana";
 type ShiftState = "planned" | "actual" | "cancelled";
@@ -53,7 +54,10 @@ type AssignmentRow = {
 };
 
 function toIsoDate(value: Date) {
-  return value.toISOString().slice(0, 10);
+  const y = String(value.getFullYear());
+  const m = String(value.getMonth() + 1).padStart(2, "0");
+  const d = String(value.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 function startOfMonth(d: Date) {
@@ -133,7 +137,7 @@ function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={onClose}>
       <div
-        className="w-full max-w-5xl rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl"
+        className="w-full max-w-6xl rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-[var(--brand-line)] px-5 py-4">
@@ -145,7 +149,7 @@ function Modal({
             Chiudi
           </button>
         </div>
-        <div className="max-h-[75vh] overflow-auto p-5">{children}</div>
+        <div className="max-h-[75vh] overflow-y-auto overflow-x-hidden p-5">{children}</div>
       </div>
     </div>
   );
@@ -166,6 +170,18 @@ export default function TurniCantierePage() {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [monthLocked, setMonthLocked] = useState(false);
+  const [monthSummary, setMonthSummary] = useState<{
+    plannedMinutes: number;
+    actualMinutes: number;
+    theoreticalMinutes: number | null;
+    diffPlannedVsTheoretical: number | null;
+    diffActualVsTheoretical: number | null;
+    diffActualVsPlanned: number;
+  } | null>(null);
+  const [theoreticalHoursDraft, setTheoreticalHoursDraft] = useState("");
+  const [monthSummaryError, setMonthSummaryError] = useState("");
+  const [isSavingMonthTarget, setIsSavingMonthTarget] = useState(false);
+  const [isExportingWorkerImages, setIsExportingWorkerImages] = useState(false);
 
   const [error, setError] = useState("");
   const [isBusy, setIsBusy] = useState(false);
@@ -204,11 +220,13 @@ export default function TurniCantierePage() {
   });
 
   const selectedSite = useMemo(() => {
+    if (!siteId) return null;
     const id = Number(siteId);
     return Number.isFinite(id) ? id : null;
   }, [siteId]);
 
   const selectedSubSite = useMemo(() => {
+    if (!subSiteId) return null;
     const id = Number(subSiteId);
     return Number.isFinite(id) ? id : null;
   }, [subSiteId]);
@@ -236,7 +254,16 @@ export default function TurniCantierePage() {
     return { year: d.getFullYear(), month: d.getMonth() + 1 };
   }, [refDate]);
 
-  async function loadLookups() {
+  const weekStart = useMemo(() => {
+    return toIsoDate(startOfWeek(refDate));
+  }, [refDate]);
+
+  function minutesToHoursText(minutes: number) {
+    const h = Math.round((minutes / 60) * 100) / 100;
+    return `${h}`;
+  }
+
+  const loadLookups = useCallback(async () => {
     const res = await fetch("/api/turni/lookups");
     const body = (await res.json()) as {
       sites?: LookupSite[];
@@ -248,8 +275,11 @@ export default function TurniCantierePage() {
     setSites(body.sites ?? []);
     setSubSites(body.subSites ?? []);
     setEmployees(body.employees ?? []);
-    if (!siteId && (body.sites?.length ?? 0) > 0) setSiteId(String(body.sites?.[0]?.id ?? ""));
-  }
+    setSiteId((prev) => {
+      if (prev) return prev;
+      return (body.sites?.length ?? 0) > 0 ? String(body.sites?.[0]?.id ?? "") : "";
+    });
+  }, []);
 
   useEffect(() => {
     if (!selectedSite) return;
@@ -263,14 +293,14 @@ export default function TurniCantierePage() {
     }
   }, [selectedSite, subSites, subSiteId]);
 
-  async function loadLocks() {
+  const loadLocks = useCallback(async () => {
     const res = await fetch(`/api/turni/locks?year=${monthKey.year}&month=${monthKey.month}`);
     const body = (await res.json()) as { locked?: boolean; error?: string };
     if (!res.ok || body.error) throw new Error(body.error ?? "Errore lock mese.");
     setMonthLocked(Boolean(body.locked));
-  }
+  }, [monthKey.month, monthKey.year]);
 
-  async function loadTemplate() {
+  const loadTemplate = useCallback(async () => {
     if (!selectedSite) return;
     const sub = typeof selectedSubSite === "number" ? `&subSiteId=${selectedSubSite}` : "";
     const res = await fetch(`/api/turni/templates?siteId=${selectedSite}${sub}&date=${toIsoDate(refDate)}`);
@@ -278,18 +308,18 @@ export default function TurniCantierePage() {
     if (!res.ok || body.error) throw new Error(body.error ?? "Errore caricamento template.");
     setTemplate(body.template ?? null);
     setTemplateSlots(body.slots ?? []);
-  }
+  }, [refDate, selectedSite, selectedSubSite]);
 
-  async function loadAssignments() {
+  const loadAssignments = useCallback(async () => {
     if (!selectedSite) return;
     const sub = typeof selectedSubSite === "number" ? `&subSiteId=${selectedSubSite}` : "";
     const res = await fetch(`/api/turni/assignments?siteId=${selectedSite}${sub}`);
     const body = (await res.json()) as { rows?: AssignmentRow[]; error?: string };
     if (!res.ok || body.error) throw new Error(body.error ?? "Errore caricamento assegnazioni.");
     setAssignments(body.rows ?? []);
-  }
+  }, [selectedSite, selectedSubSite]);
 
-  async function loadShifts() {
+  const loadShifts = useCallback(async () => {
     if (!selectedSite) return;
     const sub = typeof selectedSubSite === "number" ? `&subSiteId=${selectedSubSite}` : "";
     const res = await fetch(
@@ -298,27 +328,60 @@ export default function TurniCantierePage() {
     const body = (await res.json()) as { rows?: ShiftRow[]; error?: string };
     if (!res.ok || body.error) throw new Error(body.error ?? "Errore caricamento turni.");
     setShifts(body.rows ?? []);
-  }
+  }, [range.endDate, range.startDate, selectedSite, selectedSubSite]);
 
-  async function reloadAll() {
+  const loadMonthSummary = useCallback(async () => {
+    if (!selectedSite) return;
+    setMonthSummaryError("");
+    const sub = typeof selectedSubSite === "number" ? `&subSiteId=${selectedSubSite}` : "";
+    const res = await fetch(
+      `/api/turni/site-month-summary?year=${monthKey.year}&month=${monthKey.month}&siteId=${selectedSite}${sub}`,
+    );
+    const body = (await res.json()) as {
+      plannedMinutes?: number;
+      actualMinutes?: number;
+      theoreticalMinutes?: number | null;
+      diffPlannedVsTheoretical?: number | null;
+      diffActualVsTheoretical?: number | null;
+      diffActualVsPlanned?: number;
+      error?: string;
+    };
+    if (!res.ok || body.error) throw new Error(body.error ?? "Errore riepilogo mese.");
+    const next = {
+      plannedMinutes: body.plannedMinutes ?? 0,
+      actualMinutes: body.actualMinutes ?? 0,
+      theoreticalMinutes: typeof body.theoreticalMinutes === "number" ? body.theoreticalMinutes : null,
+      diffPlannedVsTheoretical: typeof body.diffPlannedVsTheoretical === "number" ? body.diffPlannedVsTheoretical : null,
+      diffActualVsTheoretical: typeof body.diffActualVsTheoretical === "number" ? body.diffActualVsTheoretical : null,
+      diffActualVsPlanned: body.diffActualVsPlanned ?? 0,
+    };
+    setMonthSummary(next);
+    if (typeof next.theoreticalMinutes === "number") {
+      setTheoreticalHoursDraft(String(Math.round((next.theoreticalMinutes / 60) * 100) / 100));
+    } else {
+      setTheoreticalHoursDraft("");
+    }
+  }, [monthKey.month, monthKey.year, selectedSite, selectedSubSite]);
+
+  const reloadAll = useCallback(async () => {
     setError("");
     try {
       await loadLocks();
-      await Promise.all([loadTemplate(), loadAssignments(), loadShifts()]);
+      await Promise.all([loadTemplate(), loadAssignments(), loadShifts(), loadMonthSummary()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore imprevisto.");
     }
-  }
+  }, [loadAssignments, loadLocks, loadMonthSummary, loadShifts, loadTemplate]);
 
   useEffect(() => {
     setError("");
     loadLookups().catch((e) => setError(e instanceof Error ? e.message : "Errore lookup."));
-  }, []);
+  }, [loadLookups]);
 
   useEffect(() => {
     if (!selectedSite) return;
-    reloadAll();
-  }, [selectedSite, range.startDate, range.endDate, monthKey.year, monthKey.month]);
+    void reloadAll();
+  }, [reloadAll, selectedSite]);
 
   const monthDays = useMemo(() => {
     const start = startOfMonth(refDate);
@@ -713,23 +776,85 @@ export default function TurniCantierePage() {
     return `/api/turni/export?year=${monthKey.year}&month=${monthKey.month}${site}${sub}`;
   }, [monthKey.year, monthKey.month, selectedSite, selectedSubSite]);
 
+  async function exportWorkerImagesZip() {
+    if (!selectedSite) return;
+    setIsExportingWorkerImages(true);
+    setError("");
+    try {
+      const sub = typeof selectedSubSite === "number" ? `&subSiteId=${selectedSubSite}` : "";
+      const res = await fetch(`/api/turni/worker-images?weekStart=${weekStart}&siteId=${selectedSite}${sub}&format=jpg`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Errore export immagini.");
+      }
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `turni_wa_${weekStart}_site_${selectedSite}.zip`;
+      a.click();
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore export immagini.");
+    } finally {
+      setIsExportingWorkerImages(false);
+    }
+  }
+
+  async function saveMonthTarget() {
+    if (!selectedSite) return;
+    setIsSavingMonthTarget(true);
+    setMonthSummaryError("");
+    try {
+      const hours = Number(String(theoreticalHoursDraft ?? "").replace(",", "."));
+      if (!Number.isFinite(hours) || hours < 0) {
+        setMonthSummaryError("Ore teoriche non valide.");
+        return;
+      }
+      const body = {
+        year: monthKey.year,
+        month: monthKey.month,
+        siteId: selectedSite,
+        subSiteId: typeof selectedSubSite === "number" ? selectedSubSite : null,
+        theoreticalHours: hours,
+      };
+      const res = await fetch("/api/turni/site-month-targets", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const out = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || out.error) throw new Error(out.error ?? "Errore salvataggio ore teoriche.");
+      await loadMonthSummary();
+    } catch (e) {
+      setMonthSummaryError(e instanceof Error ? e.message : "Errore salvataggio ore teoriche.");
+    } finally {
+      setIsSavingMonthTarget(false);
+    }
+  }
+
   return (
-    <div className="p-6">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Turni / Cantiere</div>
-          <div className="mt-1 text-2xl font-bold text-slate-900">Turni</div>
-          <div className="mt-1 text-sm text-slate-600">
-            Vista per cantiere con zoom mese/settimana, generazione da template e modifiche manuali.
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="space-y-4 p-6">
+      <ModuleHeader
+        title="Turni — Cantiere"
+        description="Vista per cantiere con zoom mese/settimana, generazione da template e modifiche manuali."
+        actions={
+          <div className="flex items-center gap-2">
           <a
             href={exportHref}
             className="inline-flex items-center rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-[var(--brand-panel)]"
           >
             Export
           </a>
+          <button
+            type="button"
+            disabled={isExportingWorkerImages || !selectedSite}
+            onClick={exportWorkerImagesZip}
+            className="inline-flex items-center rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-[var(--brand-panel)] disabled:cursor-not-allowed disabled:opacity-60"
+            title="Esporta ZIP immagini settimanali per WhatsApp (una per lavoratore con turni nella settimana)"
+          >
+            Immagini WA
+          </button>
           <button
             onClick={() => {
               setTemplateForm({
@@ -758,8 +883,9 @@ export default function TurniCantierePage() {
           >
             Genera
           </button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
         <div className="flex items-center gap-2">
@@ -845,6 +971,74 @@ export default function TurniCantierePage() {
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
       ) : null}
+
+      <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Rendicontazione mese</div>
+            <div className="mt-1 text-xs text-slate-500">
+              Mese: {String(monthKey.month).padStart(2, "0")}/{monthKey.year} · Scope: cantiere{typeof selectedSubSite === "number" ? " + sottocantiere" : ""}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={theoreticalHoursDraft}
+              onChange={(e) => setTheoreticalHoursDraft(e.target.value)}
+              placeholder="Ore teoriche mese"
+              className="w-[180px] rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={saveMonthTarget}
+              disabled={isSavingMonthTarget || !selectedSite}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Salva
+            </button>
+          </div>
+        </div>
+        {monthSummary ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-3">
+              <div className="text-xs font-semibold text-slate-600">Preventivo (planned)</div>
+              <div className="mt-1 text-xl font-bold text-slate-900">{minutesToHoursText(monthSummary.plannedMinutes)}h</div>
+            </div>
+            <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-3">
+              <div className="text-xs font-semibold text-slate-600">Consuntivo (actual)</div>
+              <div className="mt-1 text-xl font-bold text-slate-900">{minutesToHoursText(monthSummary.actualMinutes)}h</div>
+            </div>
+            <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-3">
+              <div className="text-xs font-semibold text-slate-600">Ore teoriche</div>
+              <div className="mt-1 text-xl font-bold text-slate-900">
+                {typeof monthSummary.theoreticalMinutes === "number" ? `${minutesToHoursText(monthSummary.theoreticalMinutes)}h` : "-"}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 text-sm text-slate-500">Nessun dato.</div>
+        )}
+        {monthSummary && typeof monthSummary.theoreticalMinutes === "number" ? (
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-3">
+              <div className="text-xs font-semibold text-slate-600">Δ Preventivo vs Teoriche</div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">
+                {minutesToHoursText(monthSummary.diffPlannedVsTheoretical ?? 0)}h
+              </div>
+            </div>
+            <div className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-3">
+              <div className="text-xs font-semibold text-slate-600">Δ Consuntivo vs Teoriche</div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">
+                {minutesToHoursText(monthSummary.diffActualVsTheoretical ?? 0)}h
+              </div>
+            </div>
+            <div className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-3">
+              <div className="text-xs font-semibold text-slate-600">Δ Consuntivo vs Preventivo</div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">{minutesToHoursText(monthSummary.diffActualVsPlanned)}h</div>
+            </div>
+          </div>
+        ) : null}
+        {monthSummaryError ? <div className="mt-3 text-sm font-semibold text-red-700">{monthSummaryError}</div> : null}
+      </div>
 
       {zoom === "mese" ? (
         <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
@@ -1280,18 +1474,18 @@ export default function TurniCantierePage() {
       </Modal>
 
       <Modal title="Turni del giorno" isOpen={isDayModalOpen} onClose={() => setIsDayModalOpen(false)}>
-        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
-          <div>
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="min-w-0">
             <div className="mb-3 rounded-2xl border border-[var(--brand-line)] bg-white p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs font-semibold text-slate-600">{formatItDate(shiftForm.date)}</div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <div className="text-xs font-semibold text-slate-600">Copia su</div>
                   <input
                     type="date"
                     value={copyDayTargetDate}
                     onChange={(e) => setCopyDayTargetDate(e.target.value)}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                    className="w-[160px] rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                   />
                   <button
                     disabled={isBusy || monthLocked}
@@ -1342,7 +1536,7 @@ export default function TurniCantierePage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
+          <div className="min-w-0 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
             <div className="mb-3 text-sm font-semibold text-slate-900">
               {shiftForm.shiftId ? "Modifica turno" : "Nuovo turno"}
             </div>
@@ -1352,7 +1546,7 @@ export default function TurniCantierePage() {
                 <select
                   value={shiftForm.employeeId}
                   onChange={(e) => setShiftForm((s) => ({ ...s, employeeId: e.target.value }))}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 >
                   <option value="">Seleziona...</option>
                   {employees.map((e) => (
@@ -1372,7 +1566,7 @@ export default function TurniCantierePage() {
                   type="date"
                   value={shiftForm.date}
                   onChange={(e) => setShiftForm((s) => ({ ...s, date: e.target.value }))}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 />
               </div>
 
@@ -1382,7 +1576,7 @@ export default function TurniCantierePage() {
                   <select
                     value={typeof selectedSubSite === "number" ? String(selectedSubSite) : shiftForm.subSiteId}
                     onChange={(e) => setShiftForm((s) => ({ ...s, subSiteId: e.target.value }))}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                     disabled={typeof selectedSubSite === "number"}
                   >
                     <option value="">Seleziona...</option>
@@ -1396,12 +1590,12 @@ export default function TurniCantierePage() {
               ) : null}
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-2">
+                <div className="grid min-w-0 gap-2">
                   <div className="text-xs font-semibold text-slate-600">Inizio</div>
                   <select
                     value={shiftForm.startTime}
                     onChange={(e) => setShiftForm((s) => ({ ...s, startTime: e.target.value }))}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                   >
                     {timeOptions.map((t) => (
                       <option key={t} value={t}>
@@ -1410,12 +1604,12 @@ export default function TurniCantierePage() {
                     ))}
                   </select>
                 </div>
-                <div className="grid gap-2">
+                <div className="grid min-w-0 gap-2">
                   <div className="text-xs font-semibold text-slate-600">Fine</div>
                   <select
                     value={shiftForm.endTime}
                     onChange={(e) => setShiftForm((s) => ({ ...s, endTime: e.target.value }))}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                   >
                     {timeOptions.map((t) => (
                       <option key={t} value={t}>
@@ -1431,7 +1625,7 @@ export default function TurniCantierePage() {
                 <select
                   value={shiftForm.state}
                   onChange={(e) => setShiftForm((s) => ({ ...s, state: e.target.value as ShiftState }))}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 >
                   <option value="planned">Preventivo</option>
                   <option value="actual">Consuntivo</option>
@@ -1444,7 +1638,7 @@ export default function TurniCantierePage() {
                 <input
                   value={shiftForm.note}
                   onChange={(e) => setShiftForm((s) => ({ ...s, note: e.target.value }))}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 />
               </div>
 
@@ -1474,7 +1668,7 @@ export default function TurniCantierePage() {
                               breaks: s.breaks.map((it, i) => (i === idx ? { ...it, startTime: e.target.value } : it)),
                             }))
                           }
-                          className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                          className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                         >
                           {timeOptions.map((t) => (
                             <option key={t} value={t}>
@@ -1490,7 +1684,7 @@ export default function TurniCantierePage() {
                               breaks: s.breaks.map((it, i) => (i === idx ? { ...it, endTime: e.target.value } : it)),
                             }))
                           }
-                          className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                          className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                         >
                           {timeOptions.map((t) => (
                             <option key={t} value={t}>
