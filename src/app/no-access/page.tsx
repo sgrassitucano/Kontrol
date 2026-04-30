@@ -15,13 +15,13 @@ export default function NoAccessPage() {
       <div className="flex flex-wrap gap-3">
         <Link
           href="/home"
-          className="inline-flex min-h-11 items-center rounded-full bg-[var(--brand-primary)] px-4 text-sm font-medium text-white transition hover:brightness-95"
+          className="inline-flex min-h-11 items-center rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white transition hover:brightness-95"
         >
           Vai alla Home
         </Link>
         <Link
           href="/login"
-          className="inline-flex min-h-11 items-center rounded-full border border-[var(--brand-line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--brand-primary)]"
+          className="inline-flex min-h-11 items-center rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white transition hover:brightness-95"
         >
           Cambia account
         </Link>

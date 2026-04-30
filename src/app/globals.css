@@ -1,16 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --background: #eef2f6;
+  --background: #ffffff;
   --foreground: #0f172a;
   --brand-primary: #2f5bd3;
   --brand-primary-rgb: 47 91 211;
   --brand-ink: #0b1220;
   --brand-soft: #5b677a;
   --brand-line: #d9e1ee;
-  --brand-panel: #ffffff;
+  --brand-sidebar: #dde3ea;
+  --brand-page: #ffffff;
+  --brand-panel: #f9fbfd;
   --brand-tint: #eef3ff;
-  --brand-panel-2: #f3f6fb;
+  --brand-panel-2: #fcfdff;
   --brand-shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
   --brand-shadow-soft: 0 6px 18px rgba(15, 23, 42, 0.06);
 }
@@ -73,4 +75,90 @@ a {
 :focus-visible {
   outline: 3px solid rgb(var(--brand-primary-rgb) / 0.35);
   outline-offset: 2px;
+}
+
+thead th {
+  color: var(--brand-ink) !important;
+}
+
+thead th * {
+  color: inherit !important;
+}
+
+thead button {
+  background: transparent !important;
+  color: var(--brand-ink) !important;
+  font-weight: 700;
+  filter: none !important;
+}
+
+thead button:hover:not(:disabled) {
+  background: transparent !important;
+  filter: none !important;
+}
+
+.module-actions :is(button, a):not([data-kpi="true"]):not([data-cal="true"]) {
+  background: #ffffff !important;
+  color: var(--brand-ink) !important;
+  font-weight: 700 !important;
+  border: 1px solid var(--brand-line) !important;
+  filter: none !important;
+}
+
+.module-actions :is(button, a):not([data-kpi="true"]):not([data-cal="true"]) * {
+  color: inherit !important;
+  font-weight: inherit !important;
+}
+
+.module-actions :is(button, a):not([data-kpi="true"]):not([data-cal="true"]):hover:not(:disabled) {
+  background: var(--brand-panel-2) !important;
+  filter: none !important;
+}
+
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]) {
+  background: var(--brand-primary);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]) * {
+  color: inherit !important;
+  font-weight: inherit !important;
+}
+
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+button[data-chip="true"] {
+  background: #ffffff !important;
+  color: var(--brand-ink) !important;
+  font-weight: 700 !important;
+  border: 1px solid var(--brand-line) !important;
+  filter: none !important;
+}
+
+button[data-chip="true"] * {
+  color: inherit !important;
+  font-weight: inherit !important;
+}
+
+button[data-chip="true"]:hover:not(:disabled) {
+  background: var(--brand-panel-2) !important;
+  filter: none !important;
+}
+
+.bg-\[var\(--brand-primary\)\] {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.bg-\[var\(--brand-primary\)\] * {
+  color: inherit !important;
+  font-weight: inherit !important;
 }

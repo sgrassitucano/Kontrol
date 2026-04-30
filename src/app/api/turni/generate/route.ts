@@ -185,6 +185,7 @@ export async function POST(request: Request) {
       state: "planned";
       source: "template";
       note: null;
+      created_by: string;
     }> = [];
 
     let missingSubSiteAssignments = 0;
@@ -233,6 +234,7 @@ export async function POST(request: Request) {
             state: "planned",
             source: "template",
             note: null,
+            created_by: auth.userId,
           });
         }
       }

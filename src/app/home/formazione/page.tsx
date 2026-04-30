@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeJobCode } from "@/lib/training/normalize";
-import { KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
+import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
 
 type WorkerCourseRow = {
@@ -1054,7 +1054,7 @@ export default function HomeFormazionePage() {
             <button
               type="button"
               onClick={() => openEventModal()}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
               title="Nuovo evento corso"
             >
               + Evento
@@ -1065,7 +1065,7 @@ export default function HomeFormazionePage() {
               <button
                 type="button"
                 onClick={clearSelection}
-                className="rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-white disabled:opacity-60"
+                className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
                 disabled={selectedWorkerIds.size === 0}
               >
                 Pulisci
@@ -1077,7 +1077,7 @@ export default function HomeFormazionePage() {
                 resetImportForm();
                 setIsImportModalOpen(true);
               }}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
               title="Import massivo scadenzario"
             >
               Import massivo
@@ -1085,7 +1085,7 @@ export default function HomeFormazionePage() {
             <button
               type="button"
               onClick={() => void runExport()}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               title="Export Excel"
               disabled={isExporting}
             >
@@ -1094,7 +1094,7 @@ export default function HomeFormazionePage() {
             <button
               type="button"
               onClick={() => void openDetail()}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#2f5ea8] bg-gradient-to-r from-[var(--brand-primary)] to-[#2f5ea8] px-4 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-white/20 transition hover:-translate-y-0.5 hover:shadow-md"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#2f5ea8] bg-gradient-to-r from-[var(--brand-primary)] to-[#2f5ea8] px-4 py-2 text-sm font-bold text-white shadow-sm ring-1 ring-white/20 transition hover:-translate-y-0.5 hover:shadow-md"
               title="Apri dettaglio formazione"
             >
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-white/20">
@@ -1122,7 +1122,7 @@ export default function HomeFormazionePage() {
         {exportError ? <p className="text-xs font-medium text-red-600">{exportError}</p> : null}
       </ModuleHeader>
 
-      <PanelCard className="p-3">
+      <DashboardCard className="p-3">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-[var(--brand-ink)]">Cruscotto Operativo</h2>
@@ -1133,7 +1133,7 @@ export default function HomeFormazionePage() {
               <button
                 type="button"
                 onClick={() => applyDashboardFilter(null)}
-                className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-[var(--brand-panel)]"
+                className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
               >
                 Reset filtro
               </button>
@@ -1141,7 +1141,7 @@ export default function HomeFormazionePage() {
             <button
               type="button"
               onClick={() => setIsDashboardCollapsed((value) => !value)}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
               title={isDashboardCollapsed ? "Espandi cruscotto" : "Comprimi cruscotto"}
             >
               {isDashboardCollapsed ? "Espandi" : "Comprimi"}
@@ -1171,7 +1171,7 @@ export default function HomeFormazionePage() {
                     <button
                       type="button"
                       onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
-                      className="rounded-lg border border-[var(--brand-line)] bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-[var(--brand-panel)]"
+                      className="rounded-lg bg-[var(--brand-primary)] px-2.5 py-1 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                       title="Applica filtro alla tabella"
                     >
                       Totale {summary.total}
@@ -1244,7 +1244,7 @@ export default function HomeFormazionePage() {
             })}
           </div>
         ) : null}
-      </PanelCard>
+      </DashboardCard>
 
       <PanelCard className="p-3">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_140px_auto]">
@@ -1302,7 +1302,7 @@ export default function HomeFormazionePage() {
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
       </PanelCard>
 
-      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
         <div
           ref={topScrollRef}
           onScroll={() => syncHorizontalScroll("top")}
@@ -1552,7 +1552,7 @@ export default function HomeFormazionePage() {
                       <button
                         type="button"
                         onClick={() => void openWorkerDetail(row)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-[var(--brand-primary)] transition hover:bg-[var(--brand-panel)]"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                         title="Dettaglio lavoratore (esclusioni)"
                       >
                         <svg
@@ -1572,7 +1572,7 @@ export default function HomeFormazionePage() {
                       <button
                         type="button"
                         onClick={() => openQuickAction(row)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-[var(--brand-primary)] transition hover:bg-[var(--brand-panel)]"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                         title="Azione rapida su questa riga"
                       >
                         <svg
@@ -1628,7 +1628,7 @@ export default function HomeFormazionePage() {
                 <button
                   type="button"
                   onClick={() => setShowOnlyProblemJobsInDetail((v) => !v)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                 >
                   <span
                     className={[
@@ -1643,7 +1643,7 @@ export default function HomeFormazionePage() {
                 <button
                   type="button"
                   onClick={() => setShowEmptyJobsInDetail((v) => !v)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                 >
                   <span
                     className={[
@@ -1658,7 +1658,7 @@ export default function HomeFormazionePage() {
                 <button
                   type="button"
                   onClick={() => setIsDashboardDetailOpen(false)}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                   title="Chiudi dettaglio"
                 >
                   ✕
@@ -2135,12 +2135,7 @@ export default function HomeFormazionePage() {
                                         type="button"
                                         disabled={!r.courseId}
                                         onClick={() => r.courseId && void deleteCourseExclusion(r.courseId)}
-                                        className={[
-                                          "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                                          !r.courseId
-                                            ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
-                                            : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
-                                        ].join(" ")}
+                                        className="rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                                       >
                                         Cancella
                                       </button>
@@ -2166,7 +2161,7 @@ export default function HomeFormazionePage() {
                   <button
                     type="button"
                     onClick={() => setIsExclusionNoteModalOpen(false)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                   >
                     ✕
                   </button>
@@ -2186,14 +2181,14 @@ export default function HomeFormazionePage() {
                   <button
                     type="button"
                     onClick={() => setIsExclusionNoteModalOpen(false)}
-                    className="rounded-xl border border-[var(--brand-line)] px-4 py-2 text-sm font-semibold text-slate-600"
+                    className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                   >
                     Annulla
                   </button>
                   <button
                     type="button"
                     onClick={() => void confirmExclusionNote()}
-                    className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
+                    className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                   >
                     Salva
                   </button>
@@ -2236,7 +2231,7 @@ export default function HomeFormazionePage() {
                   setIsImportModalOpen(false);
                   resetImportForm();
                 }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
               >
                 ✕
               </button>
@@ -2274,7 +2269,7 @@ export default function HomeFormazionePage() {
                 <a
                   href="/templates/import_scadenzario_template.xlsx"
                   download
-                  className="inline-flex items-center rounded-lg border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-primary)] transition hover:bg-[var(--brand-tint)]"
+                  className="inline-flex items-center rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                 >
                   Scarica template XLSX
                 </a>
@@ -2303,7 +2298,7 @@ export default function HomeFormazionePage() {
                   type="button"
                   onClick={() => void runImportPreview()}
                   disabled={importLoading}
-                  className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
                 >
                   {importLoading ? "Analisi in corso..." : "Analizza file"}
                 </button>
@@ -2341,7 +2336,7 @@ export default function HomeFormazionePage() {
                       const csv = buildIssuesCsv(importPreview.issues);
                       downloadCsvFile("preview_issues_scadenzario.csv", csv);
                     }}
-                    className="rounded-lg border border-[var(--brand-line)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-primary)]"
+                    className="rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                   >
                     Scarica issues CSV
                   </button>
@@ -2351,7 +2346,7 @@ export default function HomeFormazionePage() {
                       const csv = buildMissingEmployeesCsv(importPreview.missingEmployeesList);
                       downloadCsvFile("preview_dipendenti_mancanti.csv", csv);
                     }}
-                    className="rounded-lg border border-[var(--brand-line)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-primary)]"
+                    className="rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                   >
                     Scarica dipendenti mancanti CSV
                   </button>

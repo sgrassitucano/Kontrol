@@ -9,8 +9,8 @@ function toneClassName(tone: Tone) {
   if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (tone === "purple") return "border-purple-200 bg-purple-50 text-purple-800";
   if (tone === "primary") return "border-[var(--brand-line)] bg-[var(--brand-panel)] text-[var(--brand-ink)]";
-  if (tone === "muted") return "border-slate-200 bg-slate-50 text-slate-600";
-  return "border-[var(--brand-line)] bg-white text-[var(--brand-ink)]";
+  if (tone === "muted") return "border-[var(--brand-line)] bg-[var(--brand-panel-2)] text-slate-600";
+  return "border-[var(--brand-line)] bg-[var(--brand-panel-2)] text-[var(--brand-ink)]";
 }
 
 export function ModuleHeader(props: {
@@ -18,9 +18,15 @@ export function ModuleHeader(props: {
   description?: string;
   actions?: ReactNode;
   children?: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
+    <section
+      className={[
+        "rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4",
+        props.className ?? "",
+      ].join(" ")}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[var(--brand-ink)]">{props.title}</h1>
@@ -28,7 +34,9 @@ export function ModuleHeader(props: {
             <p className="mt-2 text-sm leading-7 text-slate-500">{props.description}</p>
           ) : null}
         </div>
-        {props.actions ? <div className="flex flex-wrap items-center gap-2">{props.actions}</div> : null}
+        {props.actions ? (
+          <div className="module-actions flex flex-wrap items-center gap-2">{props.actions}</div>
+        ) : null}
       </div>
       {props.children ? <div className="mt-4">{props.children}</div> : null}
     </section>
@@ -37,7 +45,15 @@ export function ModuleHeader(props: {
 
 export function PanelCard(props: { children: ReactNode; className?: string }) {
   return (
-    <section className={["rounded-[16px] border border-[var(--brand-line)] bg-white p-4", props.className ?? ""].join(" ")}>
+    <section className={["rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4", props.className ?? ""].join(" ")}>
+      {props.children}
+    </section>
+  );
+}
+
+export function DashboardCard(props: { children: ReactNode; className?: string }) {
+  return (
+    <section className={["rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4", props.className ?? ""].join(" ")}>
       {props.children}
     </section>
   );
@@ -69,6 +85,7 @@ export function KpiCard(props: {
     return (
       <button
         type="button"
+        data-kpi="true"
         onClick={props.onClick}
         className={[
           "rounded-2xl border p-3 text-left transition hover:bg-[var(--brand-panel)]",

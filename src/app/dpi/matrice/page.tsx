@@ -245,7 +245,7 @@ export default function DpiMatricePage() {
         {error ? <p className="mt-2 text-xs font-semibold text-red-600">{error}</p> : null}
       </ModuleHeader>
 
-      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
         <div
           ref={tableScrollTopRef}
           onScroll={() => syncHorizontalScroll("top")}
@@ -294,13 +294,10 @@ export default function DpiMatricePage() {
               ) : null}
 
               {!isLoading &&
-                filteredDpiItems.map((dpi, idx) => (
+                filteredDpiItems.map((dpi) => (
                   <tr
                     key={dpi.id}
-                    className={[
-                      "border-t border-[var(--brand-line)]",
-                      idx % 2 === 1 ? "bg-[var(--brand-panel)]/25" : "bg-white",
-                    ].join(" ")}
+                    className="border-t border-[var(--brand-line)] bg-white"
                   >
                     <td className="sticky left-0 z-10 bg-inherit px-4 py-2.5">
                       <div className="flex items-start justify-between gap-2">
@@ -315,7 +312,7 @@ export default function DpiMatricePage() {
                         <button
                           type="button"
                           onClick={() => openEdit(dpi)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-[var(--brand-panel)]"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                           title="Modifica DPI"
                         >
                           <svg
@@ -413,7 +410,7 @@ export default function DpiMatricePage() {
             <button
               type="button"
               onClick={() => setIsEditOpen(false)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isEditBusy}
             >
               Annulla
@@ -421,7 +418,7 @@ export default function DpiMatricePage() {
             <button
               type="button"
               onClick={() => void saveEdit()}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isEditBusy || !editForm.title.trim()}
             >
               {isEditBusy ? "Salvataggio…" : "Salva"}
@@ -450,7 +447,7 @@ function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
             title="Chiudi"
           >
             ✕

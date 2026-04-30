@@ -355,10 +355,8 @@ export default function SorveglianzaMatricePage() {
             type="button"
             onClick={() => setTab("cantieri")}
             className={[
-              "rounded-xl border px-3 py-2 text-sm font-semibold transition",
-              tab === "cantieri"
-                ? "border-[var(--brand-primary)] bg-white text-[var(--brand-ink)]"
-                : "border-[var(--brand-line)] bg-white text-slate-600 hover:bg-[var(--brand-panel)]",
+              "rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
+              tab === "cantieri" ? "" : "opacity-80",
             ].join(" ")}
           >
             Cantieri
@@ -367,10 +365,8 @@ export default function SorveglianzaMatricePage() {
             type="button"
             onClick={() => setTab("mansioni")}
             className={[
-              "rounded-xl border px-3 py-2 text-sm font-semibold transition",
-              tab === "mansioni"
-                ? "border-[var(--brand-primary)] bg-white text-[var(--brand-ink)]"
-                : "border-[var(--brand-line)] bg-white text-slate-600 hover:bg-[var(--brand-panel)]",
+              "rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
+              tab === "mansioni" ? "" : "opacity-80",
             ].join(" ")}
           >
             Mansioni
@@ -379,10 +375,8 @@ export default function SorveglianzaMatricePage() {
             type="button"
             onClick={() => setTab("provider")}
             className={[
-              "rounded-xl border px-3 py-2 text-sm font-semibold transition",
-              tab === "provider"
-                ? "border-[var(--brand-primary)] bg-white text-[var(--brand-ink)]"
-                : "border-[var(--brand-line)] bg-white text-slate-600 hover:bg-[var(--brand-panel)]",
+              "rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
+              tab === "provider" ? "" : "opacity-80",
             ].join(" ")}
           >
             Provider
@@ -398,7 +392,7 @@ export default function SorveglianzaMatricePage() {
       </ModuleHeader>
 
       {tab === "cantieri" ? (
-        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="border-b border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-3">
             <h2 className="text-sm font-bold text-[var(--brand-ink)]">Matrice cantieri</h2>
             <p className="mt-1 text-xs text-slate-500">Imposta visita SI/NO per cantiere o sottocantiere. Default = segue le altre regole.</p>
@@ -414,16 +408,13 @@ export default function SorveglianzaMatricePage() {
                 </tr>
               </thead>
               <tbody>
-                {(cantieriPayload?.sites ?? []).map((site, idx) => {
+                {(cantieriPayload?.sites ?? []).map((site) => {
                   const key = `site:${site.id}`;
                   const draft = cantieriDrafts[key];
                   return (
                     <tr
                       key={key}
-                      className={[
-                        "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                        idx % 2 === 1 ? "bg-[var(--brand-panel)]/30" : "bg-white",
-                      ].join(" ")}
+                      className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                     >
                       <td className="px-4 py-2.5 text-slate-700">
                         <span className="font-semibold text-slate-800">{site.display_name}</span>
@@ -463,7 +454,7 @@ export default function SorveglianzaMatricePage() {
                         <button
                           type="button"
                           onClick={() => void saveCantiereRule(key)}
-                          className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+                          className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                           disabled={!cantieriPayload?.supportsRules || cantieriSaving === key}
                         >
                           {cantieriSaving === key ? "Salvo…" : "Salva"}
@@ -472,17 +463,14 @@ export default function SorveglianzaMatricePage() {
                     </tr>
                   );
                 })}
-                {(cantieriPayload?.subSites ?? []).map((subSite, idx) => {
+                {(cantieriPayload?.subSites ?? []).map((subSite) => {
                   const key = `sub:${subSite.id}`;
                   const draft = cantieriDrafts[key];
                   const siteName = (cantieriPayload?.sites ?? []).find((s) => s.id === subSite.site_id)?.display_name ?? "-";
                   return (
                     <tr
                       key={key}
-                      className={[
-                        "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                        idx % 2 === 1 ? "bg-[var(--brand-panel)]/10" : "bg-white",
-                      ].join(" ")}
+                      className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                     >
                       <td className="px-4 py-2.5 text-slate-700">
                         <span className="text-slate-400">{siteName}</span>
@@ -546,7 +534,7 @@ export default function SorveglianzaMatricePage() {
       ) : null}
 
       {tab === "mansioni" ? (
-        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="border-b border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-3">
             <h2 className="text-sm font-bold text-[var(--brand-ink)]">Matrice mansioni</h2>
             <p className="mt-1 text-xs text-slate-500">
@@ -567,16 +555,13 @@ export default function SorveglianzaMatricePage() {
                 </tr>
               </thead>
               <tbody>
-                {(mansioniPayload?.jobCodes ?? []).map((job, idx) => {
+                {(mansioniPayload?.jobCodes ?? []).map((job) => {
                   const draft = mansioniDrafts[job.code];
                   const isDefaultExempt = defaultExemptSet.has(job.code);
                   return (
                     <tr
                       key={job.code}
-                      className={[
-                        "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                        idx % 2 === 1 ? "bg-[var(--brand-panel)]/30" : "bg-white",
-                      ].join(" ")}
+                      className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                     >
                       <td className="w-[38%] px-4 py-2.5 text-slate-700">
                         <span className="font-semibold text-slate-800">{job.code}</span>
@@ -655,7 +640,7 @@ export default function SorveglianzaMatricePage() {
       ) : null}
 
       {tab === "provider" ? (
-        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-3">
             <div>
               <h2 className="text-sm font-bold text-[var(--brand-ink)]">Matrice provider</h2>
@@ -678,7 +663,7 @@ export default function SorveglianzaMatricePage() {
             <button
               type="button"
               onClick={() => providerSeedInputRef.current?.click()}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={!providerPayload?.supportsRules || providerSeedLoading}
             >
               {providerSeedLoading ? "Carico file…" : "Ricostruisci da file import"}
@@ -695,16 +680,13 @@ export default function SorveglianzaMatricePage() {
                 </tr>
               </thead>
               <tbody>
-                {(providerPayload?.sites ?? []).map((site, idx) => {
+                {(providerPayload?.sites ?? []).map((site) => {
                   const key = `site:${site.id}`;
                   const draft = providerDrafts[key];
                   return (
                     <tr
                       key={key}
-                      className={[
-                        "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                        idx % 2 === 1 ? "bg-[var(--brand-panel)]/30" : "bg-white",
-                      ].join(" ")}
+                      className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                     >
                       <td className="px-4 py-2.5 text-slate-700">
                         <span className="font-semibold text-slate-800">{site.display_name}</span>
@@ -750,17 +732,14 @@ export default function SorveglianzaMatricePage() {
                     </tr>
                   );
                 })}
-                {(providerPayload?.subSites ?? []).map((subSite, idx) => {
+                {(providerPayload?.subSites ?? []).map((subSite) => {
                   const key = `sub:${subSite.id}`;
                   const draft = providerDrafts[key];
                   const siteName = (providerPayload?.sites ?? []).find((s) => s.id === subSite.site_id)?.display_name ?? "-";
                   return (
                     <tr
                       key={key}
-                      className={[
-                        "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                        idx % 2 === 1 ? "bg-[var(--brand-panel)]/10" : "bg-white",
-                      ].join(" ")}
+                      className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                     >
                       <td className="px-4 py-2.5 text-slate-700">
                         <span className="text-slate-400">{siteName}</span>

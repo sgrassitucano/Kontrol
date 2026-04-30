@@ -123,7 +123,7 @@ export default function GuidaHomePage() {
         </div>
       </section>
 
-      <section className="rounded-[24px] border border-[var(--brand-line)] bg-white p-6">
+      <section className="rounded-[24px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-6">
         <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Concetti e Ruoli</h2>
         <div className="mt-3 space-y-3 text-sm leading-7 text-slate-600">
           <p>
@@ -152,7 +152,7 @@ export default function GuidaHomePage() {
         </div>
       </section>
 
-      <section className="rounded-[24px] border border-[var(--brand-line)] bg-white p-6">
+      <section className="rounded-[24px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-6">
         <h2 className="text-lg font-semibold text-[var(--brand-ink)]">MAPPA PAGINE E FUNZIONI</h2>
         <p className="mt-2 text-sm leading-7 text-slate-500">
           Di seguito trovi l’elenco delle aree principali. Il contenuto visibile può cambiare in
@@ -178,7 +178,7 @@ export default function GuidaHomePage() {
                 </div>
 
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                  <div className="rounded-[18px] border border-[var(--brand-line)] bg-white p-4">
+                  <div className="rounded-[18px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
                     <p className="text-sm font-semibold text-slate-800">Cosa trovi</p>
                     <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-600">
                       {section.cosaTrovi.map((item) => (
@@ -186,7 +186,7 @@ export default function GuidaHomePage() {
                       ))}
                     </ul>
                   </div>
-                  <div className="rounded-[18px] border border-[var(--brand-line)] bg-white p-4">
+                  <div className="rounded-[18px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
                     <p className="text-sm font-semibold text-slate-800">Funzioni principali</p>
                     <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-600">
                       {section.funzioniPrincipali.map((item) => (
@@ -197,7 +197,7 @@ export default function GuidaHomePage() {
                 </div>
 
                 {section.pagineInterne?.length ? (
-                  <div className="mt-4 rounded-[18px] border border-[var(--brand-line)] bg-white p-4">
+                  <div className="mt-4 rounded-[18px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
                     <p className="text-sm font-semibold text-slate-800">Pagine interne</p>
                     <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-600">
                       {section.pagineInterne.map((item) => (

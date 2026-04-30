@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { KpiCard, KpiGrid, ModuleHeader, StatusPill } from "@/components/module-ui";
+import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, StatusPill } from "@/components/module-ui";
 
 type WorkerSurveillanceRow = {
   workerId: number;
@@ -352,147 +352,154 @@ export default function HomeSorveglianzaPage() {
           <>
             <Link
               href="/sorveglianza_sanitaria/matrice"
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold !text-white shadow-sm transition hover:brightness-95"
             >
               Matrice
             </Link>
             <Link
               href="/sorveglianza_sanitaria/import"
-              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold !text-white shadow-sm transition hover:brightness-95"
             >
               Import
             </Link>
           </>
         }
       >
-        <KpiGrid className="sm:grid-cols-2 md:grid-cols-7">
-          <KpiCard label="Totale attivi" value={meta.totalActiveEmployees} subValue="100%" />
-          <KpiCard
-            label="Critico"
-            value={criticoCount}
-            subValue={pct(criticoCount, inScopeTotal)}
-            tone="danger"
-            onClick={() => setStatusFilter("critico")}
-          />
-          <KpiCard
-            label="In scadenza"
-            value={meta.counts.inScadenza}
-            subValue={pct(meta.counts.inScadenza, inScopeTotal)}
-            tone="warning"
-            onClick={() => setStatusFilter("in scadenza")}
-          />
-          <KpiCard
-            label="Da fare (prima visita)"
-            value={meta.counts.daFare}
-            subValue={pct(meta.counts.daFare, inScopeTotal)}
-            tone="danger"
-            onClick={() => setStatusFilter("da fare")}
-          />
-          <KpiCard
-            label="Scaduto"
-            value={meta.counts.scaduto}
-            subValue={pct(meta.counts.scaduto, inScopeTotal)}
-            tone="danger"
-            onClick={() => setStatusFilter("scaduto")}
-          />
-          <KpiCard
-            label="Programmato"
-            value={meta.counts.programmato}
-            subValue={pct(meta.counts.programmato, inScopeTotal)}
-            tone="info"
-            onClick={() => setStatusFilter("programmato")}
-          />
-          <KpiCard
-            label="Esclusi"
-            value={meta.excludedByRule}
-            subValue={pct(meta.excludedByRule, meta.totalActiveEmployees)}
-            tone="muted"
-            onClick={() => {
-              setIncludeExcluded(true);
-              setStatusFilter("escluso");
-            }}
-          />
-        </KpiGrid>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setStatusFilter("")}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
-            >
-              Tutti
-            </button>
-            <button
-              type="button"
+        <DashboardCard className="border-0 p-3">
+          <KpiGrid className="sm:grid-cols-2 md:grid-cols-7">
+            <KpiCard label="Totale attivi" value={meta.totalActiveEmployees} subValue="100%" />
+            <KpiCard
+              label="Critico"
+              value={criticoCount}
+              subValue={pct(criticoCount, inScopeTotal)}
+              tone="danger"
               onClick={() => setStatusFilter("critico")}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
-            >
-              Critico ({criticoCount})
-            </button>
-            <button
-              type="button"
+            />
+            <KpiCard
+              label="In scadenza"
+              value={meta.counts.inScadenza}
+              subValue={pct(meta.counts.inScadenza, inScopeTotal)}
+              tone="warning"
+              onClick={() => setStatusFilter("in scadenza")}
+            />
+            <KpiCard
+              label="Da fare (prima visita)"
+              value={meta.counts.daFare}
+              subValue={pct(meta.counts.daFare, inScopeTotal)}
+              tone="danger"
+              onClick={() => setStatusFilter("da fare")}
+            />
+            <KpiCard
+              label="Scaduto"
+              value={meta.counts.scaduto}
+              subValue={pct(meta.counts.scaduto, inScopeTotal)}
+              tone="danger"
+              onClick={() => setStatusFilter("scaduto")}
+            />
+            <KpiCard
+              label="Programmato"
+              value={meta.counts.programmato}
+              subValue={pct(meta.counts.programmato, inScopeTotal)}
+              tone="info"
+              onClick={() => setStatusFilter("programmato")}
+            />
+            <KpiCard
+              label="Esclusi"
+              value={meta.excludedByRule}
+              subValue={pct(meta.excludedByRule, meta.totalActiveEmployees)}
+              tone="muted"
               onClick={() => {
                 setIncludeExcluded(true);
                 setStatusFilter("escluso");
               }}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
-            >
-              Esclusi ({meta.excludedByRule})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter("sospeso")}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
-            >
-              Sospesi ({meta.counts.sospeso})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter("programmato")}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
-            >
-              Programmati ({meta.counts.programmato})
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Ricerca: cognome, mansione, cantiere, medico"
-              className="w-[320px] max-w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
             />
-            <select
-              value={String(expiringDays)}
-              onChange={(event) => setExpiringDays(Number(event.target.value))}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-            >
-              <option value="15">15 gg</option>
-              <option value="30">30 gg</option>
-              <option value="60">60 gg</option>
-              <option value="90">90 gg</option>
-            </select>
-            <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={includeExcluded}
-                onChange={(event) => setIncludeExcluded(event.target.checked)}
-              />
-              Mostra esclusi
-            </label>
-          </div>
-        </div>
+          </KpiGrid>
 
-        {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
-        {!error && meta.excludedByRule > 0 ? (
-          <p className="mt-2 text-xs text-slate-500">
-            Esclusi per regole: {meta.excludedByRule}. Sospesi (stati attivi): {meta.frozenEmployees}.
-          </p>
-        ) : null}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStatusFilter("")}
+                data-chip="true"
+                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
+              >
+                Tutti
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("critico")}
+                data-chip="true"
+                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
+              >
+                Critico ({criticoCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIncludeExcluded(true);
+                  setStatusFilter("escluso");
+                }}
+                data-chip="true"
+                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
+              >
+                Esclusi ({meta.excludedByRule})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("sospeso")}
+                data-chip="true"
+                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
+              >
+                Sospesi ({meta.counts.sospeso})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("programmato")}
+                data-chip="true"
+                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
+              >
+                Programmati ({meta.counts.programmato})
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Ricerca: cognome, mansione, cantiere, medico"
+                className="w-[320px] max-w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+              />
+              <select
+                value={String(expiringDays)}
+                onChange={(event) => setExpiringDays(Number(event.target.value))}
+                className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+              >
+                <option value="15">15 gg</option>
+                <option value="30">30 gg</option>
+                <option value="60">60 gg</option>
+                <option value="90">90 gg</option>
+              </select>
+              <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={includeExcluded}
+                  onChange={(event) => setIncludeExcluded(event.target.checked)}
+                />
+                Mostra esclusi
+              </label>
+            </div>
+          </div>
+
+          {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
+          {!error && meta.excludedByRule > 0 ? (
+            <p className="mt-2 text-xs text-slate-500">
+              Esclusi per regole: {meta.excludedByRule}. Sospesi (stati attivi): {meta.frozenEmployees}.
+            </p>
+          ) : null}
+        </DashboardCard>
       </ModuleHeader>
 
-      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
         <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
           <table className="w-full table-fixed text-left text-xs">
             <thead className="text-xs uppercase tracking-wide text-slate-500">
@@ -558,13 +565,10 @@ export default function HomeSorveglianzaPage() {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((row, idx) => (
+              {sorted.map((row) => (
                 <tr
                   key={row.workerId}
-                  className={[
-                    "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                    idx % 2 === 1 ? "bg-[var(--brand-panel)]/30" : "bg-white",
-                  ].join(" ")}
+                  className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                 >
                   <td className="w-[14%] px-4 py-2.5 font-semibold text-slate-800">{row.cognome}</td>
                   <td className="w-[12%] px-4 py-2.5 text-slate-800">{row.nome}</td>
@@ -597,7 +601,7 @@ export default function HomeSorveglianzaPage() {
                     <button
                       type="button"
                       onClick={() => void openWorkerDetail(row.workerId)}
-                      className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-[var(--brand-panel)]"
+                      className="rounded-xl bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                     >
                       Dettaglio
                     </button>
@@ -629,7 +633,7 @@ export default function HomeSorveglianzaPage() {
               <button
                 type="button"
                 onClick={closeWorkerDetail}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                 title="Chiudi"
               >
                 ✕
@@ -724,14 +728,14 @@ export default function HomeSorveglianzaPage() {
               <button
                 type="button"
                 onClick={closeWorkerDetail}
-                className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
               >
                 Chiudi
               </button>
               <button
                 type="button"
                 onClick={() => void saveWorkerDetail()}
-                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={workerDetailLoading || detailSaving}
               >
                 {detailSaving ? "Salvo…" : "Salva"}

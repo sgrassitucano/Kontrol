@@ -6,6 +6,7 @@ import { requireModuleAccess } from "@/lib/api/access";
 export const runtime = "nodejs";
 
 type ShiftState = "planned" | "actual" | "cancelled";
+type ShiftSource = "template" | "manual" | "import";
 
 type ShiftRow = {
   id: number;
@@ -15,6 +16,7 @@ type ShiftRow = {
   start_at: string;
   end_at: string;
   state: ShiftState;
+  source: ShiftSource;
   note: string | null;
   employees: unknown;
   sites: unknown;
@@ -61,16 +63,16 @@ function weekdayLabelMon0(index: number) {
   return ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"][index] ?? "";
 }
 
-function stateLabel(state: ShiftState) {
-  if (state === "actual") return "CONSUNTIVO";
+function badgeLabel(state: ShiftState, source: ShiftSource) {
   if (state === "cancelled") return "ANNULLATO";
-  return "PREVENTIVO";
+  if (source === "template") return "STANDARD";
+  return "EXTRA";
 }
 
-function stateColor(state: ShiftState) {
-  if (state === "actual") return "#047857";
-  if (state === "cancelled") return "#6b7280";
-  return "#1d4ed8";
+function badgeColor(state: ShiftState, source: ShiftSource) {
+  if (state === "cancelled") return "#dc2626";
+  if (source === "template") return "#16a34a";
+  return "#2563eb";
 }
 
 function extractDisplayName(value: unknown, fallback = "-") {
@@ -119,12 +121,86 @@ function safeFilePart(value: string) {
   return cleaned || "X";
 }
 
+function parseCsvNumberList(value: string | null) {
+  if (!value) return [];
+  const items = value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0)
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v)) as number[];
+  return Array.from(new Set(items));
+}
+
+function parseCsvStringList(value: string | null) {
+  if (!value) return [];
+  const items = value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  return Array.from(new Set(items));
+}
+
+function intersectNumberLists(a: number[], b: number[]) {
+  const setB = new Set(b);
+  return a.filter((v) => setB.has(v));
+}
+
+function parseYearMonth(value: string | null) {
+  if (!value) return null;
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})$/);
+  if (!match) return null;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
+  if (y < 2000 || y > 2100) return null;
+  if (m < 1 || m > 12) return null;
+  return { y, m };
+}
+
+function monthRangeUtc(year: number, month: number) {
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const next = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  return { startIso: start.toISOString(), nextIso: next.toISOString(), startDateIso: start.toISOString().slice(0, 10) };
+}
+
+function startOfWeekMonday(isoDate: string) {
+  const parsed = parseIsoDateOnly(isoDate);
+  if (!parsed) return isoDate;
+  const dt = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d, 0, 0, 0, 0));
+  const dayMon0 = (dt.getUTCDay() + 6) % 7;
+  dt.setUTCDate(dt.getUTCDate() - dayMon0);
+  return dt.toISOString().slice(0, 10);
+}
+
+function addMonthsIso(isoDate: string, months: number) {
+  const parsed = parseIsoDateOnly(isoDate);
+  if (!parsed) return isoDate;
+  const dt = new Date(Date.UTC(parsed.y, parsed.m - 1, 1, 0, 0, 0, 0));
+  dt.setUTCMonth(dt.getUTCMonth() + months);
+  return dt.toISOString().slice(0, 10);
+}
+
+function buildMonthGrid(monthIso: string) {
+  const parsed = parseIsoDateOnly(monthIso);
+  if (!parsed) return { monthStart: monthIso, cells: [] as Array<{ iso: string; inMonth: boolean }> };
+  const monthStart = `${String(parsed.y).padStart(4, "0")}-${String(parsed.m).padStart(2, "0")}-01`;
+  const gridStart = startOfWeekMonday(monthStart);
+  const nextMonthStart = addMonthsIso(monthStart, 1);
+  const cells: Array<{ iso: string; inMonth: boolean }> = [];
+  for (let i = 0; i < 42; i += 1) {
+    const iso = addDaysIso(gridStart, i);
+    cells.push({ iso, inMonth: iso >= monthStart && iso < nextMonthStart });
+  }
+  return { monthStart, cells };
+}
+
 function buildWorkerWeekSvg(args: {
   weekStart: string;
   worker: { matricola: string; cognome: string; nome: string };
   rowsByDay: Array<{
     dayIso: string;
-    lines: Array<{ text: string; state: ShiftState; cancelled: boolean }>;
+    lines: Array<{ text: string; badgeText: string; badgeColor: string; cancelled: boolean }>;
   }>;
 }) {
   const width = 1080;
@@ -167,17 +243,91 @@ function buildWorkerWeekSvg(args: {
     svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${rowFont}" font-weight="700" fill="#1e293b">${escapeXml(dayTitle)}</text>`;
     y += lineH;
 
-    const lines = dayBlock.lines.length > 0 ? dayBlock.lines : [{ text: "—", state: "planned" as const, cancelled: false }];
+    const lines =
+      dayBlock.lines.length > 0
+        ? dayBlock.lines
+        : [{ text: "—", badgeText: "", badgeColor: "#94a3b8", cancelled: false }];
     lines.forEach((line) => {
-      const fill = stateColor(line.state);
       const deco = line.cancelled ? ' text-decoration="line-through"' : "";
       svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${rowFont}" fill="#0f172a"${deco}>${escapeXml(line.text)}</text>`;
-      svg += `<text x="${width - paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${smallFont}" font-weight="700" fill="${fill}" text-anchor="end">${escapeXml(stateLabel(line.state))}</text>`;
+      svg += `<text x="${width - paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${smallFont}" font-weight="700" fill="${escapeXml(line.badgeColor)}" text-anchor="end">${escapeXml(line.badgeText)}</text>`;
       y += lineH;
     });
 
     svg += `<line x1="${paddingX}" x2="${width - paddingX}" y1="${y - 18}" y2="${y - 18}" stroke="#f1f5f9" stroke-width="2"/>`;
   });
+
+  svg += `</svg>`;
+  return svg;
+}
+
+function buildWorkerMonthSvg(args: {
+  month: string;
+  worker: { matricola: string; cognome: string; nome: string };
+  cells: Array<{ iso: string; inMonth: boolean; tone: "none" | "template" | "manual" | "cancelled"; lines: string[] }>;
+}) {
+  const width = 1400;
+  const paddingX = 40;
+  const titleFont = 44;
+  const headerFont = 28;
+  const smallFont = 20;
+  const cellFont = 20;
+
+  const headerH = 56 + 46 + 34 + 24;
+  const cellW = Math.floor((width - paddingX * 2) / 7);
+  const cellH = 150;
+  const gridH = cellH * 6;
+  const height = headerH + gridH + 40;
+
+  const toneBg = (tone: "none" | "template" | "manual" | "cancelled") => {
+    if (tone === "cancelled") return "#fee2e2";
+    if (tone === "template") return "#dcfce7";
+    if (tone === "manual") return "#dbeafe";
+    return "#ffffff";
+  };
+
+  let svg = "";
+  svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
+  svg += `<rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>`;
+
+  let y = 56;
+  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${titleFont}" font-weight="700" fill="#0f172a">${escapeXml("Turni mensili")}</text>`;
+  y += 50;
+  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${headerFont}" font-weight="600" fill="#0f172a">${escapeXml(`${args.worker.cognome} ${args.worker.nome} (${args.worker.matricola})`)}</text>`;
+  y += 34;
+  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${smallFont}" fill="#475569">Mese: ${escapeXml(args.month)}</text>`;
+  y += 28;
+
+  const gridTop = y + 12;
+  const weekLabels = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+  weekLabels.forEach((label, i) => {
+    const x = paddingX + i * cellW;
+    svg += `<text x="${x + 8}" y="${gridTop - 10}" font-family="Arial, sans-serif" font-size="${smallFont}" font-weight="700" fill="#334155">${escapeXml(label)}</text>`;
+  });
+
+  for (let idx = 0; idx < 42; idx += 1) {
+    const cell = args.cells[idx];
+    if (!cell) continue;
+    const row = Math.floor(idx / 7);
+    const col = idx % 7;
+    const x = paddingX + col * cellW;
+    const y0 = gridTop + row * cellH;
+
+    const bg = cell.inMonth ? toneBg(cell.tone) : "#f8fafc";
+    svg += `<rect x="${x}" y="${y0}" width="${cellW}" height="${cellH}" fill="${bg}" stroke="#e2e8f0" stroke-width="2"/>`;
+
+    const dayNum = cell.iso.slice(8, 10);
+    svg += `<text x="${x + 8}" y="${y0 + 26}" font-family="Arial, sans-serif" font-size="${cellFont}" font-weight="700" fill="${cell.inMonth ? "#0f172a" : "#94a3b8"}">${escapeXml(dayNum)}</text>`;
+
+    const maxLines = 3;
+    const lines = cell.lines.slice(0, maxLines);
+    lines.forEach((t, i) => {
+      svg += `<text x="${x + 8}" y="${y0 + 54 + i * 26}" font-family="Arial, sans-serif" font-size="${smallFont}" fill="#0f172a">${escapeXml(t)}</text>`;
+    });
+    if (cell.lines.length > maxLines) {
+      svg += `<text x="${x + 8}" y="${y0 + 54 + maxLines * 26}" font-family="Arial, sans-serif" font-size="${smallFont}" fill="#475569">${escapeXml(`+${cell.lines.length - maxLines} turni`)}</text>`;
+    }
+  }
 
   svg += `</svg>`;
   return svg;
@@ -189,90 +339,190 @@ export async function GET(request: Request) {
 
   try {
     const url = new URL(request.url);
+    const mode = (url.searchParams.get("mode") ?? "week").toLowerCase();
     const weekStartParam = url.searchParams.get("weekStart");
-    const siteId = Number(url.searchParams.get("siteId") ?? "");
-    const subSiteIdParam = url.searchParams.get("subSiteId");
-    const subSiteId = subSiteIdParam ? Number(subSiteIdParam) : null;
+    const monthParam = url.searchParams.get("month");
     const format = (url.searchParams.get("format") ?? "jpg").toLowerCase();
 
-    if (!weekStartParam) return NextResponse.json({ error: "weekStart mancante." }, { status: 400 });
-    const parsed = parseIsoDateOnly(weekStartParam);
-    if (!parsed) return NextResponse.json({ error: "weekStart non valido (YYYY-MM-DD)." }, { status: 400 });
-    if (!Number.isFinite(siteId)) return NextResponse.json({ error: "siteId non valido." }, { status: 400 });
-    if (subSiteIdParam && !Number.isFinite(subSiteId))
-      return NextResponse.json({ error: "subSiteId non valido." }, { status: 400 });
-    if (format !== "jpg" && format !== "png") return NextResponse.json({ error: "format non valido." }, { status: 400 });
+    const employeeIdsCsv = parseCsvNumberList(url.searchParams.get("employeeIds"));
+    const siteIdsCsv = parseCsvNumberList(url.searchParams.get("siteIds"));
+    const subSiteIdsCsv = parseCsvNumberList(url.searchParams.get("subSiteIds"));
+    const includeNullSubSite =
+      (url.searchParams.get("includeNullSubSite") ?? "").toLowerCase() === "true" ||
+      (url.searchParams.get("includeNullSubSite") ?? "") === "1";
+    const responsibleCodes = parseCsvStringList(url.searchParams.get("responsibleCodes"));
+    const referrals = parseCsvStringList(url.searchParams.get("referrals"));
+    const includeCancelled =
+      (url.searchParams.get("includeCancelled") ?? "1").toLowerCase() === "true" ||
+      (url.searchParams.get("includeCancelled") ?? "1") === "1";
 
-    const start = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d, 0, 0, 0, 0));
-    const endIso = addDaysIso(parsed.iso, 7);
-    const endParsed = parseIsoDateOnly(endIso)!;
-    const end = new Date(Date.UTC(endParsed.y, endParsed.m - 1, endParsed.d, 0, 0, 0, 0));
+    const siteIdParam = url.searchParams.get("siteId");
+    const subSiteIdParam = url.searchParams.get("subSiteId");
+    const legacySiteId = siteIdParam ? Number(siteIdParam) : null;
+    const legacySubSiteId = subSiteIdParam ? Number(subSiteIdParam) : null;
 
-    let q = auth.supabase
+    if (mode !== "week" && mode !== "month") return NextResponse.json({ error: "mode non valido." }, { status: 400 });
+
+    if (
+      employeeIdsCsv.length === 0 &&
+      siteIdsCsv.length === 0 &&
+      subSiteIdsCsv.length === 0 &&
+      !includeNullSubSite &&
+      responsibleCodes.length === 0 &&
+      referrals.length === 0 &&
+      !(typeof legacySiteId === "number" && Number.isFinite(legacySiteId))
+    ) {
+      return NextResponse.json({ error: "Seleziona almeno un filtro o un lavoratore." }, { status: 400 });
+    }
+    let startIso = "";
+    let endIso = "";
+    let labelRange = "";
+    let monthLabel = "";
+
+    if (mode === "week") {
+      if (!weekStartParam) return NextResponse.json({ error: "weekStart mancante." }, { status: 400 });
+      const parsed = parseIsoDateOnly(weekStartParam);
+      if (!parsed) return NextResponse.json({ error: "weekStart non valido (YYYY-MM-DD)." }, { status: 400 });
+      const monday = startOfWeekMonday(parsed.iso);
+      startIso = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d, 0, 0, 0, 0)).toISOString();
+      if (monday !== parsed.iso) {
+        const p2 = parseIsoDateOnly(monday)!;
+        startIso = new Date(Date.UTC(p2.y, p2.m - 1, p2.d, 0, 0, 0, 0)).toISOString();
+      }
+      endIso = new Date(new Date(startIso).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      labelRange = `${startIso.slice(0, 10)}_${addDaysIso(startIso.slice(0, 10), 6)}`;
+    } else {
+      const ym = parseYearMonth(monthParam);
+      if (!ym) return NextResponse.json({ error: "month non valido (YYYY-MM)." }, { status: 400 });
+      const range = monthRangeUtc(ym.y, ym.m);
+      startIso = range.startIso;
+      endIso = range.nextIso;
+      monthLabel = `${String(ym.y).padStart(4, "0")}-${String(ym.m).padStart(2, "0")}`;
+      labelRange = monthLabel;
+    }
+
+    const supabase = auth.supabase;
+
+    const siteIds = siteIdsCsv.length > 0 ? siteIdsCsv : typeof legacySiteId === "number" && Number.isFinite(legacySiteId) ? [legacySiteId] : [];
+    const subSiteIds = subSiteIdsCsv.length > 0 ? subSiteIdsCsv : typeof legacySubSiteId === "number" && Number.isFinite(legacySubSiteId) ? [legacySubSiteId] : [];
+
+    let allowedEmployeeIds: number[] | null = null;
+    if (responsibleCodes.length > 0 || referrals.length > 0) {
+      let q = supabase.from("employees").select("id").eq("status", "attivo");
+      if (responsibleCodes.length > 0) q = q.in("responsible_code", responsibleCodes);
+      if (referrals.length > 0) q = q.in("referral", referrals);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      allowedEmployeeIds = Array.from(new Set((data ?? []).map((r) => (r as { id: number }).id)));
+    }
+    if (employeeIdsCsv.length > 0) {
+      allowedEmployeeIds = allowedEmployeeIds ? intersectNumberLists(allowedEmployeeIds, employeeIdsCsv) : employeeIdsCsv;
+    }
+    if (allowedEmployeeIds && allowedEmployeeIds.length === 0) {
+      return NextResponse.json({ error: "Nessun lavoratore corrispondente ai filtri." }, { status: 400 });
+    }
+
+    let q = supabase
       .from("turni_employee_shifts")
       .select(
-        "id,employee_id,site_id,sub_site_id,start_at,end_at,state,note,employees(matricola,first_name,last_name),sites(display_name),sub_sites(display_name)",
+        "id,employee_id,site_id,sub_site_id,start_at,end_at,state,source,note,employees(matricola,first_name,last_name),sites(display_name),sub_sites(display_name)",
       )
-      .gte("start_at", start.toISOString())
-      .lt("start_at", end.toISOString())
-      .eq("site_id", siteId)
+      .lt("start_at", endIso)
+      .gt("end_at", startIso)
       .order("employee_id")
       .order("start_at");
 
-    if (typeof subSiteId === "number" && Number.isFinite(subSiteId)) q = q.eq("sub_site_id", subSiteId);
-    else q = q.is("sub_site_id", null);
+    if (!includeCancelled) q = q.neq("state", "cancelled");
+    if (allowedEmployeeIds && allowedEmployeeIds.length > 0) q = q.in("employee_id", allowedEmployeeIds);
+    if (siteIds.length > 0) q = q.in("site_id", siteIds);
+    if (includeNullSubSite && subSiteIds.length > 0) q = q.or(`sub_site_id.is.null,sub_site_id.in.(${subSiteIds.join(",")})`);
+    else if (includeNullSubSite) q = q.is("sub_site_id", null);
+    else if (subSiteIds.length > 0) q = q.in("sub_site_id", subSiteIds);
 
     const { data, error } = await q;
     if (error) throw new Error(error.message);
     const shifts = (data ?? []) as ShiftRow[];
-
     const byEmployee = new Map<number, ShiftRow[]>();
     shifts.forEach((s) => {
       const list = byEmployee.get(s.employee_id) ?? [];
       list.push(s);
       byEmployee.set(s.employee_id, list);
     });
-
-    const weekDays = Array.from({ length: 7 }, (_, i) => addDaysIso(parsed.iso, i));
-
     const zip = new JSZip();
     let count = 0;
 
     for (const [, list] of byEmployee.entries()) {
       const employeeMeta = extractEmployeeMeta(list[0]?.employees);
-      const rowsByDay = weekDays.map((dayIso) => {
-        const dayShifts = list.filter((s) => s.start_at.slice(0, 10) === dayIso);
-        const lines = dayShifts.map((s) => {
-          const startTime = formatTime(s.start_at);
-          const endTime = formatTime(s.end_at);
-          const siteLabel = extractDisplayName(s.sites);
-          const subLabel = extractDisplayName(s.sub_sites, "");
-          const place = subLabel && subLabel !== "-" ? `${siteLabel} / ${subLabel}` : siteLabel;
-          const note = String(s.note ?? "").trim();
-          const tail = note ? ` · ${note}` : "";
-          return {
-            text: `${startTime}–${endTime} · ${place}${tail}`,
-            state: s.state,
-            cancelled: s.state === "cancelled",
-          };
+      let svg = "";
+      let baseName = "";
+
+      if (mode === "week") {
+        const weekStartIso = startIso.slice(0, 10);
+        const weekDays = Array.from({ length: 7 }, (_, i) => addDaysIso(weekStartIso, i));
+        const rowsByDay = weekDays.map((dayIso) => {
+          const dayShifts = list.filter((s) => s.start_at.slice(0, 10) === dayIso);
+          const lines = dayShifts.map((s) => {
+            const startTime = formatTime(s.start_at);
+            const endTime = formatTime(s.end_at);
+            const siteLabel = extractDisplayName(s.sites);
+            const subLabel = extractDisplayName(s.sub_sites, "");
+            const place = subLabel && subLabel !== "-" ? `${siteLabel} / ${subLabel}` : siteLabel;
+            const note = String(s.note ?? "").trim();
+            const tail = note ? ` · ${note}` : "";
+            return {
+              text: `${startTime}–${endTime} · ${place}${tail}`,
+              badgeText: badgeLabel(s.state, s.source),
+              badgeColor: badgeColor(s.state, s.source),
+              cancelled: s.state === "cancelled",
+            };
+          });
+          return { dayIso, lines };
         });
-        return { dayIso, lines };
-      });
 
-      const svg = buildWorkerWeekSvg({
-        weekStart: parsed.iso,
-        worker: employeeMeta,
-        rowsByDay,
-      });
+        svg = buildWorkerWeekSvg({
+          weekStart: weekStartIso,
+          worker: employeeMeta,
+          rowsByDay,
+        });
 
-      const baseName = [
-        "TURNI",
-        parsed.iso,
-        addDaysIso(parsed.iso, 6),
-        safeFilePart(employeeMeta.matricola),
-        safeFilePart(employeeMeta.cognome),
-        safeFilePart(employeeMeta.nome),
-      ].join("_");
+        baseName = [
+          "TURNI_WEEK",
+          weekStartIso,
+          addDaysIso(weekStartIso, 6),
+          safeFilePart(employeeMeta.matricola),
+          safeFilePart(employeeMeta.cognome),
+          safeFilePart(employeeMeta.nome),
+        ].join("_");
+      } else {
+        const monthStartIso = `${monthLabel}-01`;
+        const grid = buildMonthGrid(monthStartIso);
+        const cells = grid.cells.map((c) => {
+          const dayShifts = list.filter((s) => s.start_at.slice(0, 10) === c.iso);
+          const tone =
+            dayShifts.some((s) => s.state === "cancelled")
+              ? ("cancelled" as const)
+              : dayShifts.some((s) => s.source !== "template")
+                ? ("manual" as const)
+                : dayShifts.some((s) => s.source === "template")
+                  ? ("template" as const)
+                  : ("none" as const);
+          const lines = dayShifts.map((s) => {
+            const startTime = formatTime(s.start_at);
+            const endTime = formatTime(s.end_at);
+            return `${startTime}–${endTime}`;
+          });
+          return { iso: c.iso, inMonth: c.inMonth, tone, lines };
+        });
+        svg = buildWorkerMonthSvg({ month: monthLabel, worker: employeeMeta, cells });
+
+        baseName = [
+          "TURNI_MONTH",
+          monthLabel,
+          safeFilePart(employeeMeta.matricola),
+          safeFilePart(employeeMeta.cognome),
+          safeFilePart(employeeMeta.nome),
+        ].join("_");
+      }
 
       const fileName = `${baseName}.${format === "png" ? "png" : "jpg"}`;
       const image =
@@ -291,8 +541,7 @@ export async function GET(request: Request) {
     });
     const body = new Uint8Array(buffer);
 
-    const suffix = typeof subSiteId === "number" ? `sub_${subSiteId}` : "site";
-    const zipName = `turni_wa_${parsed.iso}_${suffix}_${siteId}.zip`;
+    const zipName = `turni_${mode}_${labelRange}.zip`;
 
     return new NextResponse(body, {
       status: 200,

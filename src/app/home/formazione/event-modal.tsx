@@ -203,7 +203,7 @@ export function EventModal(props: {
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
           >
             ✕
           </button>
@@ -216,8 +216,8 @@ export function EventModal(props: {
               type="button"
               onClick={() => setEventTab("evento")}
               className={[
-                "rounded-lg px-3 py-1.5 font-semibold transition",
-                eventTab === "evento" ? "bg-white text-[var(--brand-ink)]" : "text-slate-600 hover:bg-white/70",
+                "rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 font-bold text-white shadow-sm transition hover:brightness-95",
+                eventTab === "evento" ? "" : "opacity-80",
               ].join(" ")}
             >
               Evento
@@ -226,8 +226,8 @@ export function EventModal(props: {
               type="button"
               onClick={() => setEventTab("da_fare")}
               className={[
-                "rounded-lg px-3 py-1.5 font-semibold transition",
-                eventTab === "da_fare" ? "bg-white text-[var(--brand-ink)]" : "text-slate-600 hover:bg-white/70",
+                "rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 font-bold text-white shadow-sm transition hover:brightness-95",
+                eventTab === "da_fare" ? "" : "opacity-80",
               ].join(" ")}
             >
               Da fare
@@ -240,7 +240,7 @@ export function EventModal(props: {
             <button
               type="button"
               onClick={clearSelection}
-              className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)] disabled:opacity-60"
+              className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-[11px] font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={selectedWorkerIds.size === 0}
             >
               Pulisci
@@ -389,13 +389,13 @@ export function EventModal(props: {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-[var(--brand-line)] px-4 py-2 text-sm font-semibold text-slate-600"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
           >
             Chiudi
           </button>
           <button
             type="button"
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
             disabled={!canSaveEvent || eventSaving}
             title="Salva evento"
             onClick={() => void saveEvent()}

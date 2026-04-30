@@ -19,6 +19,7 @@ type ShiftRow = {
   state: ShiftState;
   source: ShiftSource;
   note: string | null;
+  created_by: string | null;
   employees: unknown;
   sites: unknown;
 };
@@ -153,7 +154,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from("turni_employee_shifts")
       .select(
-        "id,employee_id,site_id,sub_site_id,start_at,end_at,state,source,note,employees(id,matricola,first_name,last_name),sites(id,display_name)",
+        "id,employee_id,site_id,sub_site_id,start_at,end_at,state,source,note,created_by,employees(id,matricola,first_name,last_name),sites(id,display_name)",
       )
       .lt("start_at", endAt.toISOString())
       .gt("end_at", startAt.toISOString())
@@ -196,6 +197,22 @@ export async function GET(request: Request) {
       }
     }
 
+    const createdByIds = Array.from(
+      new Set(shifts.map((s) => s.created_by).filter((v): v is string => typeof v === "string" && v.length > 0)),
+    );
+    const createdByName = new Map<string, string>();
+    if (createdByIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id,full_name,email")
+        .in("id", createdByIds);
+      if (profilesError) throw new Error(profilesError.message);
+      for (const p of (profiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>) {
+        const name = normalizeText(p.full_name) || normalizeText(p.email) || "-";
+        createdByName.set(p.id, name);
+      }
+    }
+
     return NextResponse.json({
       rows: shifts.map((s) => ({
         id: s.id,
@@ -210,6 +227,8 @@ export async function GET(request: Request) {
         state: s.state,
         source: s.source,
         note: s.note ?? "",
+        createdByName: s.created_by ? (createdByName.get(s.created_by) ?? "-") : "-",
+        updatedByName: s.created_by ? (createdByName.get(s.created_by) ?? "-") : "-",
         breaks: (breaksByShiftId.get(s.id) ?? []).map((b) => ({
           id: b.id,
           startAt: b.break_start_at,
@@ -280,6 +299,7 @@ export async function POST(request: Request) {
         state,
         source,
         note,
+        created_by: auth.userId,
       })
       .select("id")
       .single();
@@ -334,11 +354,12 @@ export async function PATCH(request: Request) {
 
     const { data: current, error: currentError } = await supabase
       .from("turni_employee_shifts")
-      .select("id,site_id,sub_site_id,start_at,end_at")
+      .select("id,employee_id,site_id,sub_site_id,start_at,end_at,source")
       .eq("id", shiftId)
       .single();
     if (currentError) throw new Error(currentError.message);
 
+    const currentSource = (current as { source: "template" | "manual" | "import" }).source;
     const currentSiteId = (current as { site_id: number }).site_id;
     const currentSubSiteId = (current as { sub_site_id: number | null }).sub_site_id;
     const currentStart = new Date((current as { start_at: string }).start_at);
@@ -388,6 +409,10 @@ export async function PATCH(request: Request) {
     if (typeof body.endAt === "string") updatePayload.end_at = nextEnd.toISOString();
     if (typeof body.state === "string") updatePayload.state = body.state;
     if (typeof body.note === "string") updatePayload.note = normalizeText(body.note) || null;
+
+    if (currentSource === "template" && (Object.keys(updatePayload).length > 0 || Array.isArray(body.breaks))) {
+      updatePayload.source = "manual";
+    }
 
     if (Object.keys(updatePayload).length > 0) {
       const { error: updateError } = await supabase.from("turni_employee_shifts").update(updatePayload).eq("id", shiftId);
@@ -441,7 +466,10 @@ export async function DELETE(request: Request) {
     await ensureNotLocked(supabase, new Date((current as { start_at: string }).start_at));
     await ensureNotLocked(supabase, new Date((current as { end_at: string }).end_at));
 
-    const { error } = await supabase.from("turni_employee_shifts").update({ state: "cancelled" }).eq("id", shiftId);
+    const { error } = await supabase
+      .from("turni_employee_shifts")
+      .update({ state: "cancelled" })
+      .eq("id", shiftId);
     if (error) throw new Error(error.message);
     return NextResponse.json({ ok: true });
   } catch (err) {

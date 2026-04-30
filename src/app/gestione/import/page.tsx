@@ -241,7 +241,7 @@ export default function GestioneImportPage() {
             type="button"
             disabled={!selectedFile || isLoading}
             onClick={() => runImport("preview")}
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isLoading ? "Elaborazione..." : "Anteprima"}
           </button>
@@ -249,7 +249,7 @@ export default function GestioneImportPage() {
             type="button"
             disabled={!selectedFile || isLoading}
             onClick={() => runImport("commit")}
-            className="rounded-xl border border-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-[var(--brand-primary)] transition hover:bg-[var(--brand-tint)]"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Conferma import
           </button>
@@ -293,7 +293,7 @@ export default function GestioneImportPage() {
       </section>
 
       <section>
-        <article className="overflow-hidden rounded-[20px] border border-[var(--brand-line)] bg-white">
+        <article className="overflow-hidden rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="border-b border-[var(--brand-line)] px-5 py-4">
             <h2 className="text-base font-semibold text-[var(--brand-ink)]">
               Report segnalazioni / errori
@@ -350,7 +350,7 @@ export default function GestioneImportPage() {
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <article className="rounded-[16px] border border-[var(--brand-line)] bg-white p-4">
+    <article className="rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
         {label}
       </p>

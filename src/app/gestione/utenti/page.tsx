@@ -274,7 +274,7 @@ export default function GestioneUtentiPage() {
           <button
             type="button"
             onClick={handleCreateUser}
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isSaving}
           >
             {isSaving ? "Salvo…" : "Crea"}
@@ -287,7 +287,7 @@ export default function GestioneUtentiPage() {
         {error ? <p className="mt-3 text-xs font-medium text-red-600">{error}</p> : null}
       </PanelCard>
 
-      <section className="overflow-hidden rounded-[20px] border border-[var(--brand-line)] bg-white">
+      <section className="overflow-hidden rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
         <div className="border-b border-[var(--brand-line)] px-5 py-4">
           <h2 className="text-base font-semibold text-[var(--brand-ink)]">
             Utenti e moduli
@@ -341,7 +341,7 @@ export default function GestioneUtentiPage() {
                     <button
                       type="button"
                       onClick={() => openEdit(user)}
-                      className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+                      className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                     >
                       Modifica
                     </button>
@@ -355,8 +355,8 @@ export default function GestioneUtentiPage() {
 
       {isEditOpen && editingUser ? (
         <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl">
-            <div className="border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-white px-5 py-4">
+          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] shadow-xl">
+            <div className="border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-[var(--brand-page)] px-5 py-4">
               <h2 className="text-lg font-bold text-[var(--brand-ink)]">Modifica utente</h2>
               <p className="mt-1 text-xs text-slate-500">{editingUser.email}</p>
             </div>
@@ -459,7 +459,7 @@ export default function GestioneUtentiPage() {
               <button
                 type="button"
                 onClick={closeEdit}
-                className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isSaving}
               >
                 Annulla
@@ -467,7 +467,7 @@ export default function GestioneUtentiPage() {
               <button
                 type="button"
                 onClick={() => void saveEdit()}
-                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isSaving}
               >
                 {isSaving ? "Salvo…" : "Salva"}

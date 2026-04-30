@@ -268,7 +268,7 @@ export default function FormazioneMatricePage() {
             type="button"
             onClick={() => void seedFromCsv()}
             disabled={isSeeding}
-            className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-xs font-semibold text-[var(--brand-primary)] transition hover:bg-[var(--brand-tint)] disabled:opacity-60"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
             title="Ricalcola baseline e regole mansione leggendo corsi.csv e mansioni.csv"
           >
             {isSeeding ? "Aggiorno..." : "Aggiorna da CSV"}
@@ -319,7 +319,7 @@ export default function FormazioneMatricePage() {
         {error ? <p className="mt-3 text-xs font-medium text-red-600">{error}</p> : null}
       </PanelCard>
 
-      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
         <div
           ref={topScrollRef}
           onScroll={() => syncHorizontalScroll("top")}

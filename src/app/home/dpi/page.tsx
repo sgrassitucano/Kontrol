@@ -287,21 +287,21 @@ export default function HomeDpiPage() {
           <>
             <Link
               href="/dpi/matrice"
-              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Apri matrice
             </Link>
             <button
               type="button"
               onClick={() => setIsNewDpiOpen(true)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Nuovo DPI
             </button>
             <button
               type="button"
               onClick={() => setIsAssignOpen(true)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Assegna / Override
             </button>
@@ -385,7 +385,7 @@ export default function HomeDpiPage() {
         {error ? <p className="mt-2 text-xs font-semibold text-red-600">{error}</p> : null}
       </ModuleHeader>
 
-      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
         <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
           <table className="w-full table-fixed text-left text-xs [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap">
             <colgroup>
@@ -428,13 +428,10 @@ export default function HomeDpiPage() {
               ) : null}
 
               {!isLoading &&
-                filteredRows.map((row, idx) => (
+                filteredRows.map((row) => (
                   <tr
                     key={`${row.workerId}-${row.dpiId}`}
-                    className={[
-                      "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                      idx % 2 === 1 ? "bg-[var(--brand-panel)]/25" : "bg-white",
-                    ].join(" ")}
+                    className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                   >
                     <td className="px-4 py-2.5 font-semibold text-slate-800">{row.matricola}</td>
                     <td className="px-4 py-2.5 text-slate-800">{row.cognome}</td>
@@ -514,7 +511,7 @@ export default function HomeDpiPage() {
             <button
               type="button"
               onClick={() => setIsNewDpiOpen(false)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isBusy}
             >
               Annulla
@@ -522,7 +519,7 @@ export default function HomeDpiPage() {
             <button
               type="button"
               onClick={() => void createDpi()}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isBusy || !newDpiForm.title.trim()}
             >
               {isBusy ? "Salvataggio…" : "Crea"}
@@ -620,7 +617,7 @@ export default function HomeDpiPage() {
             <button
               type="button"
               onClick={() => setIsAssignOpen(false)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isBusy}
             >
               Annulla
@@ -628,7 +625,7 @@ export default function HomeDpiPage() {
             <button
               type="button"
               onClick={() => void assignDpi()}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isBusy || !assignForm.employeeId || !assignForm.dpiId}
             >
               {isBusy ? "Salvataggio…" : "Salva"}
@@ -657,7 +654,7 @@ function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
             title="Chiudi"
           >
             ✕

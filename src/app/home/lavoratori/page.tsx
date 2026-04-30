@@ -247,7 +247,7 @@ export default function HomeLavoratoriPage() {
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
       </ModuleHeader>
 
-      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
         <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
           <table className="w-full table-fixed text-left text-xs">
             <thead className="text-xs uppercase tracking-wide text-slate-500">
@@ -299,13 +299,10 @@ export default function HomeLavoratoriPage() {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((row, idx) => (
+              {sorted.map((row) => (
                 <tr
                   key={row.workerId}
-                  className={[
-                    "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                    idx % 2 === 1 ? "bg-[var(--brand-panel)]/30" : "bg-white",
-                  ].join(" ")}
+                  className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                 >
                   <td className="w-[14%] px-4 py-2.5 font-semibold text-slate-800">{row.cognome}</td>
                   <td className="w-[12%] px-4 py-2.5 text-slate-800">{row.nome}</td>
@@ -334,7 +331,7 @@ export default function HomeLavoratoriPage() {
                     <button
                       type="button"
                       onClick={() => void openDetail(row)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-[var(--brand-primary)] transition hover:bg-[var(--brand-panel)]"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                       title="Apri dettaglio lavoratore"
                     >
                       <svg
@@ -397,10 +394,8 @@ export default function HomeLavoratoriPage() {
                       type="button"
                       onClick={() => setDetailTab("dati")}
                       className={[
-                        "min-h-9 rounded-full px-4 text-sm font-semibold transition",
-                        detailTab === "dati"
-                          ? "bg-[var(--brand-primary)] text-white"
-                          : "text-slate-600 hover:bg-slate-50",
+                        "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
+                        detailTab === "dati" ? "" : "opacity-80",
                       ].join(" ")}
                     >
                       Dati
@@ -409,10 +404,8 @@ export default function HomeLavoratoriPage() {
                       type="button"
                       onClick={() => setDetailTab("turni")}
                       className={[
-                        "min-h-9 rounded-full px-4 text-sm font-semibold transition",
-                        detailTab === "turni"
-                          ? "bg-[var(--brand-primary)] text-white"
-                          : "text-slate-600 hover:bg-slate-50",
+                        "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
+                        detailTab === "turni" ? "" : "opacity-80",
                       ].join(" ")}
                     >
                       Turni e cantieri
@@ -421,7 +414,7 @@ export default function HomeLavoratoriPage() {
                   <button
                     type="button"
                     onClick={() => setSelected(null)}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                     title="Chiudi"
                   >
                     ✕
@@ -463,7 +456,7 @@ export default function HomeLavoratoriPage() {
                     </dl>
                   </article>
 
-                  <article className="rounded-2xl border border-[var(--brand-line)] bg-white p-5">
+                  <article className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-5">
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <h3 className="text-sm font-bold text-[var(--brand-ink)]">Formazione</h3>
                       <p className="text-xs text-slate-500">Colori scadenza: rosso scaduto, giallo in scadenza, verde ok.</p>
@@ -488,13 +481,10 @@ export default function HomeLavoratoriPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {trainingRows.map((courseRow, idx) => (
+                            {trainingRows.map((courseRow) => (
                               <tr
-                                key={`${courseRow.workerId}-${courseRow.corsoCode}-${idx}`}
-                                className={[
-                                  "border-t border-[var(--brand-line)]",
-                                  idx % 2 === 1 ? "bg-[var(--brand-panel)]/30" : "bg-white",
-                                ].join(" ")}
+                                key={`${courseRow.workerId}-${courseRow.corsoCode}-${courseRow.dataScadenza ?? ""}-${courseRow.stato}`}
+                                className="border-t border-[var(--brand-line)] bg-white"
                               >
                                 <td className="px-3 py-2 text-slate-800" title={courseRow.corso}>
                                   {courseRow.corso}
@@ -529,12 +519,12 @@ export default function HomeLavoratoriPage() {
                     ) : null}
                   </article>
 
-                  <article className="rounded-2xl border border-[var(--brand-line)] bg-white p-5 lg:col-span-2">
+                  <article className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-5 lg:col-span-2">
                     <h3 className="text-sm font-bold text-[var(--brand-ink)]">Visita medica</h3>
                     <p className="mt-2 text-sm text-slate-500"></p>
                   </article>
 
-                  <article className="rounded-2xl border border-[var(--brand-line)] bg-white p-5 lg:col-span-2">
+                  <article className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-5 lg:col-span-2">
                     <h3 className="text-sm font-bold text-[var(--brand-ink)]">DPI</h3>
                     {dpiLoading ? <p className="mt-2 text-sm text-slate-500">Caricamento…</p> : null}
                     {dpiError ? <p className="mt-2 text-sm font-medium text-red-600">{dpiError}</p> : null}
@@ -556,13 +546,10 @@ export default function HomeLavoratoriPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {dpiRows.map((row, idx) => (
+                            {dpiRows.map((row) => (
                               <tr
                                 key={`${row.workerId}-${row.dpiId}`}
-                                className={[
-                                  "border-t border-[var(--brand-line)]",
-                                  idx % 2 === 1 ? "bg-[var(--brand-panel)]/25" : "bg-white",
-                                ].join(" ")}
+                                className="border-t border-[var(--brand-line)] bg-white"
                               >
                                 <td className="px-3 py-2 text-slate-800">
                                   <div className="font-semibold text-slate-900" title={row.dpi}>
@@ -597,7 +584,7 @@ export default function HomeLavoratoriPage() {
                     ) : null}
                   </article>
 
-                  <article className="rounded-2xl border border-[var(--brand-line)] bg-white p-5 lg:col-span-2">
+                  <article className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-5 lg:col-span-2">
                     <h3 className="text-sm font-bold text-[var(--brand-ink)]">Mezzi / attrezzature assegnati</h3>
                     {equipmentLoading ? <p className="mt-2 text-sm text-slate-500">Caricamento…</p> : null}
                     {equipmentError ? (
@@ -623,13 +610,10 @@ export default function HomeLavoratoriPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {equipmentRows.map((row, idx) => (
+                            {equipmentRows.map((row) => (
                               <tr
                                 key={row.id}
-                                className={[
-                                  "border-t border-[var(--brand-line)]",
-                                  idx % 2 === 1 ? "bg-[var(--brand-panel)]/25" : "bg-white",
-                                ].join(" ")}
+                                className="border-t border-[var(--brand-line)] bg-white"
                               >
                                 <td className="px-3 py-2 font-semibold text-slate-800">
                                   {row.asset ? equipmentAssetLabel(row.asset) : "-"}

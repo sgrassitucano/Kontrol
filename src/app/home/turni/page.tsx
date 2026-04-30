@@ -1,73 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { DashboardCard, ModuleHeader, PanelCard } from "@/components/module-ui";
 
-type TurniTableRow = {
-  workerId: number;
+type ExportEmployeeOption = {
+  id: number;
   matricola: string;
-  cognome: string;
-  nome: string;
-  mansione: string;
-  cantiere: string;
-  sottocantiere: string;
-  responsabile: string;
-  referente: string;
-  turnoAssegnato: boolean;
-  expectedShifts: number;
-  assignedShifts: number;
-  expectedMinutes: number;
-  assignedMinutes: number;
+  first_name: string;
+  last_name: string;
+  responsible_code: string;
+  referral: string | null;
+  site_id: number | null;
+  sub_site_id: number | null;
 };
 
-type DashboardPayload = {
-  month: string;
-  range: { startDate: string; endDate: string };
-  workers: {
-    totalWorkers: number;
-    expectedShifts: number;
-    assignedShifts: number;
-    unassignedShifts: number;
-    expectedMinutes: number;
-    assignedMinutes: number;
-    unassignedMinutes: number;
-  };
-  sites: {
-    totalSites: number;
-    sitesWithAssigned: number;
-    sitesWithoutAssigned: number;
-    expectedShifts: number;
-    assignedShifts: number;
-    unassignedShifts: number;
-    expectedMinutes: number;
-    assignedMinutes: number;
-    unassignedMinutes: number;
-  };
-  tableRows: TurniTableRow[];
-};
+type ExportSiteOption = { id: number; display_name: string };
+type ExportSubSiteOption = { id: number; site_id: number; display_name: string };
 
-type ColumnFilters = {
-  matricola: string;
-  cognome: string;
-  nome: string;
-  mansione: string;
-  cantiere: string;
-  sottocantiere: string;
-  responsabile: string;
-  referente: string;
-  assegnato: "" | "si" | "no";
-};
-
-const INITIAL_COLUMN_FILTERS: ColumnFilters = {
-  matricola: "",
-  cognome: "",
-  nome: "",
-  mansione: "",
-  cantiere: "",
-  sottocantiere: "",
-  responsabile: "",
-  referente: "",
-  assegnato: "",
+type ExportOptionsResponse = {
+  employees: ExportEmployeeOption[];
+  sites: ExportSiteOption[];
+  subSites: ExportSubSiteOption[];
+  responsibleCodes: string[];
+  referrals: string[];
 };
 
 function nowMonth() {
@@ -77,132 +32,261 @@ function nowMonth() {
   return `${y}-${m}`;
 }
 
-function percentage(count: number, total: number) {
-  if (!total) return 0;
-  return Number(((count / total) * 100).toFixed(1));
+function parseYearMonth(value: string) {
+  const match = String(value ?? "").match(/^(\d{4})-(\d{2})$/);
+  if (!match) return null;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
+  if (y < 2000 || y > 2100) return null;
+  if (m < 1 || m > 12) return null;
+  return { year: y, month: m };
 }
 
-function formatHours(minutes: number) {
-  const hours = minutes / 60;
-  return `${hours.toFixed(1)} h`;
+function normalizeText(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
-function matchText(value: string, filter: string) {
-  const normalizedFilter = filter.trim().toLowerCase();
-  if (!normalizedFilter) return true;
-  return String(value ?? "").toLowerCase().includes(normalizedFilter);
+function isoDateFromLocal(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function mondayOf(dateIso: string) {
+  const parsed = new Date(`${dateIso}T00:00:00`);
+  if (!Number.isFinite(parsed.getTime())) return dateIso;
+  const dayMon0 = (parsed.getDay() + 6) % 7;
+  parsed.setDate(parsed.getDate() - dayMon0);
+  return isoDateFromLocal(parsed);
+}
+
+async function downloadFrom(url: string) {
+  const response = await fetch(url);
+  const blob = await response.blob();
+  if (!response.ok) {
+    const text = await blob.text();
+    throw new Error(text || "Errore download.");
+  }
+  const disp = response.headers.get("content-disposition") ?? "";
+  const match = disp.match(/filename="([^"]+)"/i);
+  const filename = match?.[1] ?? "export";
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 export default function HomeTurniPage() {
   const [month, setMonth] = useState(() => nowMonth());
-  const [payload, setPayload] = useState<DashboardPayload | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [isDashboardCollapsed, setIsDashboardCollapsed] = useState(false);
-  const [dashboardAssignedFilter, setDashboardAssignedFilter] = useState<null | boolean>(null);
-  const [search, setSearch] = useState("");
-  const [columnFilters, setColumnFilters] = useState<ColumnFilters>(INITIAL_COLUMN_FILTERS);
+  const [options, setOptions] = useState<ExportOptionsResponse | null>(null);
+  const [isOptionsLoading, setIsOptionsLoading] = useState(false);
+  const [optionsError, setOptionsError] = useState("");
 
-  const topScrollRef = useRef<HTMLDivElement | null>(null);
-  const tableScrollRef = useRef<HTMLDivElement | null>(null);
-  const tableRef = useRef<HTMLTableElement | null>(null);
-  const syncingRef = useRef(false);
-  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+  const [employeesSearch, setEmployeesSearch] = useState("");
+  const [sitesSearch, setSitesSearch] = useState("");
+  const [subSitesSearch, setSubSitesSearch] = useState("");
+  const [responsibleSearch, setResponsibleSearch] = useState("");
+  const [referralsSearch, setReferralsSearch] = useState("");
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    setError("");
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
+  const [selectedSiteIds, setSelectedSiteIds] = useState<number[]>([]);
+  const [selectedSubSiteIds, setSelectedSubSiteIds] = useState<number[]>([]);
+  const [includeNullSubSite, setIncludeNullSubSite] = useState(true);
+  const [selectedResponsibleCodes, setSelectedResponsibleCodes] = useState<string[]>([]);
+  const [selectedReferrals, setSelectedReferrals] = useState<string[]>([]);
+  const [includeCancelled, setIncludeCancelled] = useState(true);
+
+  const [imageMode, setImageMode] = useState<"week" | "month">("week");
+  const [weekStart, setWeekStart] = useState(() => mondayOf(isoDateFromLocal(new Date())));
+
+  const [actionError, setActionError] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const loadOptions = useCallback(async () => {
+    setIsOptionsLoading(true);
+    setOptionsError("");
     try {
-      const response = await fetch(`/api/turni/dashboard?month=${encodeURIComponent(month)}`);
-      const body = (await response.json()) as DashboardPayload | { error: string };
+      const response = await fetch("/api/turni/export-options");
+      const body = (await response.json()) as ExportOptionsResponse | { error: string };
       if (!response.ok || "error" in body) {
-        throw new Error("error" in body ? body.error : "Errore caricamento cruscotto turni.");
+        throw new Error("error" in body ? body.error : "Errore caricamento opzioni export.");
       }
-      setPayload(body);
+      setOptions(body);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore caricamento cruscotto turni.");
-      setPayload(null);
+      setOptions(null);
+      setOptionsError(err instanceof Error ? err.message : "Errore caricamento opzioni export.");
     } finally {
-      setIsLoading(false);
+      setIsOptionsLoading(false);
     }
-  }, [month]);
+  }, []);
 
   useEffect(() => {
-    const id = setTimeout(() => void load(), 0);
+    const id = setTimeout(() => void loadOptions(), 0);
     return () => clearTimeout(id);
-  }, [load]);
+  }, [loadOptions]);
 
-  const filteredRows = useMemo(() => {
-    const list = payload?.tableRows ?? [];
-    const q = search.trim().toLowerCase();
-    return list.filter((row) => {
-      if (dashboardAssignedFilter !== null) {
-        if (row.turnoAssegnato !== dashboardAssignedFilter) return false;
-      }
-      if (q) {
-        const searchable = [
-          row.matricola,
-          row.cognome,
-          row.nome,
-          row.mansione,
-          row.cantiere,
-          row.sottocantiere,
-          row.responsabile,
-          row.referente,
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!searchable.includes(q)) return false;
-      }
-      if (columnFilters.matricola && !matchText(row.matricola, columnFilters.matricola)) return false;
-      if (columnFilters.cognome && !matchText(row.cognome, columnFilters.cognome)) return false;
-      if (columnFilters.nome && !matchText(row.nome, columnFilters.nome)) return false;
-      if (columnFilters.mansione && !matchText(row.mansione, columnFilters.mansione)) return false;
-      if (columnFilters.cantiere && !matchText(row.cantiere, columnFilters.cantiere)) return false;
-      if (columnFilters.sottocantiere && !matchText(row.sottocantiere, columnFilters.sottocantiere)) return false;
-      if (columnFilters.responsabile && !matchText(row.responsabile, columnFilters.responsabile)) return false;
-      if (columnFilters.referente && !matchText(row.referente, columnFilters.referente)) return false;
-      if (columnFilters.assegnato) {
-        const expected = columnFilters.assegnato === "si";
-        if (row.turnoAssegnato !== expected) return false;
-      }
+  const monthParsed = useMemo(() => parseYearMonth(month), [month]);
+
+  const employeesBase = useMemo(() => options?.employees ?? [], [options?.employees]);
+  const sitesBase = useMemo(() => options?.sites ?? [], [options?.sites]);
+  const subSitesBase = useMemo(() => options?.subSites ?? [], [options?.subSites]);
+
+  const candidateEmployees = useMemo(() => {
+    if (!options) return [];
+    const hasResponsible = selectedResponsibleCodes.length > 0;
+    const hasReferral = selectedReferrals.length > 0;
+    if (!hasResponsible && !hasReferral) return employeesBase;
+    const setResp = new Set(selectedResponsibleCodes.map((v) => v.toLowerCase()));
+    const setRef = new Set(selectedReferrals.map((v) => v.toLowerCase()));
+    return employeesBase.filter((e) => {
+      if (hasResponsible && !setResp.has(String(e.responsible_code ?? "").toLowerCase())) return false;
+      if (hasReferral && !setRef.has(String(e.referral ?? "").toLowerCase())) return false;
       return true;
     });
-  }, [columnFilters, dashboardAssignedFilter, payload?.tableRows, search]);
+  }, [employeesBase, options, selectedReferrals, selectedResponsibleCodes]);
 
-  useEffect(() => {
-    const width = tableRef.current?.scrollWidth ?? 0;
-    setTableScrollWidth(width);
-  }, [filteredRows.length]);
+  const filteredEmployees = useMemo(() => {
+    const q = normalizeText(employeesSearch);
+    if (!q) return candidateEmployees;
+    return candidateEmployees.filter((e) => {
+      const label = `${e.last_name} ${e.first_name} ${e.matricola}`.toLowerCase();
+      return label.includes(q);
+    });
+  }, [candidateEmployees, employeesSearch]);
 
-  function syncHorizontalScroll(source: "top" | "middle") {
-    if (syncingRef.current) return;
-    syncingRef.current = true;
-    const nextLeft = (source === "top" ? topScrollRef.current : tableScrollRef.current)?.scrollLeft ?? 0;
-    if (source !== "top" && topScrollRef.current) topScrollRef.current.scrollLeft = nextLeft;
-    if (source !== "middle" && tableScrollRef.current) tableScrollRef.current.scrollLeft = nextLeft;
-    syncingRef.current = false;
-  }
+  const filteredSites = useMemo(() => {
+    const q = normalizeText(sitesSearch);
+    if (!q) return sitesBase;
+    return sitesBase.filter((s) => String(s.display_name ?? "").toLowerCase().includes(q));
+  }, [sitesBase, sitesSearch]);
 
-  const workers = payload?.workers ?? null;
-  const sites = payload?.sites ?? null;
+  const filteredSubSites = useMemo(() => {
+    const q = normalizeText(subSitesSearch);
+    const base = selectedSiteIds.length > 0 ? subSitesBase.filter((s) => selectedSiteIds.includes(s.site_id)) : subSitesBase;
+    if (!q) return base;
+    return base.filter((s) => String(s.display_name ?? "").toLowerCase().includes(q));
+  }, [selectedSiteIds, subSitesBase, subSitesSearch]);
+
+  const filteredResponsibleCodes = useMemo(() => {
+    const base = options?.responsibleCodes ?? [];
+    const q = normalizeText(responsibleSearch);
+    if (!q) return base;
+    return base.filter((v) => v.toLowerCase().includes(q));
+  }, [options?.responsibleCodes, responsibleSearch]);
+
+  const filteredReferrals = useMemo(() => {
+    const base = options?.referrals ?? [];
+    const q = normalizeText(referralsSearch);
+    if (!q) return base;
+    return base.filter((v) => v.toLowerCase().includes(q));
+  }, [options?.referrals, referralsSearch]);
+
+  const toggleId = (list: number[], id: number) => (list.includes(id) ? list.filter((v) => v !== id) : [...list, id]);
+  const toggleText = (list: string[], value: string) =>
+    list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+
+  const exportQueryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (monthParsed) {
+      params.set("year", String(monthParsed.year));
+      params.set("month", String(monthParsed.month));
+    }
+    if (selectedEmployeeIds.length > 0) params.set("employeeIds", selectedEmployeeIds.join(","));
+    if (selectedSiteIds.length > 0) params.set("siteIds", selectedSiteIds.join(","));
+    if (selectedSubSiteIds.length > 0) params.set("subSiteIds", selectedSubSiteIds.join(","));
+    if (includeNullSubSite) params.set("includeNullSubSite", "1");
+    if (selectedResponsibleCodes.length > 0) params.set("responsibleCodes", selectedResponsibleCodes.join(","));
+    if (selectedReferrals.length > 0) params.set("referrals", selectedReferrals.join(","));
+    if (includeCancelled) params.set("includeCancelled", "1");
+    return params.toString();
+  }, [
+    includeCancelled,
+    includeNullSubSite,
+    monthParsed,
+    selectedEmployeeIds,
+    selectedReferrals,
+    selectedResponsibleCodes,
+    selectedSiteIds,
+    selectedSubSiteIds,
+  ]);
+
+  const canExport = useMemo(() => {
+    if (!monthParsed) return false;
+    if (selectedEmployeeIds.length > 0) return true;
+    if (selectedSiteIds.length > 0) return true;
+    if (selectedSubSiteIds.length > 0) return true;
+    if (selectedResponsibleCodes.length > 0) return true;
+    if (selectedReferrals.length > 0) return true;
+    return false;
+  }, [monthParsed, selectedEmployeeIds, selectedReferrals, selectedResponsibleCodes, selectedSiteIds, selectedSubSiteIds]);
+
+  const downloadExcel = useCallback(async () => {
+    setActionError("");
+    if (!monthParsed) {
+      setActionError("Mese non valido.");
+      return;
+    }
+    if (!canExport) {
+      setActionError("Seleziona almeno un lavoratore o un filtro (cantiere/sottocantiere/responsabile/referente).");
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      await downloadFrom(`/api/turni/export?${exportQueryString}`);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Errore export Excel.");
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [canExport, exportQueryString, monthParsed]);
+
+  const downloadImages = useCallback(async () => {
+    setActionError("");
+    if (!monthParsed) {
+      setActionError("Mese non valido.");
+      return;
+    }
+    if (!canExport) {
+      setActionError("Seleziona almeno un lavoratore o un filtro (cantiere/sottocantiere/responsabile/referente).");
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      const params = new URLSearchParams(exportQueryString);
+      params.set("format", "jpg");
+      params.set("mode", imageMode);
+      if (imageMode === "week") params.set("weekStart", weekStart);
+      else params.set("month", month);
+      await downloadFrom(`/api/turni/worker-images?${params.toString()}`);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Errore export immagini.");
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [canExport, exportQueryString, imageMode, month, monthParsed, weekStart]);
 
   return (
     <div className="space-y-4">
       <ModuleHeader
         title="Turni"
-        description="Cruscotto mensile e tabella lavoratori. Le viste operative restano in “Cantiere” e “Lavoratori”."
+        description="Export turni (Excel e immagini). Le viste operative restano in “Cantiere” e “Lavoratori”."
         actions={
           <>
             <a
               href="/turni/cantiere"
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Vista cantiere
             </a>
             <a
               href="/turni/lavoratori"
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Vista lavoratori
             </a>
@@ -219,283 +303,262 @@ export default function HomeTurniPage() {
             className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
           />
           <div className="flex items-center justify-end gap-2">
-            {dashboardAssignedFilter !== null || columnFilters.assegnato ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setDashboardAssignedFilter(null);
-                  setColumnFilters((v) => ({ ...v, assegnato: "" }));
-                }}
-                className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-[var(--brand-panel)]"
-              >
-                Reset filtro
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setIsDashboardCollapsed((v) => !v)}
-              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
-              title={isDashboardCollapsed ? "Espandi cruscotto" : "Comprimi cruscotto"}
-            >
-              {isDashboardCollapsed ? "Espandi" : "Comprimi"}
+            <button type="button" onClick={() => void loadOptions()} className="rounded-xl px-3 py-2 text-xs transition">
+              Aggiorna liste
             </button>
           </div>
         </div>
-        {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
+        {optionsError ? <p className="mt-2 text-xs font-medium text-red-600">{optionsError}</p> : null}
       </PanelCard>
 
-      <PanelCard>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-bold text-[var(--brand-ink)]">Cruscotto</h2>
-          {payload?.range ? (
-            <span className="text-xs text-slate-500">
-              Periodo {payload.range.startDate} → {payload.range.endDate}
-            </span>
-          ) : null}
+      <DashboardCard>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-base font-bold text-[var(--brand-ink)]">Export</h2>
+          <div className="flex items-center gap-2">
+            {isOptionsLoading ? <span className="text-xs text-slate-500">Caricamento…</span> : null}
+          </div>
         </div>
-        {!isDashboardCollapsed && workers && sites ? (
-          <div className="grid gap-3">
-            <div className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-bold text-[var(--brand-ink)]">Lavoratori</h3>
-                <button
-                  type="button"
-                  onClick={() => setDashboardAssignedFilter(null)}
-                  className="rounded-lg border border-[var(--brand-line)] bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-[var(--brand-panel)]"
-                  title="Rimuovi filtro"
-                >
-                  Totale {workers.totalWorkers}
-                </button>
-              </div>
-              <div className="mt-3">
-                <KpiGrid className="sm:grid-cols-2 md:grid-cols-5">
-                  <KpiCard label="Totale" value={workers.totalWorkers} subValue="100%" />
-                  <KpiCard
-                    label="Turni assegnati"
-                    value={workers.assignedShifts}
-                    subValue={`${percentage(workers.assignedShifts, workers.expectedShifts)}%`}
-                    tone="success"
-                    onClick={() => setDashboardAssignedFilter(true)}
-                  />
-                  <KpiCard
-                    label="Turni non assegnati"
-                    value={workers.unassignedShifts}
-                    subValue={`${percentage(workers.unassignedShifts, workers.expectedShifts)}%`}
-                    tone="danger"
-                    onClick={() => setDashboardAssignedFilter(false)}
-                  />
-                  <KpiCard
-                    label="Ore assegnate"
-                    value={formatHours(workers.assignedMinutes)}
-                    subValue={`${percentage(workers.assignedMinutes, workers.expectedMinutes)}%`}
-                    tone="success"
-                    onClick={() => setDashboardAssignedFilter(true)}
-                  />
-                  <KpiCard
-                    label="Ore non assegnate"
-                    value={formatHours(workers.unassignedMinutes)}
-                    subValue={`${percentage(workers.unassignedMinutes, workers.expectedMinutes)}%`}
-                    tone="danger"
-                    onClick={() => setDashboardAssignedFilter(false)}
-                  />
-                </KpiGrid>
-              </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel-2)] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-bold text-[var(--brand-ink)]">Responsabile / Referente</h3>
+              <button
+                type="button"
+                data-chip="true"
+                onClick={() => {
+                  setSelectedResponsibleCodes([]);
+                  setSelectedReferrals([]);
+                }}
+                className="rounded-xl px-3 py-2 text-xs transition"
+              >
+                Svuota
+              </button>
             </div>
-
-            <div className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-bold text-[var(--brand-ink)]">Cantieri</h3>
-                <button
-                  type="button"
-                  onClick={() => setDashboardAssignedFilter(null)}
-                  className="rounded-lg border border-[var(--brand-line)] bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-[var(--brand-panel)]"
-                  title="Rimuovi filtro"
-                >
-                  Totale {sites.totalSites}
-                </button>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-[var(--brand-ink)]">Responsabili</p>
+                  <span className="text-xs text-slate-500">{selectedResponsibleCodes.length}</span>
+                </div>
+                <input
+                  value={responsibleSearch}
+                  onChange={(e) => setResponsibleSearch(e.target.value)}
+                  placeholder="Cerca responsabile…"
+                  className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+                />
+                <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)]">
+                  {filteredResponsibleCodes.map((code) => (
+                    <label key={code} className="flex cursor-pointer items-center gap-2 border-b border-[var(--brand-line)] px-3 py-2 text-sm last:border-b-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedResponsibleCodes.includes(code)}
+                        onChange={() => setSelectedResponsibleCodes((v) => toggleText(v, code))}
+                      />
+                      <span className="font-semibold text-[var(--brand-ink)]">{code}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-              <div className="mt-3">
-                <KpiGrid className="sm:grid-cols-2 md:grid-cols-5">
-                  <KpiCard label="Totale" value={sites.totalSites} subValue="100%" />
-                  <KpiCard
-                    label="Con turni"
-                    value={sites.sitesWithAssigned}
-                    subValue={`${percentage(sites.sitesWithAssigned, sites.totalSites)}%`}
-                    tone="info"
-                    onClick={() => setDashboardAssignedFilter(true)}
-                  />
-                  <KpiCard
-                    label="Senza turni"
-                    value={sites.sitesWithoutAssigned}
-                    subValue={`${percentage(sites.sitesWithoutAssigned, sites.totalSites)}%`}
-                    tone="warning"
-                    onClick={() => setDashboardAssignedFilter(false)}
-                  />
-                  <KpiCard
-                    label="Turni non assegnati"
-                    value={sites.unassignedShifts}
-                    subValue={`${percentage(sites.unassignedShifts, sites.expectedShifts)}%`}
-                    tone="danger"
-                    onClick={() => setDashboardAssignedFilter(false)}
-                  />
-                  <KpiCard
-                    label="Ore non assegnate"
-                    value={formatHours(sites.unassignedMinutes)}
-                    subValue={`${percentage(sites.unassignedMinutes, sites.expectedMinutes)}%`}
-                    tone="danger"
-                    onClick={() => setDashboardAssignedFilter(false)}
-                  />
-                </KpiGrid>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-[var(--brand-ink)]">Referenti</p>
+                  <span className="text-xs text-slate-500">{selectedReferrals.length}</span>
+                </div>
+                <input
+                  value={referralsSearch}
+                  onChange={(e) => setReferralsSearch(e.target.value)}
+                  placeholder="Cerca referente…"
+                  className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+                />
+                <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)]">
+                  {filteredReferrals.map((code) => (
+                    <label key={code} className="flex cursor-pointer items-center gap-2 border-b border-[var(--brand-line)] px-3 py-2 text-sm last:border-b-0">
+                      <input type="checkbox" checked={selectedReferrals.includes(code)} onChange={() => setSelectedReferrals((v) => toggleText(v, code))} />
+                      <span className="font-semibold text-[var(--brand-ink)]">{code}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        ) : null}
-      </PanelCard>
 
-      <section className="rounded-[16px] border border-[var(--brand-line)] bg-white p-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Ricerca: cantiere, sottocantiere, cognome, nome, responsabile, referente"
-            className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
-          />
-          <select
-            value={columnFilters.assegnato}
-            onChange={(event) => setColumnFilters((v) => ({ ...v, assegnato: event.target.value as ColumnFilters["assegnato"] }))}
-            className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
-          >
-            <option value="">Tutti</option>
-            <option value="si">Assegnato</option>
-            <option value="no">Non assegnato</option>
-          </select>
-          <div className="flex items-center justify-end text-xs text-slate-500">
-            Righe {filteredRows.length}
-          </div>
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
-        <div
-          ref={topScrollRef}
-          onScroll={() => syncHorizontalScroll("top")}
-          className="overflow-x-auto border-b border-[var(--brand-line)]"
-        >
-          <div style={{ width: tableScrollWidth, height: 16 }} />
-        </div>
-        <div
-          ref={tableScrollRef}
-          onScroll={() => syncHorizontalScroll("middle")}
-          className="max-h-[62vh] overflow-auto"
-        >
-          <table
-            ref={tableRef}
-            className="min-w-full table-fixed text-left text-xs [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap"
-          >
-            <colgroup>
-              <col style={{ width: 120 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 220 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 140 }} />
-            </colgroup>
-            <thead className="text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Matricola</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Cognome</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Nome</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Mansione</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Cantiere</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Sottocantiere</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Responsabile</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Referente</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Turno assegnato</th>
-              </tr>
-              <tr>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.matricola} onChange={(event) => setColumnFilters((v) => ({ ...v, matricola: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
-                </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.cognome} onChange={(event) => setColumnFilters((v) => ({ ...v, cognome: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
-                </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.nome} onChange={(event) => setColumnFilters((v) => ({ ...v, nome: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
-                </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.mansione} onChange={(event) => setColumnFilters((v) => ({ ...v, mansione: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
-                </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.cantiere} onChange={(event) => setColumnFilters((v) => ({ ...v, cantiere: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
-                </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.sottocantiere} onChange={(event) => setColumnFilters((v) => ({ ...v, sottocantiere: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
-                </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.responsabile} onChange={(event) => setColumnFilters((v) => ({ ...v, responsabile: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
-                </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.referente} onChange={(event) => setColumnFilters((v) => ({ ...v, referente: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
-                </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.map((row) => (
-                <tr
-                  key={row.workerId}
-                  className="border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60"
+          <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel-2)] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-bold text-[var(--brand-ink)]">Lavoratori</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-chip="true"
+                  onClick={() => setSelectedEmployeeIds(filteredEmployees.map((e) => e.id))}
+                  className="rounded-xl px-3 py-2 text-xs transition"
                 >
-                  <td className="px-4 py-2.5 text-slate-600">{row.matricola}</td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.cognome}>
-                    {row.cognome}
-                  </td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.nome}>
-                    {row.nome}
-                  </td>
-                  <td className="max-w-[220px] truncate px-4 py-2.5 text-slate-600" title={row.mansione || "-"}>
-                    {row.mansione || "-"}
-                  </td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.cantiere}>
-                    {row.cantiere}
-                  </td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.sottocantiere}>
-                    {row.sottocantiere}
-                  </td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.responsabile || "-"}>
-                    {row.responsabile || "-"}
-                  </td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.referente || "-"}>
-                    {row.referente || "-"}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span
-                      className={[
-                        "inline-flex items-center rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide",
-                        row.turnoAssegnato
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-rose-200 bg-rose-50 text-rose-700",
-                      ].join(" ")}
-                    >
-                      {row.turnoAssegnato ? "SI" : "NO"}
-                    </span>
-                  </td>
-                </tr>
+                  Seleziona filtrati
+                </button>
+                <button
+                  type="button"
+                  data-chip="true"
+                  onClick={() => setSelectedEmployeeIds([])}
+                  className="rounded-xl px-3 py-2 text-xs transition"
+                >
+                  Svuota
+                </button>
+              </div>
+            </div>
+            <input
+              value={employeesSearch}
+              onChange={(e) => setEmployeesSearch(e.target.value)}
+              placeholder="Cerca lavoratore… (cognome/nome/matricola)"
+              className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+            />
+            <div className="mt-2 max-h-72 overflow-auto rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)]">
+              {filteredEmployees.slice(0, 400).map((e) => (
+                <label key={e.id} className="flex cursor-pointer items-center gap-2 border-b border-[var(--brand-line)] px-3 py-2 text-sm last:border-b-0">
+                  <input type="checkbox" checked={selectedEmployeeIds.includes(e.id)} onChange={() => setSelectedEmployeeIds((v) => toggleId(v, e.id))} />
+                  <span className="font-semibold text-[var(--brand-ink)]">
+                    {e.last_name} {e.first_name} ({e.matricola})
+                  </span>
+                </label>
               ))}
-              {!isLoading && filteredRows.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-500">
-                    Nessun dato disponibile.
-                  </td>
-                </tr>
+              {filteredEmployees.length > 400 ? (
+                <div className="px-3 py-2 text-xs text-slate-500">Mostrati i primi 400 risultati. Affina la ricerca.</div>
               ) : null}
-            </tbody>
-          </table>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+              <span>Selezionati: {selectedEmployeeIds.length}</span>
+              <span>Risultati: {filteredEmployees.length}</span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel-2)] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-bold text-[var(--brand-ink)]">Cantieri / Sottocantieri</h3>
+              <button
+                type="button"
+                data-chip="true"
+                onClick={() => {
+                  setSelectedSiteIds([]);
+                  setSelectedSubSiteIds([]);
+                }}
+                className="rounded-xl px-3 py-2 text-xs transition"
+              >
+                Svuota
+              </button>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-[var(--brand-ink)]">Cantieri</p>
+                  <span className="text-xs text-slate-500">{selectedSiteIds.length}</span>
+                </div>
+                <input
+                  value={sitesSearch}
+                  onChange={(e) => setSitesSearch(e.target.value)}
+                  placeholder="Cerca cantiere…"
+                  className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+                />
+                <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)]">
+                  {filteredSites.map((s) => (
+                    <label key={s.id} className="flex cursor-pointer items-center gap-2 border-b border-[var(--brand-line)] px-3 py-2 text-sm last:border-b-0">
+                      <input type="checkbox" checked={selectedSiteIds.includes(s.id)} onChange={() => setSelectedSiteIds((v) => toggleId(v, s.id))} />
+                      <span className="font-semibold text-[var(--brand-ink)]">{s.display_name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-[var(--brand-ink)]">Sottocantieri</p>
+                  <span className="text-xs text-slate-500">{selectedSubSiteIds.length}</span>
+                </div>
+                <input
+                  value={subSitesSearch}
+                  onChange={(e) => setSubSitesSearch(e.target.value)}
+                  placeholder="Cerca sottocantiere…"
+                  className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+                />
+                <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)]">
+                  {filteredSubSites.map((s) => (
+                    <label key={s.id} className="flex cursor-pointer items-center gap-2 border-b border-[var(--brand-line)] px-3 py-2 text-sm last:border-b-0">
+                      <input type="checkbox" checked={selectedSubSiteIds.includes(s.id)} onChange={() => setSelectedSubSiteIds((v) => toggleId(v, s.id))} />
+                      <span className="font-semibold text-[var(--brand-ink)]">{s.display_name}</span>
+                    </label>
+                  ))}
+                </div>
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+                  <input type="checkbox" checked={includeNullSubSite} onChange={() => setIncludeNullSubSite((v) => !v)} />
+                  <span className="font-semibold text-[var(--brand-ink)]">Includi turni senza sottocantiere</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel-2)] p-3">
+            <h3 className="text-sm font-bold text-[var(--brand-ink)]">Opzioni export</h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input type="checkbox" checked={includeCancelled} onChange={() => setIncludeCancelled((v) => !v)} />
+                <span className="font-semibold text-[var(--brand-ink)]">Includi turni annullati</span>
+              </label>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => void downloadExcel()}
+                  className="rounded-xl px-4 py-2 text-sm transition disabled:opacity-60"
+                  disabled={isDownloading}
+                >
+                  Esporta Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadImages()}
+                  className="rounded-xl px-4 py-2 text-sm transition disabled:opacity-60"
+                  disabled={isDownloading}
+                >
+                  Esporta JPG
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-3">
+                <p className="text-xs font-bold text-[var(--brand-ink)]">JPG: tipo calendario</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="radio" name="imgmode" checked={imageMode === "week"} onChange={() => setImageMode("week")} />
+                    <span className="font-semibold text-[var(--brand-ink)]">Settimanale</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="radio" name="imgmode" checked={imageMode === "month"} onChange={() => setImageMode("month")} />
+                    <span className="font-semibold text-[var(--brand-ink)]">Mensile</span>
+                  </label>
+                </div>
+                {imageMode === "week" ? (
+                  <div className="mt-2">
+                    <label className="text-xs font-bold text-[var(--brand-ink)]">Settimana (lunedì)</label>
+                    <input
+                      type="date"
+                      value={weekStart}
+                      onChange={(e) => setWeekStart(mondayOf(e.target.value))}
+                      className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">Se scegli un giorno qualsiasi, viene allineato automaticamente al lunedì.</p>
+                  </div>
+                ) : null}
+              </div>
+              <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-3">
+                <p className="text-xs font-bold text-[var(--brand-ink)]">Riepilogo selezione</p>
+                <div className="mt-2 grid gap-1 text-xs text-slate-600">
+                  <div>Lavoratori selezionati: {selectedEmployeeIds.length}</div>
+                  <div>Responsabili selezionati: {selectedResponsibleCodes.length}</div>
+                  <div>Referenti selezionati: {selectedReferrals.length}</div>
+                  <div>Cantieri selezionati: {selectedSiteIds.length}</div>
+                  <div>Sottocantieri selezionati: {selectedSubSiteIds.length}</div>
+                </div>
+              </div>
+            </div>
+            {actionError ? <p className="mt-3 text-xs font-medium text-red-600">{actionError}</p> : null}
+          </div>
         </div>
-      </section>
+      </DashboardCard>
     </div>
   );
 }

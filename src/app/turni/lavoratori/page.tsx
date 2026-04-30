@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ModuleHeader } from "@/components/module-ui";
-
-type Zoom = "mese" | "settimana";
-type ShiftState = "planned" | "actual" | "cancelled";
+import { ModuleHeader, PanelCard } from "@/components/module-ui";
+import { Combobox } from "@/components/combobox";
 
 type LookupSite = { id: number; label: string };
 type LookupSubSite = { id: number; siteId: number; label: string };
@@ -22,6 +20,17 @@ type LookupEmployee = {
   sottocantiere?: string;
 };
 
+type TemplateSlot = {
+  id?: number;
+  weekday: number;
+  siteId: number;
+  subSiteId: number | null;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+};
+type Template = { id: number; employeeId: number; name: string; validFrom: string; validTo: string | null } | null;
+
 type ShiftRow = {
   id: number;
   employeeId: number;
@@ -32,10 +41,10 @@ type ShiftRow = {
   subSiteLabel: string;
   startAt: string;
   endAt: string;
-  state: ShiftState;
-  source: string;
+  state: "planned" | "actual" | "cancelled";
+  source: "template" | "manual" | "import";
   note: string;
-  breaks: Array<{ id: number; startAt: string; endAt: string }>;
+  createdByName: string;
 };
 
 function toIsoDate(value: Date) {
@@ -53,18 +62,46 @@ function endOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
 }
 
-function startOfWeek(d: Date) {
+function startOfWeekMonday(d: Date) {
+  const day = (d.getDay() + 6) % 7;
   const copy = new Date(d);
-  const day = (copy.getDay() + 6) % 7;
   copy.setDate(copy.getDate() - day);
-  copy.setHours(0, 0, 0, 0);
   return copy;
 }
 
-function addDays(d: Date, days: number) {
+function buildMonthGrid(ref: Date) {
+  const start = startOfWeekMonday(startOfMonth(ref));
+  const out: { iso: string; inMonth: boolean; day: number }[] = [];
+  for (let i = 0; i < 42; i += 1) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    out.push({ iso: toIsoDate(d), inMonth: d.getMonth() === ref.getMonth(), day: d.getDate() });
+  }
+  return out;
+}
+
+function addMonths(d: Date, months: number) {
   const copy = new Date(d);
-  copy.setDate(copy.getDate() + days);
+  copy.setMonth(copy.getMonth() + months);
   return copy;
+}
+
+function formatItMonth(d: Date) {
+  const months = [
+    "Gennaio",
+    "Febbraio",
+    "Marzo",
+    "Aprile",
+    "Maggio",
+    "Giugno",
+    "Luglio",
+    "Agosto",
+    "Settembre",
+    "Ottobre",
+    "Novembre",
+    "Dicembre",
+  ];
+  return `${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function formatItDate(isoDate: string) {
@@ -129,7 +166,7 @@ function Modal({
           <div className="text-sm font-semibold text-slate-900">{title}</div>
           <button
             onClick={onClose}
-            className="rounded-lg border border-[var(--brand-line)] bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-[var(--brand-panel)]"
+            className="rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
           >
             Chiudi
           </button>
@@ -140,60 +177,79 @@ function Modal({
   );
 }
 
+function weekdayLabel(weekday: number) {
+  return ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"][weekday] ?? "-";
+}
+
+function siteKey(siteId: number, subSiteId: number | null) {
+  return `${siteId}:${subSiteId ?? ""}`;
+}
+
 export default function TurniLavoratoriPage() {
-  const [zoom, setZoom] = useState<Zoom>("mese");
   const [refDate, setRefDate] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => toIsoDate(new Date()));
+  const [daySiteKey, setDaySiteKey] = useState<string>("");
+
   const [sites, setSites] = useState<LookupSite[]>([]);
   const [subSites, setSubSites] = useState<LookupSubSite[]>([]);
   const [employees, setEmployees] = useState<LookupEmployee[]>([]);
+
   const [employeeId, setEmployeeId] = useState<string>("");
-  const [shifts, setShifts] = useState<ShiftRow[]>([]);
-  const [monthLocked, setMonthLocked] = useState(false);
-  const [error, setError] = useState("");
-  const [isBusy, setIsBusy] = useState(false);
-  const [isDayModalOpen, setIsDayModalOpen] = useState(false);
-  const [copyDayTargetDate, setCopyDayTargetDate] = useState(() => toIsoDate(addDays(new Date(), 1)));
-
-  const [shiftForm, setShiftForm] = useState({
-    shiftId: "",
-    employeeId: "",
-    date: toIsoDate(new Date()),
-    siteId: "",
-    subSiteId: "",
-    startTime: "07:00",
-    endTime: "16:00",
-    state: "planned" as ShiftState,
-    note: "",
-    breaks: [] as Array<{ startTime: string; endTime: string }>,
-  });
-
   const selectedEmployee = useMemo(() => {
     const id = Number(employeeId);
     return Number.isFinite(id) ? id : null;
   }, [employeeId]);
 
-  const subSitesForShiftSite = useMemo(() => {
-    const siteIdNum = Number(shiftForm.siteId);
-    if (!Number.isFinite(siteIdNum)) return [];
-    return subSites.filter((s) => s.siteId === siteIdNum);
-  }, [shiftForm.siteId, subSites]);
-
   const range = useMemo(() => {
-    if (zoom === "settimana") {
-      const start = startOfWeek(refDate);
-      const end = addDays(start, 6);
-      return { start, end, startDate: toIsoDate(start), endDate: toIsoDate(end) };
-    }
     const start = startOfMonth(refDate);
     const end = endOfMonth(refDate);
     return { start, end, startDate: toIsoDate(start), endDate: toIsoDate(end) };
-  }, [refDate, zoom]);
-
-  const monthKey = useMemo(() => {
-    const d = startOfMonth(refDate);
-    return { year: d.getFullYear(), month: d.getMonth() + 1 };
   }, [refDate]);
+
+  const monthGrid = useMemo(() => buildMonthGrid(refDate), [refDate]);
+
+  useEffect(() => {
+    const start = startOfMonth(refDate);
+    setSelectedDay(toIsoDate(start));
+    setDaySiteKey("");
+  }, [refDate]);
+
+  const [template, setTemplate] = useState<Template>(null);
+  const [templateSlotsAll, setTemplateSlotsAll] = useState<TemplateSlot[]>([]);
+  const [shifts, setShifts] = useState<ShiftRow[]>([]);
+
+  const [error, setError] = useState("");
+  const [isBusy, setIsBusy] = useState(false);
+
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [shiftForm, setShiftForm] = useState({
+    shiftId: "",
+    date: toIsoDate(new Date()),
+    siteId: "",
+    subSiteId: "",
+    startTime: "07:00",
+    endTime: "16:00",
+    note: "",
+  });
+
+  const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState(false);
+  const [absenceForm, setAbsenceForm] = useState<{ absenceType: "ferie" | "malattia" | "permesso" | "infortunio" | "altro"; note: string }>(
+    { absenceType: "malattia", note: "" },
+  );
+
+  const subSitesForSite = useCallback(
+    (siteId: number) => {
+      return subSites.filter((s) => s.siteId === siteId);
+    },
+    [subSites],
+  );
+
+  const siteHasSubSites = useCallback(
+    (siteId: number) => {
+      return subSitesForSite(siteId).length > 0;
+    },
+    [subSitesForSite],
+  );
 
   const loadLookups = useCallback(async () => {
     const res = await fetch("/api/turni/lookups");
@@ -213,13 +269,6 @@ export default function TurniLavoratoriPage() {
     });
   }, []);
 
-  const loadLocks = useCallback(async () => {
-    const res = await fetch(`/api/turni/locks?year=${monthKey.year}&month=${monthKey.month}`);
-    const body = (await res.json()) as { locked?: boolean; error?: string };
-    if (!res.ok || body.error) throw new Error(body.error ?? "Errore lock mese.");
-    setMonthLocked(Boolean(body.locked));
-  }, [monthKey.month, monthKey.year]);
-
   const loadShifts = useCallback(async () => {
     if (!selectedEmployee) return;
     const res = await fetch(
@@ -230,15 +279,39 @@ export default function TurniLavoratoriPage() {
     setShifts(body.rows ?? []);
   }, [range.endDate, range.startDate, selectedEmployee]);
 
+  const loadEmployeeTemplate = useCallback(async () => {
+    if (!selectedEmployee) return;
+    const res = await fetch(`/api/turni/employee-templates?employeeId=${selectedEmployee}&date=${range.startDate}`);
+    const body = (await res.json()) as { template?: Template; slots?: TemplateSlot[]; error?: string };
+    if (!res.ok || body.error) throw new Error(body.error ?? "Errore caricamento settimana tipo.");
+    setTemplate(body.template ?? null);
+    setTemplateSlotsAll((body.slots ?? []).map((s) => ({ ...s, breakMinutes: typeof s.breakMinutes === "number" ? s.breakMinutes : 0 })));
+  }, [range.startDate, selectedEmployee]);
+
+  const syncMonthStandard = useCallback(async () => {
+    if (!selectedEmployee) return;
+    const res = await fetch("/api/turni/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "employee", employeeId: selectedEmployee, startDate: range.startDate, endDate: range.endDate }),
+    });
+    const body = (await res.json()) as { error?: string };
+    if (!res.ok || body.error) throw new Error(body.error ?? "Errore sync turni.");
+  }, [range.endDate, range.startDate, selectedEmployee]);
+
   const reloadAll = useCallback(async () => {
+    setIsBusy(true);
     setError("");
     try {
-      await loadLocks();
+      await loadEmployeeTemplate();
+      await syncMonthStandard();
       await loadShifts();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore imprevisto.");
+    } finally {
+      setIsBusy(false);
     }
-  }, [loadLocks, loadShifts]);
+  }, [loadEmployeeTemplate, loadShifts, syncMonthStandard]);
 
   useEffect(() => {
     setError("");
@@ -250,6 +323,20 @@ export default function TurniLavoratoriPage() {
     void reloadAll();
   }, [reloadAll, selectedEmployee]);
 
+  const templateSlotsByWeekday = useMemo(() => {
+    const map = new Map<number, TemplateSlot[]>();
+    for (const s of templateSlotsAll) {
+      const list = map.get(s.weekday) ?? [];
+      list.push(s);
+      map.set(s.weekday, list);
+    }
+    for (const [weekday, list] of map) {
+      list.sort((a, b) => a.startTime.localeCompare(b.startTime));
+      map.set(weekday, list);
+    }
+    return map;
+  }, [templateSlotsAll]);
+
   const shiftsByDay = useMemo(() => {
     const map = new Map<string, ShiftRow[]>();
     for (const s of shifts) {
@@ -259,67 +346,102 @@ export default function TurniLavoratoriPage() {
       map.set(day, list);
     }
     for (const [day, list] of map) {
-      list.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.siteLabel.localeCompare(b.siteLabel));
+      list.sort((a, b) => a.startAt.localeCompare(b.startAt));
       map.set(day, list);
     }
     return map;
   }, [shifts]);
 
-  const monthCalendar = useMemo(() => {
-    const start = startOfMonth(refDate);
-    const startCal = startOfWeek(start);
-    const weeks: Array<Array<string>> = [];
-    let cursor = new Date(startCal);
-    for (let w = 0; w < 6; w++) {
-      const row: string[] = [];
-      for (let d = 0; d < 7; d++) {
-        row.push(toIsoDate(cursor));
-        cursor = addDays(cursor, 1);
-      }
-      weeks.push(row);
-      const monthEnd = endOfMonth(refDate);
-      if (cursor > monthEnd && cursor.getDay() === 1) break;
-    }
-    return weeks;
-  }, [refDate]);
-
-  const monthSummaryByDay = useMemo(() => {
-    const map = new Map<string, { planned: number; actual: number; minutes: number }>();
+  const sitesForMatrix = useMemo(() => {
+    const map = new Map<string, { siteId: number; subSiteId: number | null; label: string }>();
     for (const s of shifts) {
-      const day = s.startAt.slice(0, 10);
-      const base = map.get(day) ?? { planned: 0, actual: 0, minutes: 0 };
-      const totalMinutes = minutesBetween(s.startAt, s.endAt);
-      const breakMinutes = s.breaks.reduce((acc, b) => acc + minutesBetween(b.startAt, b.endAt), 0);
-      if (s.state === "actual") base.actual += 1;
-      else if (s.state === "planned") base.planned += 1;
-      base.minutes += Math.max(0, totalMinutes - breakMinutes);
-      map.set(day, base);
+      const key = siteKey(s.siteId, s.subSiteId);
+      if (map.has(key)) continue;
+      const label = s.subSiteId ? `${s.siteLabel} — ${s.subSiteLabel}` : s.siteLabel;
+      map.set(key, { siteId: s.siteId, subSiteId: s.subSiteId, label });
     }
-    return map;
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [shifts]);
 
-  function openNewShift(isoDay: string) {
-    const defaultSiteId = sites[0] ? String(sites[0].id) : "";
-    const defaultSiteIdNum = Number(defaultSiteId);
-    const defaultSubSiteId =
-      Number.isFinite(defaultSiteIdNum) && subSites.some((s) => s.siteId === defaultSiteIdNum)
-        ? String(subSites.find((s) => s.siteId === defaultSiteIdNum)?.id ?? "")
-        : "";
+  const selectedDayRows = useMemo(() => {
+    const day = selectedDay;
+    const rows = shifts.filter((s) => s.startAt.slice(0, 10) === day);
+    if (!daySiteKey) return rows;
+    return rows.filter((s) => siteKey(s.siteId, s.subSiteId) === daySiteKey);
+  }, [daySiteKey, selectedDay, shifts]);
+
+  const daySiteLabel = useMemo(() => {
+    if (!daySiteKey) return "";
+    const [siteIdStr, subSiteIdStr] = daySiteKey.split(":");
+    const siteId = Number(siteIdStr);
+    const subSiteId = subSiteIdStr ? Number(subSiteIdStr) : null;
+    const siteLabel = sites.find((s) => s.id === siteId)?.label ?? "-";
+    if (subSiteId === null) return siteLabel;
+    const subLabel = subSites.find((s) => s.id === subSiteId)?.label ?? "-";
+    return `${siteLabel} — ${subLabel}`;
+  }, [daySiteKey, sites, subSites]);
+
+  const templateName = template?.name ?? "Settimana tipo";
+
+  async function saveTemplate() {
+    if (!selectedEmployee) return;
+    setIsBusy(true);
+    setError("");
+    try {
+      const slots = templateSlotsAll.map((s) => ({
+        weekday: s.weekday,
+        siteId: s.siteId,
+        subSiteId: s.subSiteId,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        breakMinutes: 0,
+      }));
+
+      const payload = template?.id
+        ? { templateId: template.id, name: templateName, slots }
+        : { employeeId: selectedEmployee, name: templateName, validFrom: range.startDate, validTo: null, slots };
+
+      const res = await fetch("/api/turni/employee-templates", {
+        method: template?.id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = (await res.json()) as { error?: string };
+      if (!res.ok || body.error) throw new Error(body.error ?? "Errore salvataggio settimana tipo.");
+      await loadEmployeeTemplate();
+      await syncMonthStandard();
+      await loadShifts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore salvataggio settimana tipo.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function resyncMonthNow() {
+    setIsBusy(true);
+    setError("");
+    try {
+      await syncMonthStandard();
+      await loadShifts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore sync turni.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function openNewShift(isoDay: string, siteId?: number, subSiteId?: number | null) {
     setShiftForm({
       shiftId: "",
-      employeeId: employeeId,
       date: isoDay,
-      siteId: defaultSiteId,
-      subSiteId: defaultSubSiteId,
+      siteId: typeof siteId === "number" ? String(siteId) : "",
+      subSiteId: typeof subSiteId === "number" ? String(subSiteId) : "",
       startTime: "07:00",
       endTime: "16:00",
-      state: "planned",
       note: "",
-      breaks: [],
     });
-    setSelectedDay(isoDay);
-    setCopyDayTargetDate(toIsoDate(addDays(new Date(`${isoDay}T12:00:00`), 1)));
-    setIsDayModalOpen(true);
+    setIsShiftModalOpen(true);
   }
 
   function openEditShift(row: ShiftRow) {
@@ -327,62 +449,27 @@ export default function TurniLavoratoriPage() {
     const end = new Date(row.endAt);
     setShiftForm({
       shiftId: String(row.id),
-      employeeId: String(row.employeeId),
       date: row.startAt.slice(0, 10),
       siteId: String(row.siteId),
       subSiteId: row.subSiteId ? String(row.subSiteId) : "",
       startTime: `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
       endTime: `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`,
-      state: row.state,
       note: row.note,
-      breaks: row.breaks.map((b) => {
-        const bs = new Date(b.startAt);
-        const be = new Date(b.endAt);
-        return {
-          startTime: `${String(bs.getHours()).padStart(2, "0")}:${String(bs.getMinutes()).padStart(2, "0")}`,
-          endTime: `${String(be.getHours()).padStart(2, "0")}:${String(be.getMinutes()).padStart(2, "0")}`,
-        };
-      }),
     });
-    setSelectedDay(row.startAt.slice(0, 10));
-    setCopyDayTargetDate(toIsoDate(addDays(new Date(`${row.startAt.slice(0, 10)}T12:00:00`), 1)));
-    setIsDayModalOpen(true);
-  }
-
-  async function lockMonth() {
-    setIsBusy(true);
-    setError("");
-    try {
-      const res = await fetch("/api/turni/locks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ year: monthKey.year, month: monthKey.month }),
-      });
-      const body = (await res.json()) as { error?: string };
-      if (!res.ok || body.error) throw new Error(body.error ?? "Errore lock mese.");
-      await loadLocks();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore lock mese.");
-    } finally {
-      setIsBusy(false);
-    }
+    setIsShiftModalOpen(true);
   }
 
   async function saveShift() {
-    const employeeIdNum = Number(shiftForm.employeeId);
+    if (!selectedEmployee) return;
     const siteIdNum = Number(shiftForm.siteId);
-    if (!Number.isFinite(employeeIdNum)) {
-      setError("Seleziona un lavoratore.");
-      return;
-    }
     if (!Number.isFinite(siteIdNum)) {
       setError("Seleziona un cantiere.");
       return;
     }
-    const hasSubSites = subSites.some((s) => s.siteId === siteIdNum);
+    const hasSub = siteHasSubSites(siteIdNum);
     const subSiteIdNum = shiftForm.subSiteId ? Number(shiftForm.subSiteId) : null;
-    if (hasSubSites && !Number.isFinite(subSiteIdNum)) {
-      setError("Seleziona un sottocantiere.");
+    if (hasSub && !Number.isFinite(subSiteIdNum)) {
+      setError("Se il cantiere ha sottocantieri, il sottocantiere è obbligatorio.");
       return;
     }
     setIsBusy(true);
@@ -391,28 +478,20 @@ export default function TurniLavoratoriPage() {
       const startAt = clampToQuarter(new Date(`${shiftForm.date}T${shiftForm.startTime}:00`).toISOString());
       let endAt = clampToQuarter(new Date(`${shiftForm.date}T${shiftForm.endTime}:00`).toISOString());
       if (new Date(endAt) <= new Date(startAt)) {
-        endAt = clampToQuarter(
-          new Date(`${toIsoDate(addDays(new Date(shiftForm.date), 1))}T${shiftForm.endTime}:00`).toISOString(),
-        );
+        const nextDay = new Date(`${shiftForm.date}T12:00:00`);
+        nextDay.setDate(nextDay.getDate() + 1);
+        endAt = clampToQuarter(new Date(`${toIsoDate(nextDay)}T${shiftForm.endTime}:00`).toISOString());
       }
 
-      const breaks = shiftForm.breaks
-        .map((b) => {
-          const bs = new Date(`${shiftForm.date}T${b.startTime}:00`);
-          const be = new Date(`${shiftForm.date}T${b.endTime}:00`);
-          return { startAt: bs.toISOString(), endAt: be.toISOString() };
-        })
-        .filter((b) => minutesBetween(b.startAt, b.endAt) > 0);
-
       const payload = {
-        employeeId: employeeIdNum,
+        employeeId: selectedEmployee,
         siteId: siteIdNum,
-        subSiteId: hasSubSites && Number.isFinite(subSiteIdNum) ? subSiteIdNum : null,
+        subSiteId: hasSub ? (subSiteIdNum as number) : null,
         startAt,
         endAt,
-        state: shiftForm.state,
         note: shiftForm.note,
-        breaks,
+        source: "manual",
+        state: "planned",
       };
 
       const res = await fetch("/api/turni/shifts", {
@@ -422,6 +501,7 @@ export default function TurniLavoratoriPage() {
       });
       const body = (await res.json()) as { error?: string };
       if (!res.ok || body.error) throw new Error(body.error ?? "Errore salvataggio turno.");
+      setIsShiftModalOpen(false);
       await loadShifts();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore salvataggio turno.");
@@ -430,7 +510,7 @@ export default function TurniLavoratoriPage() {
     }
   }
 
-  async function cancelCurrentShift() {
+  async function deleteShift() {
     const id = Number(shiftForm.shiftId);
     if (!Number.isFinite(id)) return;
     setIsBusy(true);
@@ -438,608 +518,591 @@ export default function TurniLavoratoriPage() {
     try {
       const res = await fetch(`/api/turni/shifts?shiftId=${id}`, { method: "DELETE" });
       const body = (await res.json()) as { error?: string };
-      if (!res.ok || body.error) throw new Error(body.error ?? "Errore annullamento turno.");
-      setShiftForm((s) => ({ ...s, shiftId: "", note: "", breaks: [] }));
+      if (!res.ok || body.error) throw new Error(body.error ?? "Errore cancellazione turno.");
+      setIsShiftModalOpen(false);
       await loadShifts();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore annullamento turno.");
+      setError(e instanceof Error ? e.message : "Errore cancellazione turno.");
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function copyDayShifts() {
-    const sourceDay = shiftForm.date;
-    const targetDay = copyDayTargetDate;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDay)) {
-      setError("Data destinazione non valida.");
-      return;
-    }
-    const rows = (shiftsByDay.get(sourceDay) ?? []).filter((r) => r.state !== "cancelled");
-    if (rows.length === 0) {
-      setError("Nessun turno da copiare in quel giorno.");
-      return;
-    }
+  async function createAbsenceForDay() {
+    if (!selectedEmployee) return;
     setIsBusy(true);
     setError("");
     try {
-      let created = 0;
-      let errors = 0;
-      for (const r of rows) {
-        const start = new Date(r.startAt);
-        const end = new Date(r.endAt);
-        if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) continue;
-        const durationMs = end.getTime() - start.getTime();
-        const hh = String(start.getHours()).padStart(2, "0");
-        const mm = String(start.getMinutes()).padStart(2, "0");
-        const newStart = new Date(`${targetDay}T${hh}:${mm}:00`);
-        const newEnd = new Date(newStart.getTime() + durationMs);
-        const breaks = r.breaks
-          .map((b) => {
-            const bs = new Date(b.startAt);
-            const be = new Date(b.endAt);
-            const offStart = bs.getTime() - start.getTime();
-            const offEnd = be.getTime() - start.getTime();
-            return {
-              startAt: new Date(newStart.getTime() + offStart).toISOString(),
-              endAt: new Date(newStart.getTime() + offEnd).toISOString(),
-            };
-          })
-          .filter((b) => minutesBetween(b.startAt, b.endAt) > 0);
+      const res = await fetch("/api/turni/absences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: selectedEmployee,
+          startDate: shiftForm.date,
+          endDate: shiftForm.date,
+          absenceType: absenceForm.absenceType,
+          note: absenceForm.note,
+        }),
+      });
+      const body = (await res.json()) as { error?: string };
+      if (!res.ok || body.error) throw new Error(body.error ?? "Errore creazione assenza.");
 
-        const res = await fetch("/api/turni/shifts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            employeeId: r.employeeId,
-            siteId: r.siteId,
-            subSiteId: r.subSiteId,
-            startAt: newStart.toISOString(),
-            endAt: newEnd.toISOString(),
-            state: r.state,
-            note: r.note,
-            breaks,
-          }),
-        });
-        const body = (await res.json()) as { error?: string };
-        if (!res.ok || body.error) errors += 1;
-        else created += 1;
-      }
+      await syncMonthStandard();
       await loadShifts();
-      if (errors > 0) setError(`Copia completata: ${created} creati, ${errors} errori.`);
+      setIsAbsenceModalOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore copia turni.");
+      setError(e instanceof Error ? e.message : "Errore assenza.");
     } finally {
       setIsBusy(false);
     }
   }
 
-  const exportHref = useMemo(() => {
-    const employee = selectedEmployee ? `&employeeId=${selectedEmployee}` : "";
-    return `/api/turni/export?year=${monthKey.year}&month=${monthKey.month}${employee}`;
-  }, [monthKey.year, monthKey.month, selectedEmployee]);
-
   return (
     <div className="space-y-4 p-6">
-      <ModuleHeader
-        title="Turni — Lavoratori"
-        description="Vista calendario personale del lavoratore."
-        actions={
-          <div className="flex items-center gap-2">
-          <a
-            href={exportHref}
-            className="inline-flex items-center rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-[var(--brand-panel)]"
-          >
-            Export
-          </a>
-          <button
-            disabled={isBusy || monthLocked}
-            onClick={lockMonth}
-            className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-[var(--brand-panel)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Chiudi mese
-          </button>
+      <ModuleHeader title="Turni — Lavoratori" description="Settimana tipo (ripetibile) + calendario mensile." />
+
+      <PanelCard>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="grid min-w-[320px] flex-1 gap-1">
+            <div className="text-xs font-semibold text-slate-600">Lavoratore</div>
+            <Combobox
+              value={employeeId}
+              onChange={setEmployeeId}
+              options={employees.map((e) => ({
+                id: String(e.id),
+                label: `${e.cognome} ${e.nome}`.trim(),
+                meta: `${e.matricola} · ${e.mansione}${e.cantiere ? ` · ${e.cantiere}` : ""}`,
+              }))}
+              placeholder="Cerca lavoratore..."
+              disabled={isBusy}
+            />
           </div>
-        }
-      />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-        <div className="flex items-center gap-2">
-          <div className="text-xs font-semibold text-slate-600">Lavoratore</div>
-          <select
-            value={employeeId}
-            onChange={(e) => setEmployeeId(e.target.value)}
-            className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-          >
-            {employees.map((e) => (
-              <option key={e.id} value={String(e.id)}>
-                {e.cognome} {e.nome} ({e.matricola})
-              </option>
-            ))}
-          </select>
+          <div className="grid gap-1">
+            <div className="text-xs font-semibold text-slate-600">Mese</div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setRefDate((d) => addMonths(d, -1))}
+                disabled={isBusy}
+                className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {"<"}
+              </button>
+              <div className="min-w-[160px] text-center text-sm font-semibold text-slate-800">{formatItMonth(refDate)}</div>
+              <button
+                type="button"
+                onClick={() => setRefDate((d) => addMonths(d, 1))}
+                disabled={isBusy}
+                className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {">"}
+              </button>
+            </div>
+          </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <div className="text-xs font-semibold text-slate-600">{zoom === "mese" ? "Mese" : "Settimana"}</div>
-          <input
-            type="date"
-            value={toIsoDate(refDate)}
-            onChange={(e) => setRefDate(new Date(`${e.target.value}T12:00:00`))}
-            className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div className="flex items-center gap-1 rounded-xl border border-[var(--brand-line)] bg-white p-1">
-          <button
-            onClick={() => setZoom("mese")}
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${zoom === "mese" ? "bg-[var(--brand-panel)] text-slate-900" : "text-slate-600"}`}
-          >
-            Mese
-          </button>
-          <button
-            onClick={() => setZoom("settimana")}
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${zoom === "settimana" ? "bg-[var(--brand-panel)] text-slate-900" : "text-slate-600"}`}
-          >
-            Settimana
-          </button>
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          {monthLocked ? (
-            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
-              Mese bloccato
-            </span>
-          ) : (
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-              Modificabile
-            </span>
-          )}
-          <button
-            onClick={() => openNewShift(selectedDay)}
-            disabled={monthLocked}
-            className="rounded-xl border border-[#2f5ea8] bg-gradient-to-r from-[var(--brand-primary)] to-[#2f5ea8] px-4 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-white/20 transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Nuovo turno
-          </button>
-        </div>
-      </div>
+      </PanelCard>
 
       {error ? (
-        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
       ) : null}
 
-      {zoom === "mese" ? (
-        <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
-          <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-            <div className="grid grid-cols-7 gap-2 text-xs font-semibold text-slate-500">
-              {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((d) => (
-                <div key={d} className="px-2 py-1">
-                  {d}
+      <PanelCard>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Settimana tipo (lavoratore)</div>
+            <div className="mt-1 text-xs text-slate-500">{template ? `Template: ${template.name}` : "Nessun template attivo"}</div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const firstSiteId = sites[0]?.id;
+                if (!firstSiteId) return;
+                const hasSub = siteHasSubSites(firstSiteId);
+                const subOptions = subSitesForSite(firstSiteId);
+                const slot: TemplateSlot = {
+                  weekday: 0,
+                  siteId: firstSiteId,
+                  subSiteId: hasSub ? (subOptions[0]?.id ?? null) : null,
+                  startTime: "07:00",
+                  endTime: "16:00",
+                  breakMinutes: 0,
+                };
+                setTemplateSlotsAll((prev) => [...prev, slot]);
+              }}
+              disabled={isBusy || sites.length === 0}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Aggiungi fascia
+            </button>
+            <button
+              type="button"
+              onClick={saveTemplate}
+              disabled={isBusy || !selectedEmployee}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Salva
+            </button>
+            <button
+              type="button"
+              onClick={resyncMonthNow}
+              disabled={isBusy || !selectedEmployee}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Riallinea mese
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-7">
+          {Array.from({ length: 7 }).map((_, weekday) => {
+            const slots = templateSlotsByWeekday.get(weekday) ?? [];
+            return (
+              <div key={weekday} className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-3">
+                <div className="text-xs font-semibold text-slate-700">{weekdayLabel(weekday)}</div>
+                <div className="mt-2 space-y-2">
+                  {slots.length === 0 ? (
+                    <div className="text-[11px] font-semibold text-slate-400">-</div>
+                  ) : (
+                    slots.map((s, idx) => {
+                      const subOptions = subSitesForSite(s.siteId);
+                      const hasSub = subOptions.length > 0;
+                      return (
+                        <div key={`${weekday}-${idx}`} className="space-y-2 rounded-lg border border-[var(--brand-line)] bg-white p-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <select
+                              value={String(s.siteId)}
+                              onChange={(e) => {
+                                const nextSiteId = Number(e.target.value);
+                                const nextSubOptions = subSitesForSite(nextSiteId);
+                                const nextHasSub = nextSubOptions.length > 0;
+                                setTemplateSlotsAll((prev) =>
+                                  prev.map((row) =>
+                                    row === s
+                                      ? {
+                                          ...row,
+                                          siteId: nextSiteId,
+                                          subSiteId: nextHasSub ? (nextSubOptions[0]?.id ?? null) : null,
+                                        }
+                                      : row,
+                                  ),
+                                );
+                              }}
+                              className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
+                            >
+                              {sites.map((site) => (
+                                <option key={site.id} value={String(site.id)}>
+                                  {site.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={s.subSiteId ? String(s.subSiteId) : ""}
+                              onChange={(e) => {
+                                const next = e.target.value ? Number(e.target.value) : null;
+                                setTemplateSlotsAll((prev) => prev.map((row) => (row === s ? { ...row, subSiteId: next } : row)));
+                              }}
+                              className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
+                              disabled={!hasSub}
+                            >
+                              {!hasSub ? <option value="">-</option> : null}
+                              {hasSub
+                                ? subOptions.map((ss) => (
+                                    <option key={ss.id} value={String(ss.id)}>
+                                      {ss.label}
+                                    </option>
+                                  ))
+                                : null}
+                            </select>
+                          </div>
+
+                          <div className="grid grid-cols-[1fr_1fr_28px] items-center gap-2">
+                            <select
+                              value={s.startTime}
+                              onChange={(e) => {
+                                const next = e.target.value;
+                                setTemplateSlotsAll((prev) => prev.map((row) => (row === s ? { ...row, startTime: next } : row)));
+                              }}
+                              className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
+                            >
+                              {timeOptions.map((t) => (
+                                <option key={t} value={t}>
+                                  {t}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={s.endTime}
+                              onChange={(e) => {
+                                const next = e.target.value;
+                                setTemplateSlotsAll((prev) => prev.map((row) => (row === s ? { ...row, endTime: next } : row)));
+                              }}
+                              className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
+                            >
+                              {timeOptions.map((t) => (
+                                <option key={t} value={t}>
+                                  {t}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setTemplateSlotsAll((prev) => prev.filter((row) => row !== s))}
+                              className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-[11px] font-bold text-white shadow-sm transition hover:brightness-95"
+                              title="Rimuovi"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
-              ))}
+              </div>
+            );
+          })}
+        </div>
+      </PanelCard>
+
+      <div className="space-y-4">
+        <PanelCard>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Calendario mese</div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-slate-600">
+                <div className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> Ciclico
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-sky-500" /> Extra/Modificato
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-red-500" /> Annullato
+                </div>
+              </div>
             </div>
-            <div className="mt-2 grid gap-2">
-              {monthCalendar.map((week, idx) => (
-                <div key={idx} className="grid grid-cols-7 gap-2">
-                  {week.map((day, dayIdx) => {
-                    const inMonth = day.slice(0, 7) === toIsoDate(refDate).slice(0, 7);
-                    const summary = monthSummaryByDay.get(day) ?? { planned: 0, actual: 0, minutes: 0 };
-                    const total = summary.planned + summary.actual;
-                    const isSelected = day === selectedDay;
-                    const isToday = day === toIsoDate(new Date());
-                    const isWeekend = dayIdx >= 5;
-                    return (
-                      <button
-                        key={day}
-                        onClick={() => {
-                          setSelectedDay(day);
-                          setShiftForm((s) => {
-                            const defaultSiteId = s.siteId || (sites[0] ? String(sites[0].id) : "");
-                            const siteIdNum = Number(defaultSiteId);
-                            const defaultSubSiteId =
-                              s.subSiteId ||
-                              (Number.isFinite(siteIdNum) && subSites.some((ss) => ss.siteId === siteIdNum)
-                                ? String(subSites.find((ss) => ss.siteId === siteIdNum)?.id ?? "")
-                                : "");
-                            return {
-                              ...s,
-                              date: day,
-                              employeeId: s.employeeId || employeeId,
-                              siteId: defaultSiteId,
-                              subSiteId: defaultSubSiteId,
-                            };
-                          });
-                          setCopyDayTargetDate(toIsoDate(addDays(new Date(`${day}T12:00:00`), 1)));
-                          setIsDayModalOpen(true);
-                        }}
-                        className={`rounded-xl border px-2 py-2 text-left transition ${
-                          isSelected
-                            ? "border-[#2f5ea8] bg-indigo-50"
-                            : "border-[var(--brand-line)] bg-white hover:bg-[var(--brand-panel)]"
-                        } ${inMonth ? "" : "opacity-40"} ${isWeekend ? "bg-slate-50" : ""} ${isToday ? "ring-2 ring-[#2f5ea8]/20" : ""}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="text-xs font-semibold text-slate-900">{day.slice(8, 10)}</div>
-                          <div className="text-[10px] font-semibold text-slate-500">{total} turni</div>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between gap-2">
-                          <div className="text-[11px] text-slate-700">
-                            {summary.minutes ? `${Math.round((summary.minutes / 60) * 100) / 100}h` : "-"}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {summary.actual > 0 ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
-                            {summary.planned > 0 ? <span className="h-2 w-2 rounded-full bg-blue-500" /> : null}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm font-semibold text-slate-800">
+                {formatItMonth(refDate)}
+              </div>
+              <button
+                type="button"
+                onClick={() => setRefDate((d) => addMonths(d, -1))}
+                disabled={isBusy}
+                className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {"<"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRefDate((d) => addMonths(d, 1))}
+                disabled={isBusy}
+                className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {">"}
+              </button>
+              <button
+                onClick={() => openNewShift(selectedDay)}
+                disabled={isBusy || !selectedEmployee}
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Nuovo turno
+              </button>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-            <div className="mb-2 text-xs font-semibold text-slate-500">{formatItDate(selectedDay)}</div>
-            <div className="max-h-[62vh] overflow-auto">
-              {(shiftsByDay.get(selectedDay) ?? []).length === 0 ? (
-                <div className="rounded-xl border border-dashed border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-6 text-sm text-slate-600">
-                  Nessun turno.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {(shiftsByDay.get(selectedDay) ?? []).map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => openEditShift(r)}
-                      className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-left hover:bg-[var(--brand-panel)]"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-slate-900">{r.siteLabel}</div>
-                        <div className="text-xs font-semibold text-slate-700">
-                          {formatTime(r.startAt)}–{formatTime(r.endAt)}
-                        </div>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-600">
-                        {r.state === "actual" ? "Consuntivo" : r.state === "planned" ? "Preventivo" : "Annullato"}
-                        {r.note ? ` • ${r.note}` : ""}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            {Array.from({ length: 7 }).map((_, i) => {
-              const day = toIsoDate(addDays(startOfWeek(refDate), i));
-              const rows = shiftsByDay.get(day) ?? [];
+          <div className="grid grid-cols-7 gap-2">
+            {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((w) => (
+              <div key={w} className="px-2 text-xs font-semibold text-slate-600">
+                {w}
+              </div>
+            ))}
+            {monthGrid.map((cell) => {
+              const rows = shiftsByDay.get(cell.iso) ?? [];
+              const minutes = rows.reduce((acc, r) => (r.state === "cancelled" ? acc : acc + minutesBetween(r.startAt, r.endAt)), 0);
+              const hasCancelled = rows.some((r) => r.state === "cancelled");
+              const hasManual = rows.some((r) => r.source === "manual" && r.state !== "cancelled");
+              const hasTemplate = rows.some((r) => r.source === "template" && r.state !== "cancelled");
+              const isSelected = cell.iso === selectedDay;
+              const bg = hasCancelled ? "bg-red-50" : hasManual ? "bg-sky-50" : hasTemplate ? "bg-emerald-50" : "bg-white";
               return (
-                <div key={day} className="rounded-2xl border border-[var(--brand-line)] bg-white p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-sm font-semibold text-slate-900">{formatItDate(day)}</div>
-                    <button
-                      disabled={monthLocked}
-                      onClick={() => openNewShift(day)}
-                      className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-[var(--brand-panel)] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      +
-                    </button>
+                <button
+                  key={cell.iso}
+                  data-cal="true"
+                  type="button"
+                  disabled={!cell.inMonth}
+                  onClick={() => setSelectedDay(cell.iso)}
+                  className={[
+                    "min-h-[74px] rounded-xl border border-[var(--brand-line)] p-2 text-left disabled:opacity-35",
+                    bg,
+                    isSelected ? "ring-2 ring-[#2f5ea8]/20" : "",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold text-slate-900">{cell.day}</div>
+                    {rows.length ? (
+                      <div className="text-[11px] font-semibold tabular-nums text-slate-700">{Math.round((minutes / 60) * 10) / 10}h</div>
+                    ) : null}
                   </div>
-                  {rows.length === 0 ? (
-                    <div className="text-sm text-slate-500">Nessun turno.</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {rows.map((r) => (
-                        <button
-                          key={r.id}
-                          onClick={() => openEditShift(r)}
-                          className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-left hover:bg-[var(--brand-panel)]"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm font-semibold text-slate-900">{r.siteLabel}</div>
-                            <div className="text-xs font-semibold text-slate-700">
-                              {formatTime(r.startAt)}–{formatTime(r.endAt)}
-                            </div>
-                          </div>
-                          <div className="mt-1 text-xs text-slate-600">
-                            {r.state === "actual" ? "Consuntivo" : r.state === "planned" ? "Preventivo" : "Annullato"}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                  <div className="mt-1 flex items-center gap-1">
+                    <span className={["h-1.5 w-1.5 rounded-full", hasTemplate ? "bg-emerald-500" : "bg-slate-200"].join(" ")} />
+                    <span className={["h-1.5 w-1.5 rounded-full", hasManual ? "bg-sky-500" : "bg-slate-200"].join(" ")} />
+                    <span className={["h-1.5 w-1.5 rounded-full", hasCancelled ? "bg-red-500" : "bg-slate-200"].join(" ")} />
+                    {rows.length ? <span className="ml-1 text-[11px] font-semibold text-slate-600">{rows.length}</span> : null}
+                  </div>
+                </button>
               );
             })}
           </div>
-        </div>
-      )}
+        </PanelCard>
 
-      <Modal title="Turni del giorno" isOpen={isDayModalOpen} onClose={() => setIsDayModalOpen(false)}>
-        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
-          <div>
-            <div className="mb-3 rounded-2xl border border-[var(--brand-line)] bg-white p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-xs font-semibold text-slate-600">{formatItDate(selectedDay)}</div>
-                <div className="flex items-center gap-2">
-                  <div className="text-xs font-semibold text-slate-600">Copia su</div>
-                  <input
-                    type="date"
-                    value={copyDayTargetDate}
-                    onChange={(e) => setCopyDayTargetDate(e.target.value)}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                  />
-                  <button
-                    disabled={isBusy || monthLocked}
-                    onClick={copyDayShifts}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-[var(--brand-panel)] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Copia giorno
-                  </button>
-                </div>
-              </div>
+        <PanelCard>
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-semibold text-slate-900">Dettaglio giorno</div>
+            <button
+              onClick={() => openNewShift(selectedDay)}
+              disabled={isBusy || !selectedEmployee}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Aggiungi
+            </button>
+          </div>
+          <div className="mb-3 grid gap-1">
+            <div className="text-xs font-semibold text-slate-600">Filtro cantiere (giorno)</div>
+            <Combobox
+              value={daySiteKey}
+              onChange={(v) => setDaySiteKey(v)}
+              options={[{ id: "", label: "Tutti" }, ...sitesForMatrix.map((s) => ({ id: siteKey(s.siteId, s.subSiteId), label: s.label }))]}
+              placeholder="Tutti i cantieri"
+              disabled={isBusy}
+            />
+          </div>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-semibold text-slate-500">
+              {formatItDate(selectedDay)}
+              {daySiteLabel ? ` · ${daySiteLabel}` : ""}
             </div>
-            <div className="space-y-2">
-              {(shiftsByDay.get(selectedDay) ?? []).map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => openEditShift(r)}
-                  className={`w-full rounded-xl border bg-white px-3 py-2 text-left hover:bg-[var(--brand-panel)] ${
-                    String(r.id) === shiftForm.shiftId ? "border-[#2f5ea8]" : "border-[var(--brand-line)]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-900">
-                        {r.subSiteLabel && r.subSiteLabel !== "-" ? r.subSiteLabel : r.siteLabel}
+            {daySiteKey ? (
+              <button
+                type="button"
+                onClick={() => setDaySiteKey("")}
+                className="rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
+              >
+                Mostra tutti
+              </button>
+            ) : null}
+          </div>
+          <div className="max-h-[62vh] overflow-auto">
+            {selectedDayRows.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-6 text-sm text-slate-600">
+                Nessun turno.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {selectedDayRows.map((row) => (
+                  <div
+                    key={row.id}
+                    onClick={() => openEditShift(row)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openEditShift(row);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-left hover:bg-[var(--brand-panel)]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold text-slate-900">
+                        {row.subSiteId ? `${row.siteLabel} — ${row.subSiteLabel}` : row.siteLabel}
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-slate-600">{r.note ? r.note : ""}</div>
+                      <div className="text-xs font-semibold text-slate-700">
+                        {formatTime(row.startAt)}–{formatTime(row.endAt)}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                          r.state === "actual"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                            : r.state === "planned"
-                              ? "border-blue-200 bg-blue-50 text-blue-800"
-                              : "border-slate-200 bg-slate-50 text-slate-700"
-                        }`}
-                      >
-                        {r.state === "actual" ? "Consuntivo" : r.state === "planned" ? "Preventivo" : "Annullato"}
-                      </span>
-                      <div className="text-xs font-semibold text-slate-800">
-                        {formatTime(r.startAt)}–{formatTime(r.endAt)}
-                      </div>
+                    <div className="mt-1 text-xs text-slate-600">
+                      {row.state === "cancelled" ? "ANNULLATO • " : ""}
+                      {row.note ? `${row.note} • ` : ""}da: {row.createdByName}
                     </div>
                   </div>
-                </button>
-              ))}
+                ))}
+              </div>
+            )}
+          </div>
+        </PanelCard>
+      </div>
+
+      <Modal title={shiftForm.shiftId ? "Modifica turno" : "Nuovo turno"} isOpen={isShiftModalOpen} onClose={() => setIsShiftModalOpen(false)}>
+        <div className="grid gap-4">
+          <div className="grid gap-1">
+            <div className="text-xs font-semibold text-slate-600">Data</div>
+            <input value={shiftForm.date} readOnly className="rounded-xl border border-[var(--brand-line)] bg-slate-50 px-3 py-2 text-sm" />
+          </div>
+
+          <div className="grid gap-1">
+            <div className="text-xs font-semibold text-slate-600">Cantiere</div>
+            <Combobox
+              value={shiftForm.siteId}
+              onChange={(next) => {
+                const id = Number(next);
+                if (!Number.isFinite(id)) {
+                  setShiftForm((s) => ({ ...s, siteId: next, subSiteId: "" }));
+                  return;
+                }
+                const subs = subSitesForSite(id);
+                const hasSub = subs.length > 0;
+                setShiftForm((s) => ({ ...s, siteId: next, subSiteId: hasSub ? String(subs[0]?.id ?? "") : "" }));
+              }}
+              options={[{ id: "", label: "-" }, ...sites.map((s) => ({ id: String(s.id), label: s.label }))]}
+              placeholder="Cerca cantiere..."
+              disabled={isBusy}
+            />
+          </div>
+
+          <div className="grid gap-1">
+            <div className="text-xs font-semibold text-slate-600">Sottocantiere</div>
+            <Combobox
+              value={shiftForm.subSiteId}
+              onChange={(v) => setShiftForm((s) => ({ ...s, subSiteId: v }))}
+              options={subSitesForSite(Number(shiftForm.siteId)).map((ss) => ({ id: String(ss.id), label: ss.label }))}
+              placeholder={!Number.isFinite(Number(shiftForm.siteId)) || !siteHasSubSites(Number(shiftForm.siteId)) ? "-" : "Cerca sottocantiere..."}
+              disabled={isBusy || !Number.isFinite(Number(shiftForm.siteId)) || !siteHasSubSites(Number(shiftForm.siteId))}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1">
+              <div className="text-xs font-semibold text-slate-600">Da</div>
+              <select
+                value={shiftForm.startTime}
+                onChange={(e) => setShiftForm((s) => ({ ...s, startTime: e.target.value }))}
+                className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+              >
+                {timeOptions.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <div className="text-xs font-semibold text-slate-600">A</div>
+              <select
+                value={shiftForm.endTime}
+                onChange={(e) => setShiftForm((s) => ({ ...s, endTime: e.target.value }))}
+                className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+              >
+                {timeOptions.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-            <div className="mb-3 text-sm font-semibold text-slate-900">
-              {shiftForm.shiftId ? "Modifica turno" : "Nuovo turno"}
-            </div>
-            <div className="grid gap-3">
-              <div className="grid gap-2">
-                <div className="text-xs font-semibold text-slate-600">Lavoratore</div>
-                <select
-                  value={shiftForm.employeeId}
-                  onChange={(e) => setShiftForm((s) => ({ ...s, employeeId: e.target.value }))}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Seleziona...</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={String(e.id)}>
-                      {e.cognome} {e.nome} ({e.matricola})
-                      {e.cantiere && e.cantiere !== "-"
-                        ? ` — ${e.cantiere}${e.sottocantiere && e.sottocantiere !== "-" ? ` / ${e.sottocantiere}` : ""}`
-                        : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="grid gap-1">
+            <div className="text-xs font-semibold text-slate-600">Note</div>
+            <input
+              value={shiftForm.note}
+              onChange={(e) => setShiftForm((s) => ({ ...s, note: e.target.value }))}
+              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+            />
+          </div>
 
-              <div className="grid gap-2">
-                <div className="text-xs font-semibold text-slate-600">Data</div>
-                <input
-                  type="date"
-                  value={shiftForm.date}
-                  onChange={(e) => setShiftForm((s) => ({ ...s, date: e.target.value }))}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <div className="text-xs font-semibold text-slate-600">Cantiere</div>
-                <select
-                  value={shiftForm.siteId}
-                  onChange={(e) => {
-                    const nextSiteId = e.target.value;
-                    const nextSiteIdNum = Number(nextSiteId);
-                    const defaultSubSiteId =
-                      Number.isFinite(nextSiteIdNum) && subSites.some((ss) => ss.siteId === nextSiteIdNum)
-                        ? String(subSites.find((ss) => ss.siteId === nextSiteIdNum)?.id ?? "")
-                        : "";
-                    setShiftForm((s) => ({ ...s, siteId: nextSiteId, subSiteId: defaultSubSiteId }));
-                  }}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Seleziona...</option>
-                  {sites.map((s) => (
-                    <option key={s.id} value={String(s.id)}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {subSitesForShiftSite.length > 0 ? (
-                <div className="grid gap-2">
-                  <div className="text-xs font-semibold text-slate-600">Sottocantiere</div>
-                  <select
-                    value={shiftForm.subSiteId}
-                    onChange={(e) => setShiftForm((s) => ({ ...s, subSiteId: e.target.value }))}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="">Seleziona...</option>
-                    {subSitesForShiftSite.map((s) => (
-                      <option key={s.id} value={String(s.id)}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-2">
-                  <div className="text-xs font-semibold text-slate-600">Inizio</div>
-                  <select
-                    value={shiftForm.startTime}
-                    onChange={(e) => setShiftForm((s) => ({ ...s, startTime: e.target.value }))}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                  >
-                    {timeOptions.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid gap-2">
-                  <div className="text-xs font-semibold text-slate-600">Fine</div>
-                  <select
-                    value={shiftForm.endTime}
-                    onChange={(e) => setShiftForm((s) => ({ ...s, endTime: e.target.value }))}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                  >
-                    {timeOptions.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <div className="text-xs font-semibold text-slate-600">Stato</div>
-                <select
-                  value={shiftForm.state}
-                  onChange={(e) => setShiftForm((s) => ({ ...s, state: e.target.value as ShiftState }))}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                >
-                  <option value="planned">Preventivo</option>
-                  <option value="actual">Consuntivo</option>
-                  <option value="cancelled">Annullato</option>
-                </select>
-              </div>
-
-              <div className="grid gap-2">
-                <div className="text-xs font-semibold text-slate-600">Note</div>
-                <input
-                  value={shiftForm.note}
-                  onChange={(e) => setShiftForm((s) => ({ ...s, note: e.target.value }))}
-                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="text-xs font-semibold text-slate-700">Pause</div>
-                  <button
-                    onClick={() =>
-                      setShiftForm((s) => ({ ...s, breaks: [...s.breaks, { startTime: "12:00", endTime: "12:15" }] }))
-                    }
-                    className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-[var(--brand-panel)]"
-                  >
-                    Aggiungi
-                  </button>
-                </div>
-                {shiftForm.breaks.length === 0 ? (
-                  <div className="text-sm text-slate-500">Nessuna pausa.</div>
-                ) : (
-                  <div className="grid gap-2">
-                    {shiftForm.breaks.map((b, idx) => (
-                      <div key={idx} className="grid grid-cols-[1fr_1fr_44px] gap-2">
-                        <select
-                          value={b.startTime}
-                          onChange={(e) =>
-                            setShiftForm((s) => ({
-                              ...s,
-                              breaks: s.breaks.map((it, i) => (i === idx ? { ...it, startTime: e.target.value } : it)),
-                            }))
-                          }
-                          className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                        >
-                          {timeOptions.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={b.endTime}
-                          onChange={(e) =>
-                            setShiftForm((s) => ({
-                              ...s,
-                              breaks: s.breaks.map((it, i) => (i === idx ? { ...it, endTime: e.target.value } : it)),
-                            }))
-                          }
-                          className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                        >
-                          {timeOptions.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => setShiftForm((s) => ({ ...s, breaks: s.breaks.filter((_, i) => i !== idx) }))}
-                          className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                          title="Rimuovi"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {shiftForm.shiftId ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    disabled={isBusy || monthLocked}
-                    onClick={() => setShiftForm((s) => ({ ...s, shiftId: "" }))}
-                    className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-[var(--brand-panel)] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Duplica
-                  </button>
-                  <button
-                    disabled={isBusy || monthLocked}
-                    onClick={cancelCurrentShift}
-                    className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Annulla
-                  </button>
-                </div>
-              ) : null}
-
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={saveShift}
+              disabled={isBusy || !selectedEmployee}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Salva
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAbsenceForm({ absenceType: "malattia", note: "" });
+                setIsAbsenceModalOpen(true);
+              }}
+              disabled={isBusy || !selectedEmployee}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Segna assenza
+            </button>
+            {shiftForm.shiftId ? (
               <button
-                disabled={isBusy || monthLocked}
-                onClick={saveShift}
-                className="rounded-xl border border-[#2f5ea8] bg-gradient-to-r from-[var(--brand-primary)] to-[#2f5ea8] px-4 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-white/20 transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                onClick={deleteShift}
+                disabled={isBusy}
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Salva turno
+                Annulla turno
               </button>
-            </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setIsShiftModalOpen(false)}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+            >
+              Annulla
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal title="Assenza" isOpen={isAbsenceModalOpen} onClose={() => setIsAbsenceModalOpen(false)}>
+        <div className="grid gap-4">
+          <div className="grid gap-1">
+            <div className="text-xs font-semibold text-slate-600">Tipo</div>
+            <select
+              value={absenceForm.absenceType}
+              onChange={(e) =>
+                setAbsenceForm((s) => ({
+                  ...s,
+                  absenceType: e.target.value as "ferie" | "malattia" | "permesso" | "infortunio" | "altro",
+                }))
+              }
+              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+            >
+              <option value="malattia">Malattia</option>
+              <option value="ferie">Ferie</option>
+              <option value="permesso">Permesso</option>
+              <option value="infortunio">Infortunio</option>
+              <option value="altro">Altro</option>
+            </select>
+          </div>
+
+          <div className="grid gap-1">
+            <div className="text-xs font-semibold text-slate-600">Note</div>
+            <input
+              value={absenceForm.note}
+              onChange={(e) => setAbsenceForm((s) => ({ ...s, note: e.target.value }))}
+              className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={createAbsenceForDay}
+              disabled={isBusy || !selectedEmployee}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Conferma
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAbsenceModalOpen(false)}
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+            >
+              Annulla
+            </button>
           </div>
         </div>
       </Modal>

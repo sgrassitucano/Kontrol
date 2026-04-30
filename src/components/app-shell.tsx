@@ -109,7 +109,7 @@ export function AppShell({ children }: AppShellProps) {
     return (
       <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
         <div className="mx-auto flex min-h-screen w-full max-w-none flex-col px-3 py-3 md:px-4 lg:px-4 lg:py-4">
-          <main className="min-h-[calc(100vh-2rem)] rounded-[26px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4 shadow-[var(--brand-shadow)] md:p-5">
+          <main className="min-h-[calc(100vh-2rem)] rounded-[26px] border border-[var(--brand-line)] bg-[var(--brand-page)] p-4 shadow-[var(--brand-shadow)] md:p-5">
             {children}
           </main>
         </div>
@@ -126,7 +126,7 @@ export function AppShell({ children }: AppShellProps) {
             sidebarCollapsed ? "lg:w-[84px]" : "lg:w-[280px]",
           ].join(" ")}
         >
-          <div className="flex h-full flex-col">
+          <div className="flex h-full flex-col rounded-[26px] border border-[var(--brand-line)] bg-[var(--brand-sidebar)] shadow-[var(--brand-shadow-soft)]">
             <div className="relative flex items-center justify-center px-2 py-3">
               {!sidebarCollapsed ? (
                 <div className="w-full">
@@ -140,7 +140,7 @@ export function AppShell({ children }: AppShellProps) {
               <button
                 type="button"
                 onClick={() => setSidebarOverride((value) => !(value ?? isTableFocusRoute))}
-                className="absolute right-2 top-3 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+                className="absolute right-2 top-3 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
                 title={sidebarCollapsed ? "Espandi menu" : "Comprimi menu"}
               >
                 {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
@@ -252,7 +252,7 @@ export function AppShell({ children }: AppShellProps) {
                 <button
                   type="button"
                   onClick={logout}
-                  className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
+                  className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-3 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                 >
                   <LogOut className="h-5 w-5" />
                   {!sidebarCollapsed ? "Esci" : null}
@@ -263,7 +263,7 @@ export function AppShell({ children }: AppShellProps) {
         </aside>
 
         <div className="min-w-0 flex-1">
-          <main className="min-h-[calc(100vh-2rem)] rounded-[26px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4 shadow-[var(--brand-shadow)] md:p-5">
+          <main className="min-h-[calc(100vh-2rem)] rounded-[26px] border border-[var(--brand-line)] bg-[var(--brand-page)] p-4 shadow-[var(--brand-shadow)] md:p-5">
             {children}
           </main>
         </div>

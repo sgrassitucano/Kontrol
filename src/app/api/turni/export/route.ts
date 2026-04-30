@@ -68,6 +68,31 @@ function toTime(value: Date) {
   return `${hh}:${mm}`;
 }
 
+function parseCsvNumberList(value: string | null) {
+  if (!value) return [];
+  const items = value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0)
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v)) as number[];
+  return Array.from(new Set(items));
+}
+
+function parseCsvStringList(value: string | null) {
+  if (!value) return [];
+  const items = value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  return Array.from(new Set(items));
+}
+
+function intersectNumberLists(a: number[], b: number[]) {
+  const setB = new Set(b);
+  return a.filter((v) => setB.has(v));
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("turni", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -76,6 +101,19 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const year = Number(url.searchParams.get("year") ?? "");
     const month = Number(url.searchParams.get("month") ?? "");
+    const includeCancelled =
+      (url.searchParams.get("includeCancelled") ?? "").toLowerCase() === "true" ||
+      (url.searchParams.get("includeCancelled") ?? "") === "1";
+
+    const employeeIdsCsv = parseCsvNumberList(url.searchParams.get("employeeIds"));
+    const siteIdsCsv = parseCsvNumberList(url.searchParams.get("siteIds"));
+    const subSiteIdsCsv = parseCsvNumberList(url.searchParams.get("subSiteIds"));
+    const includeNullSubSite =
+      (url.searchParams.get("includeNullSubSite") ?? "").toLowerCase() === "true" ||
+      (url.searchParams.get("includeNullSubSite") ?? "") === "1";
+    const responsibleCodes = parseCsvStringList(url.searchParams.get("responsibleCodes"));
+    const referrals = parseCsvStringList(url.searchParams.get("referrals"));
+
     const siteIdParam = url.searchParams.get("siteId");
     const subSiteIdParam = url.searchParams.get("subSiteId");
     const employeeIdParam = url.searchParams.get("employeeId");
@@ -102,6 +140,35 @@ export async function GET(request: Request) {
     const end = new Date(Date.UTC(year, month, 1, 0, 0, 0));
 
     const supabase = auth.supabase;
+
+    const siteIds = siteIdsCsv.length > 0 ? siteIdsCsv : typeof siteId === "number" && Number.isFinite(siteId) ? [siteId] : [];
+    const subSiteIds =
+      subSiteIdsCsv.length > 0
+        ? subSiteIdsCsv
+        : typeof subSiteId === "number" && Number.isFinite(subSiteId)
+          ? [subSiteId]
+          : [];
+
+    let allowedEmployeeIds: number[] | null = null;
+    if (responsibleCodes.length > 0 || referrals.length > 0) {
+      let q = supabase.from("employees").select("id").eq("status", "attivo");
+      if (responsibleCodes.length > 0) q = q.in("responsible_code", responsibleCodes);
+      if (referrals.length > 0) q = q.in("referral", referrals);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      allowedEmployeeIds = Array.from(new Set((data ?? []).map((r) => (r as { id: number }).id)));
+    }
+
+    const explicitEmployeeIds =
+      employeeIdsCsv.length > 0
+        ? employeeIdsCsv
+        : typeof employeeId === "number" && Number.isFinite(employeeId)
+          ? [employeeId]
+          : [];
+
+    if (explicitEmployeeIds.length > 0) {
+      allowedEmployeeIds = allowedEmployeeIds ? intersectNumberLists(allowedEmployeeIds, explicitEmployeeIds) : explicitEmployeeIds;
+    }
     let shiftsQuery = supabase
       .from("turni_employee_shifts")
       .select(
@@ -110,25 +177,56 @@ export async function GET(request: Request) {
       .gte("start_at", start.toISOString())
       .lt("start_at", end.toISOString())
       .neq("state", "cancelled")
-      .order("start_at");
     if (typeof siteId === "number" && Number.isFinite(siteId)) shiftsQuery = shiftsQuery.eq("site_id", siteId);
-    if (typeof subSiteId === "number" && Number.isFinite(subSiteId)) shiftsQuery = shiftsQuery.eq("sub_site_id", subSiteId);
-    if (typeof employeeId === "number" && Number.isFinite(employeeId))
-      shiftsQuery = shiftsQuery.eq("employee_id", employeeId);
 
+    if (!includeCancelled) shiftsQuery = shiftsQuery.neq("state", "cancelled");
+    if (allowedEmployeeIds && allowedEmployeeIds.length === 0) {
+      const emptyWb = XLSX.utils.book_new();
+      const ws1 = XLSX.utils.json_to_sheet([], { header: ["data", "matricola", "cognome", "nome", "cantiere", "sottocantiere", "inizio", "fine", "pause_min", "ore_nette", "stato", "note"] });
+      applyCalibri10WithBoldHeader(ws1);
+      XLSX.utils.book_append_sheet(emptyWb, ws1, "per_lavoratore");
+      const ws2 = XLSX.utils.json_to_sheet([], { header: ["data", "matricola", "cognome", "nome", "cantiere", "sottocantiere", "inizio", "fine", "pause_min", "ore_nette", "stato", "note"] });
+      applyCalibri10WithBoldHeader(ws2);
+      XLSX.utils.book_append_sheet(emptyWb, ws2, "per_cantiere");
+      const buffer = XLSX.write(
+        emptyWb,
+        { bookType: "xlsx", type: "buffer", cellStyles: true } as XlsxWriteOptionsWithStyles,
+      );
+      const fileName = `turni_${year}_${String(month).padStart(2, "0")}_selezione.xlsx`;
+      return new NextResponse(buffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+        },
+      });
+    }
+    if (allowedEmployeeIds && allowedEmployeeIds.length > 0) shiftsQuery = shiftsQuery.in("employee_id", allowedEmployeeIds);
+    if (siteIds.length > 0) shiftsQuery = shiftsQuery.in("site_id", siteIds);
+
+    if (includeNullSubSite && subSiteIds.length > 0) {
+      shiftsQuery = shiftsQuery.or(`sub_site_id.is.null,sub_site_id.in.(${subSiteIds.join(",")})`);
+    } else if (includeNullSubSite) {
+      shiftsQuery = shiftsQuery.is("sub_site_id", null);
+    } else if (subSiteIds.length > 0) {
+      shiftsQuery = shiftsQuery.in("sub_site_id", subSiteIds);
+    }
     const { data: shiftsData, error: shiftsError } = await shiftsQuery;
     if (shiftsError) throw new Error(shiftsError.message);
+
 
     const shifts = (shiftsData ?? []) as ShiftRow[];
     const shiftIds = shifts.map((s) => s.id);
 
-    const subSiteIds = Array.from(new Set(shifts.map((s) => s.sub_site_id).filter((v): v is number => typeof v === "number")));
+    const subSiteIdsInShifts = Array.from(
+      new Set(shifts.map((s) => s.sub_site_id).filter((v): v is number => typeof v === "number")),
+    );
     const subSitesById = new Map<number, string>();
-    if (subSiteIds.length > 0) {
+    if (subSiteIdsInShifts.length > 0) {
       const { data: subSitesData, error: subSitesError } = await supabase
         .from("sub_sites")
         .select("id,display_name")
-        .in("id", subSiteIds);
+        .in("id", subSiteIdsInShifts);
       if (subSitesError) throw new Error(subSitesError.message);
       for (const s of (subSitesData ?? []) as Array<{ id: number; display_name: string }>) {
         subSitesById.set(s.id, s.display_name);
@@ -206,7 +304,20 @@ export async function GET(request: Request) {
       wb,
       { bookType: "xlsx", type: "buffer", cellStyles: true } as XlsxWriteOptionsWithStyles,
     );
-    const suffix = employeeId ? `employee_${employeeId}` : siteId ? `site_${siteId}` : "tutti";
+    const suffix =
+      employeeIdsCsv.length > 0 ||
+      siteIdsCsv.length > 0 ||
+      subSiteIdsCsv.length > 0 ||
+      responsibleCodes.length > 0 ||
+      referrals.length > 0 ||
+      includeNullSubSite ||
+      includeCancelled
+        ? "selezione"
+        : employeeId
+          ? `employee_${employeeId}`
+          : siteId
+            ? `site_${siteId}`
+            : "tutti";
     const fileName = `turni_${year}_${String(month).padStart(2, "0")}_${suffix}.xlsx`;
 
     return new NextResponse(buffer, {

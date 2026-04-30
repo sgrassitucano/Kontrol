@@ -33,7 +33,7 @@ export function PageFrame({
       <section className="grid gap-6 rounded-[28px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-8 md:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-4">
           {eyebrow ? (
-            <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand-soft)]">
+            <span className="inline-flex rounded-full bg-[var(--brand-page)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand-soft)]">
               {eyebrow}
             </span>
           ) : null}
@@ -51,7 +51,7 @@ export function PageFrame({
                 <Link
                   key={action.href}
                   href={action.href}
-                  className="inline-flex min-h-11 items-center rounded-full bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"
+                  className="inline-flex min-h-11 items-center rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                 >
                   {action.label}
                 </Link>
@@ -59,7 +59,7 @@ export function PageFrame({
             </div>
           ) : null}
         </div>
-        <div className="rounded-[24px] border border-[var(--brand-line)] bg-white p-5">
+        <div className="rounded-[24px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-5">
           {aside ?? (
             <div className="space-y-3">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-soft)]">

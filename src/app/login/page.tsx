@@ -47,7 +47,7 @@ export default function LoginPage() {
 
       <form
         onSubmit={onSubmit}
-        className="rounded-[24px] border border-[var(--brand-line)] bg-white p-6"
+        className="rounded-[24px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-6"
       >
         <div className="space-y-4">
           <label className="block space-y-1">
@@ -83,7 +83,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-60"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? "Accesso in corso..." : "Accedi"}
           </button>

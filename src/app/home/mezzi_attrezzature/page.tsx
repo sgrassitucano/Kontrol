@@ -466,14 +466,14 @@ export default function HomeMezziPage() {
             <button
               type="button"
               onClick={() => setIsAssetModalOpen(true)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Nuovo asset
             </button>
             <button
               type="button"
               onClick={() => setIsAssignModalOpen(true)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Assegna
             </button>
@@ -486,10 +486,8 @@ export default function HomeMezziPage() {
               type="button"
               onClick={() => setTab("scadenze")}
               className={[
-                "min-h-9 rounded-full px-4 text-sm font-semibold transition",
-                tab === "scadenze"
-                  ? "bg-[var(--brand-primary)] text-white"
-                  : "text-slate-600 hover:bg-slate-50",
+                "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
+                tab === "scadenze" ? "" : "opacity-80",
               ].join(" ")}
             >
               Scadenze
@@ -498,10 +496,8 @@ export default function HomeMezziPage() {
               type="button"
               onClick={() => setTab("asset")}
               className={[
-                "min-h-9 rounded-full px-4 text-sm font-semibold transition",
-                tab === "asset"
-                  ? "bg-[var(--brand-primary)] text-white"
-                  : "text-slate-600 hover:bg-slate-50",
+                "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
+                tab === "asset" ? "" : "opacity-80",
               ].join(" ")}
             >
               Asset
@@ -510,10 +506,8 @@ export default function HomeMezziPage() {
               type="button"
               onClick={() => setTab("assegnazioni")}
               className={[
-                "min-h-9 rounded-full px-4 text-sm font-semibold transition",
-                tab === "assegnazioni"
-                  ? "bg-[var(--brand-primary)] text-white"
-                  : "text-slate-600 hover:bg-slate-50",
+                "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
+                tab === "assegnazioni" ? "" : "opacity-80",
               ].join(" ")}
             >
               Assegnazioni
@@ -532,7 +526,7 @@ export default function HomeMezziPage() {
       </ModuleHeader>
 
       {tab === "scadenze" ? (
-        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="max-h-[72vh] overflow-y-auto">
             <table className="w-full table-fixed text-left text-xs">
               <colgroup>
@@ -554,13 +548,10 @@ export default function HomeMezziPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredObligations.map((row, idx) => (
+                {filteredObligations.map((row) => (
                   <tr
                     key={row.obligationId}
-                    className={[
-                      "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                      idx % 2 === 1 ? "bg-[var(--brand-panel)]/25" : "bg-white",
-                    ].join(" ")}
+                    className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                   >
                     <td className="px-4 py-2.5 font-semibold text-slate-800">
                       {row.asset
@@ -593,7 +584,7 @@ export default function HomeMezziPage() {
                       <button
                         type="button"
                         onClick={() => openObligationModal(row)}
-                        className="inline-flex min-h-9 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white px-3 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-[var(--brand-panel)]"
+                        className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] px-3 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                       >
                         Gestisci
                       </button>
@@ -614,7 +605,7 @@ export default function HomeMezziPage() {
       ) : null}
 
       {tab === "asset" ? (
-        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="max-h-[72vh] overflow-y-auto">
             <table className="w-full table-fixed text-left text-xs">
               <colgroup>
@@ -636,13 +627,10 @@ export default function HomeMezziPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredAssets.map((row, idx) => (
+                {filteredAssets.map((row) => (
                   <tr
                     key={row.id}
-                    className={[
-                      "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                      idx % 2 === 1 ? "bg-[var(--brand-panel)]/25" : "bg-white",
-                    ].join(" ")}
+                    className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                   >
                     <td className="px-4 py-2.5 text-slate-700">
                       <div className="font-semibold text-slate-900">{row.assetType}</div>
@@ -687,7 +675,7 @@ export default function HomeMezziPage() {
       ) : null}
 
       {tab === "assegnazioni" ? (
-        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-white">
+        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="max-h-[72vh] overflow-y-auto">
             <table className="w-full table-fixed text-left text-xs">
               <colgroup>
@@ -707,13 +695,10 @@ export default function HomeMezziPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredAssignments.map((row, idx) => (
+                {filteredAssignments.map((row) => (
                   <tr
                     key={row.id}
-                    className={[
-                      "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60",
-                      idx % 2 === 1 ? "bg-[var(--brand-panel)]/25" : "bg-white",
-                    ].join(" ")}
+                    className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                   >
                     <td className="px-4 py-2.5 text-slate-800">
                       <div className="font-semibold">
@@ -1005,7 +990,7 @@ export default function HomeMezziPage() {
             <button
               type="button"
               onClick={() => setIsAssetModalOpen(false)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isBusy}
             >
               Annulla
@@ -1013,7 +998,7 @@ export default function HomeMezziPage() {
             <button
               type="button"
               onClick={() => void createAsset()}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isBusy}
             >
               {isBusy ? "Salvataggio…" : "Crea"}
@@ -1073,7 +1058,7 @@ export default function HomeMezziPage() {
             <button
               type="button"
               onClick={() => setIsAssignModalOpen(false)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isBusy}
             >
               Annulla
@@ -1081,7 +1066,7 @@ export default function HomeMezziPage() {
             <button
               type="button"
               onClick={() => void createAssignment()}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
               disabled={isBusy || !assignForm.assetId || !assignForm.employeeId}
             >
               {isBusy ? "Salvataggio…" : "Assegna"}
@@ -1137,7 +1122,7 @@ export default function HomeMezziPage() {
               <button
                 type="button"
                 onClick={() => void updateObligation()}
-                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
                 disabled={isBusy}
               >
                 Salva
@@ -1175,7 +1160,7 @@ export default function HomeMezziPage() {
                 <button
                   type="button"
                   onClick={() => void completeObligation()}
-                  className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+                  className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
                   disabled={isBusy || !obligationForm.doneDate}
                 >
                   {isBusy ? "Salvataggio…" : "Registra"}
@@ -1206,7 +1191,7 @@ function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
             title="Chiudi"
           >
             ✕
