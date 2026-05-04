@@ -115,22 +115,74 @@ thead button:hover:not(:disabled) {
   filter: none !important;
 }
 
-button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]) {
+button[data-matrix-toggle="true"] {
+  background: #ffffff !important;
+  color: var(--brand-ink) !important;
+  font-weight: 700 !important;
+  border: 1px solid var(--brand-ink) !important;
+  filter: none !important;
+}
+
+button[data-matrix-toggle="true"][data-on="true"] {
+  background: #ffffff !important;
+  color: var(--brand-ink) !important;
+}
+
+button[data-matrix-toggle="true"][data-source] {
+  position: relative !important;
+  padding-left: 18px !important;
+}
+
+button[data-matrix-toggle="true"][data-source]::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 6px !important;
+  top: 50% !important;
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 9999px !important;
+  transform: translateY(-50%) !important;
+}
+
+button[data-matrix-toggle="true"][data-source="baseline"]::after {
+  background: #2563eb !important;
+}
+
+button[data-matrix-toggle="true"][data-source="manual"]::after {
+  background: #16a34a !important;
+}
+
+button[data-matrix-toggle="true"] * {
+  color: inherit !important;
+  font-weight: inherit !important;
+}
+
+button[data-matrix-toggle="true"]:hover:not(:disabled) {
+  background: var(--brand-panel-2) !important;
+  filter: none !important;
+}
+
+button[data-matrix-toggle="true"][data-on="true"]:hover:not(:disabled) {
+  background: var(--brand-panel-2) !important;
+  filter: none !important;
+}
+
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]) {
   background: var(--brand-primary);
   color: #ffffff;
   font-weight: 700;
 }
 
-button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]) * {
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]) * {
   color: inherit !important;
   font-weight: inherit !important;
 }
 
-button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):hover:not(:disabled) {
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]):hover:not(:disabled) {
   filter: brightness(0.96);
 }
 
-button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):disabled {
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]):disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }

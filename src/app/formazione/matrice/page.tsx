@@ -369,11 +369,10 @@ export default function FormazioneMatricePage() {
                           type="button"
                           onClick={() => void toggleScope(entity.key, !excludedScopeSet.has(entity.key))}
                           disabled={isSavingScope === entity.key}
+                          data-matrix-toggle="true"
+                          data-on={excludedScopeSet.has(entity.key) ? "true" : "false"}
                           className={[
-                            "inline-flex h-6 items-center justify-center rounded-md px-2 text-[10px] font-semibold transition",
-                            excludedScopeSet.has(entity.key)
-                              ? "bg-rose-600 text-white hover:bg-rose-700"
-                              : "bg-[var(--brand-panel)] text-slate-500 hover:bg-slate-200",
+                            "inline-flex h-6 items-center justify-center rounded-md px-2 text-[10px] transition",
                           ].join(" ")}
                           title={
                             excludedScopeSet.has(entity.key)
@@ -395,10 +394,6 @@ export default function FormazioneMatricePage() {
                     const active = flagSet.has(cellKey);
                     const saving = isSavingCell === cellKey;
                     const source = sourceMap[cellKey] ?? "baseline";
-                    const activeClass =
-                      source === "manual"
-                        ? "bg-emerald-600 text-white"
-                        : "bg-sky-600 text-white";
 
                     return (
                       <td key={cellKey} className="px-2 py-1.5">
@@ -406,10 +401,12 @@ export default function FormazioneMatricePage() {
                           type="button"
                           onClick={() => void toggleCell(entity.key, course.id, !active)}
                           className={[
-                            "inline-flex h-6 min-w-10 items-center justify-center rounded-md px-1 text-[10px] font-semibold transition",
-                            active ? activeClass : "bg-[var(--brand-panel)] text-slate-500 hover:bg-slate-200",
+                            "inline-flex h-6 min-w-10 items-center justify-center rounded-md px-1 text-[10px] transition",
                           ].join(" ")}
                           disabled={saving}
+                          data-matrix-toggle="true"
+                          data-on={active ? "true" : "false"}
+                          data-source={active ? source : undefined}
                           title={active ? `Attivo (${source})` : "Disattivo"}
                         >
                           {saving ? "..." : active ? "ON" : "OFF"}

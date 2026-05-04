@@ -346,13 +346,12 @@ export default function DpiMatricePage() {
                             onClick={() => void toggleRequired(dpi.id, m)}
                             disabled={busy}
                             className={[
-                              "inline-flex h-7 w-7 items-center justify-center rounded-lg border transition",
-                              checked
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : "border-[var(--brand-line)] bg-white text-slate-400 hover:bg-[var(--brand-panel)]",
+                              "inline-flex h-7 w-7 items-center justify-center rounded-lg transition",
                               busy ? "opacity-60" : "",
                             ].join(" ")}
                             title={checked ? "Richiesto" : "Non richiesto"}
+                            data-matrix-toggle="true"
+                            data-on={checked ? "true" : "false"}
                           >
                             {checked ? "✓" : ""}
                           </button>
