@@ -224,27 +224,35 @@ export async function GET(request: Request) {
         requiredCourseIds.has(formBaseCourseId) &&
         formSpecRequired
       ) {
-        const freeze = activeFreeze.get(employee.id);
-        const baseAggregate = buildBaseAggregateRow({
-          employee,
-          formBaseCourseId,
-          formSpecRequired,
-          courseMap,
-          statusMap,
-          employeeStatusRows,
-          substitutersByToCourseId,
-          freeze,
-          todayIso,
-          expiringDays: expiringDaysSafe,
-        });
+        const baseCourseExcluded =
+          excludedCourseIdsByEmployee.get(employee.id)?.has(formBaseCourseId) ?? false;
+        const specCourseExcluded =
+          excludedCourseIdsByEmployee.get(employee.id)?.has(formSpecRequired.courseId) ?? false;
+        const shouldBuildBaseAggregate = !baseCourseExcluded && !specCourseExcluded;
 
-        if (baseAggregate) {
-          skipRequiredCourseIds.add(formBaseCourseId);
-          skipRequiredCourseIds.add(formSpecRequired.courseId);
-          if (baseAggregate.suppressedCourseId !== null) {
-            suppressedAdditionalCourseIds.add(baseAggregate.suppressedCourseId);
+        const freeze = activeFreeze.get(employee.id);
+        if (shouldBuildBaseAggregate) {
+          const baseAggregate = buildBaseAggregateRow({
+            employee,
+            formBaseCourseId,
+            formSpecRequired,
+            courseMap,
+            statusMap,
+            employeeStatusRows,
+            substitutersByToCourseId,
+            freeze,
+            todayIso,
+            expiringDays: expiringDaysSafe,
+          });
+
+          if (baseAggregate) {
+            skipRequiredCourseIds.add(formBaseCourseId);
+            skipRequiredCourseIds.add(formSpecRequired.courseId);
+            if (baseAggregate.suppressedCourseId !== null) {
+              suppressedAdditionalCourseIds.add(baseAggregate.suppressedCourseId);
+            }
+            rows.push(baseAggregate.row);
           }
-          rows.push(baseAggregate.row);
         }
       }
 
