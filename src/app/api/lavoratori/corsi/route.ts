@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeJobCode } from "@/lib/training/normalize";
+import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { getCurrentUserContext, requireAnyModuleAccess } from "@/lib/api/access";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -333,7 +333,7 @@ export async function GET(request: Request) {
             matricola: employee.matricola,
             cognome: employee.last_name,
             nome: employee.first_name,
-            mansione: formatJobLabel(employee.job_title ?? "", employee.job_title_notes ?? null),
+            mansione: formatJobLabel(employee.job_title ?? ""),
             cantiere: extractDisplayName(employee.sites),
             sottocantiere: extractDisplayName(employee.sub_sites),
             courseId,
@@ -381,7 +381,7 @@ export async function GET(request: Request) {
           matricola: employee.matricola,
           cognome: employee.last_name,
           nome: employee.first_name,
-          mansione: formatJobLabel(employee.job_title ?? "", employee.job_title_notes ?? null),
+          mansione: formatJobLabel(employee.job_title ?? ""),
           cantiere: extractDisplayName(employee.sites),
           sottocantiere: extractDisplayName(employee.sub_sites),
           courseId: substitute.substituteCourseId,
@@ -442,7 +442,7 @@ export async function GET(request: Request) {
           matricola: employee.matricola,
           cognome: employee.last_name,
           nome: employee.first_name,
-          mansione: formatJobLabel(employee.job_title ?? "", employee.job_title_notes ?? null),
+          mansione: formatJobLabel(employee.job_title ?? ""),
           cantiere: extractDisplayName(employee.sites),
           sottocantiere: extractDisplayName(employee.sub_sites),
           courseId: statusEntry.course_id,
@@ -769,10 +769,11 @@ function groupRulesByScope(rules: MatrixRule[]) {
 function resolveRequiredCourseIds(employee: EmployeeRow, grouped: ReturnType<typeof groupRulesByScope>) {
   const ids = new Set<number>();
   const normalizedJob = normalizeJobCode(employee.job_title ?? "");
+  const jobVariantKey = buildJobVariantKey(employee.job_title ?? "", employee.job_title_notes ?? null);
 
   grouped.baseline.forEach((rule) => ids.add(rule.course_id));
   grouped.job
-    .filter((rule) => rule.job_code_norm === normalizedJob)
+    .filter((rule) => rule.job_code_norm === normalizedJob || (!!jobVariantKey && rule.job_code_norm === jobVariantKey))
     .forEach((rule) => ids.add(rule.course_id));
   grouped.site
     .filter((rule) => rule.site_id === employee.site_id)
@@ -840,12 +841,9 @@ function extractDisplayName(value: unknown) {
   return "-";
 }
 
-function formatJobLabel(jobTitle: string, jobNotes: string | null) {
+function formatJobLabel(jobTitle: string) {
   const base = String(jobTitle ?? "").trim();
-  const notes = String(jobNotes ?? "").trim();
-  if (!notes) return base;
-  if (!base) return notes;
-  return `${base} / ${notes}`;
+  return base;
 }
 
 function buildActiveFreezeMap(rows: FreezeRow[]) {
@@ -1046,7 +1044,7 @@ function buildBaseAggregateRow({
     matricola: employee.matricola,
     cognome: employee.last_name,
     nome: employee.first_name,
-    mansione: formatJobLabel(employee.job_title ?? "", employee.job_title_notes ?? null),
+    mansione: formatJobLabel(employee.job_title ?? ""),
     cantiere: extractDisplayName(employee.sites),
     sottocantiere: extractDisplayName(employee.sub_sites),
     corsoCode: courseCode,

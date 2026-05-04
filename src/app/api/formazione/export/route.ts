@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { applyCalibri10WithBoldHeader } from "@/lib/excel";
-import { normalizeJobCode } from "@/lib/training/normalize";
+import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { getCurrentUserContext, requireModuleAccess } from "@/lib/api/access";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -22,6 +22,7 @@ type EmployeeRow = {
   site_id: number | null;
   sub_site_id: number | null;
   job_title: string;
+  job_title_notes: string | null;
   sites: unknown;
   sub_sites: unknown;
 };
@@ -733,7 +734,7 @@ async function fetchAllEmployees(supabase: SupabaseClient) {
     const { data, error } = await supabase
       .from("employees")
       .select(
-        "id,matricola,tax_code,first_name,last_name,birth_date,birth_place,mobile,email_primary,responsible_code,referral,site_id,sub_site_id,job_title,sites(display_name),sub_sites(display_name)",
+        "id,matricola,tax_code,first_name,last_name,birth_date,birth_place,mobile,email_primary,responsible_code,referral,site_id,sub_site_id,job_title,job_title_notes,sites(display_name),sub_sites(display_name)",
       )
       .eq("status", "attivo")
       .order("last_name")
@@ -872,10 +873,11 @@ function groupRulesByScope(rules: MatrixRule[]) {
 function resolveRequiredCourseIds(employee: EmployeeRow, grouped: ReturnType<typeof groupRulesByScope>) {
   const ids = new Set<number>();
   const normalizedJob = normalizeJobCode(employee.job_title ?? "");
+  const jobVariantKey = buildJobVariantKey(employee.job_title ?? "", employee.job_title_notes ?? null);
 
   grouped.baseline.forEach((rule) => ids.add(rule.course_id));
   grouped.job
-    .filter((rule) => rule.job_code_norm === normalizedJob)
+    .filter((rule) => rule.job_code_norm === normalizedJob || (!!jobVariantKey && rule.job_code_norm === jobVariantKey))
     .forEach((rule) => ids.add(rule.course_id));
   grouped.site
     .filter((rule) => rule.site_id === employee.site_id)

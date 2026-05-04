@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeJobCode } from "@/lib/training/normalize";
+import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { readMansioniCsv } from "@/lib/training/mansioni";
 import { requireModuleAccess } from "@/lib/api/access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -172,7 +172,7 @@ async function fetchScopeEntities(
 
     const { data, error } = await supabase
       .from("employees")
-      .select("job_title")
+      .select("job_title,job_title_notes")
       .neq("job_title", "")
       .order("job_title");
 
@@ -184,12 +184,19 @@ async function fetchScopeEntities(
     }
 
     const extras = new Map<string, string>();
+    const variants = new Map<string, string>();
     (data ?? []).forEach((row) => {
-      const label = String(row.job_title ?? "").trim();
-      if (!label) return;
-      const key = normalizeJobCode(label);
-      if (csvKeys.has(key)) return;
-      if (!extras.has(key)) extras.set(key, label);
+      const title = String((row as { job_title?: string }).job_title ?? "").trim();
+      const notes = String((row as { job_title_notes?: string | null }).job_title_notes ?? "").trim();
+      if (!title) return;
+
+      const key = normalizeJobCode(title);
+      if (key && !csvKeys.has(key) && !extras.has(key)) extras.set(key, title);
+
+      const variantKey = buildJobVariantKey(title, notes);
+      if (variantKey && !variants.has(variantKey)) {
+        variants.set(variantKey, notes ? `${title} / ${notes}` : title);
+      }
     });
 
     const baseEntities = csvMansioni.map((row) => ({
@@ -201,9 +208,10 @@ async function fetchScopeEntities(
     return {
       data: [
         ...baseEntities,
-        ...Array.from(extras.entries())
-          .map(([key, label]) => ({ key, label, isExtra: true }))
-          .sort((a, b) => a.label.localeCompare(b.label)),
+        ...[
+          ...Array.from(extras.entries()).map(([key, label]) => ({ key, label, isExtra: true })),
+          ...Array.from(variants.entries()).map(([key, label]) => ({ key, label, isExtra: true })),
+        ].sort((a, b) => a.label.localeCompare(b.label)),
       ],
       error: null,
     };
