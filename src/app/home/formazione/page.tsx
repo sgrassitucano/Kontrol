@@ -172,9 +172,13 @@ const DASHBOARD_STATES: DashboardStateKey[] = [
   "escluso",
 ];
 
+const CRITICAL_STATES = ["scaduto", "da fare", "programmato", "upgrade"] as const;
+
 export default function HomeFormazionePage() {
   const [rows, setRows] = useState<WorkerCourseRow[]>([]);
   const [totalActiveEmployees, setTotalActiveEmployees] = useState(0);
+  const [excludedByScopeEmployees, setExcludedByScopeEmployees] = useState(0);
+  const [frozenEmployees, setFrozenEmployees] = useState(0);
   const [eligibleEmployees, setEligibleEmployees] = useState(0);
   const [eligibleOperativiEmployees, setEligibleOperativiEmployees] = useState(0);
   const [search, setSearch] = useState("");
@@ -323,6 +327,8 @@ export default function HomeFormazionePage() {
         rows?: WorkerCourseRow[];
         error?: string;
         totalActiveEmployees?: number;
+        excludedByScopeEmployees?: number;
+        frozenEmployees?: number;
         eligibleEmployees?: number;
         eligibleOperativiEmployees?: number;
       };
@@ -342,6 +348,8 @@ export default function HomeFormazionePage() {
         return next;
       });
       setTotalActiveEmployees(body.totalActiveEmployees ?? 0);
+      setExcludedByScopeEmployees(body.excludedByScopeEmployees ?? 0);
+      setFrozenEmployees(body.frozenEmployees ?? 0);
       setEligibleEmployees(body.eligibleEmployees ?? 0);
       setEligibleOperativiEmployees(body.eligibleOperativiEmployees ?? 0);
     } catch (err) {
@@ -974,8 +982,8 @@ export default function HomeFormazionePage() {
     const baseRows = rows.filter((row) => isDashboardBaseCode(row.corsoCode));
     const operativiRows = rows.filter((row) => !isDashboardBaseCode(row.corsoCode));
     return {
-      base: buildDashboardSummary(baseRows, eligibleEmployees),
-      operativi: buildDashboardSummary(operativiRows, eligibleOperativiEmployees),
+      base: { rows: baseRows, summary: buildDashboardSummary(baseRows, eligibleEmployees) },
+      operativi: { rows: operativiRows, summary: buildDashboardSummary(operativiRows, eligibleOperativiEmployees) },
     };
   }, [eligibleEmployees, eligibleOperativiEmployees, rows]);
 
@@ -1012,8 +1020,10 @@ export default function HomeFormazionePage() {
       const label = entity?.label ?? jobKey;
       const isExtra = Boolean(entity?.isExtra);
       const total = workersByJob.get(jobKey)?.size ?? 0;
-      const baseSummary = buildDashboardSummary(baseRowsByJob.get(jobKey) ?? [], total);
-      const operativiSummary = buildDashboardSummary(operativiRowsByJob.get(jobKey) ?? [], total);
+      const baseRowsForJob = baseRowsByJob.get(jobKey) ?? [];
+      const operativiRowsForJob = operativiRowsByJob.get(jobKey) ?? [];
+      const baseSummary = buildDashboardSummary(baseRowsForJob, total);
+      const operativiSummary = buildDashboardSummary(operativiRowsForJob, total);
 
       return {
         jobKey,
@@ -1022,24 +1032,21 @@ export default function HomeFormazionePage() {
         total,
         base: baseSummary,
         operativi: operativiSummary,
+        baseCritico: countUniqueWorkersByStates(baseRowsForJob, CRITICAL_STATES),
+        operativiCritico: countUniqueWorkersByStates(operativiRowsForJob, CRITICAL_STATES),
       };
     });
   }, [dashboardRows, jobEntities]);
 
   const dashboardDetailSorted = useMemo(() => {
-    const critical = (summary: DashboardSummary) =>
-      summary.counts.scaduto +
-      summary.counts["da fare"] +
-      summary.counts.programmato +
-      summary.counts.upgrade;
     const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label);
 
     const base = dashboardDetailByJob
       .slice()
-      .sort((a, b) => critical(b.base) - critical(a.base) || byLabel(a, b));
+      .sort((a, b) => b.baseCritico - a.baseCritico || byLabel(a, b));
     const operativi = dashboardDetailByJob
       .slice()
-      .sort((a, b) => critical(b.operativi) - critical(a.operativi) || byLabel(a, b));
+      .sort((a, b) => b.operativiCritico - a.operativiCritico || byLabel(a, b));
 
     return { base, operativi };
   }, [dashboardDetailByJob]);
@@ -1126,7 +1133,9 @@ export default function HomeFormazionePage() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-[var(--brand-ink)]">Cruscotto Operativo</h2>
-            <p className="mt-1 text-xs text-slate-500">Totale lavoratori attivi: {totalActiveEmployees}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Totale lavoratori attivi: {totalActiveEmployees} · Esclusi da scope: {excludedByScopeEmployees} · Sospesi: {frozenEmployees}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {dashboardCategoryFilter || (dashboardStateFilter && dashboardStateFilter.length > 0) ? (
@@ -1152,16 +1161,12 @@ export default function HomeFormazionePage() {
           <div className="grid gap-3">
             {(
               [
-                { title: "Base", category: "base" as const, summary: pageDashboardData.base },
-                { title: "Operativi", category: "operativi" as const, summary: pageDashboardData.operativi },
+                { title: "Base", category: "base" as const, summary: pageDashboardData.base.summary, rows: pageDashboardData.base.rows },
+                { title: "Operativi", category: "operativi" as const, summary: pageDashboardData.operativi.summary, rows: pageDashboardData.operativi.rows },
               ] as const
             ).map((panel) => {
               const summary = panel.summary;
-              const criticoCount =
-                summary.counts.scaduto +
-                summary.counts["da fare"] +
-                summary.counts.programmato +
-                summary.counts.upgrade;
+              const criticoCount = countUniqueWorkersByStates(panel.rows, CRITICAL_STATES);
               const criticoPct = percentage(criticoCount, summary.total);
 
               return (
@@ -2589,6 +2594,17 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
   };
 
   return { total: totalActiveEmployees, counts: finalCounts, percentages };
+}
+
+function countUniqueWorkersByStates(
+  rows: WorkerCourseRow[],
+  states: readonly WorkerCourseRow["stato"][],
+) {
+  const set = new Set<number>();
+  rows.forEach((row) => {
+    if (states.includes(row.stato)) set.add(row.workerId);
+  });
+  return set.size;
 }
 
 function percentage(count: number, total: number) {
