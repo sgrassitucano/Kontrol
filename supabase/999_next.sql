@@ -86,4 +86,32 @@ create policy "turni_employee_template_slots_write"
     or public.has_module_access('turni', true)
   );
 
+update public.training_courses
+set validity_years = 3,
+    is_unlimited = false
+where code = 'CORSO_PS';
+
+update public.training_courses
+set validity_years = 2,
+    is_unlimited = false
+where code = 'CORSO_PREP';
+
+update public.training_employee_courses tec
+set expiry_date = (tec.completion_date + interval '3 years')::date,
+    updated_at = timezone('utc', now())
+from public.training_courses c
+where tec.course_id = c.id
+  and c.code = 'CORSO_PS'
+  and tec.completion_date is not null
+  and (tec.manual_state is null or tec.manual_state not in ('programmato', 'escluso'));
+
+update public.training_employee_courses tec
+set expiry_date = (tec.completion_date + interval '2 years')::date,
+    updated_at = timezone('utc', now())
+from public.training_courses c
+where tec.course_id = c.id
+  and c.code = 'CORSO_PREP'
+  and tec.completion_date is not null
+  and (tec.manual_state is null or tec.manual_state not in ('programmato', 'escluso'));
+
 select pg_notify('pgrst','reload schema');

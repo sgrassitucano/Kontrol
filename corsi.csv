@@ -1,4 +1,4 @@
-Azienda;Tipo;Scadenza;descrizione;validità in anni;regole aggiuntive
+Azienda;Tipo;Scadenza;descrizione;validitï¿½ in anni;regole aggiuntive
 0000000001;SCAD_FORM;CORSO_AI_1;corso antincendio liv. I;5;
 0000000001;SCAD_FORM;CORSO_AI_2;corso antincendio liv. II;5;sostituisce il livello I
 0000000001;SCAD_FORM;CORSO_AI_3;corso antincendio liv. III;5;sostituisce il livello II e I
@@ -19,7 +19,7 @@ Azienda;Tipo;Scadenza;descrizione;validità in anni;regole aggiuntive
 0000000001;SCAD_FORM;CORSO_PLE;corso PLE;5;deve avere lavori in quota e dpi III cat.
 0000000001;SCAD_FORM;CORSO_PONT;corso ponteggio;5;deve avere lavori in quota e dpi III cat.
 0000000001;SCAD_FORM;CORSO_PREP;corso preposto;2;
-0000000001;SCAD_FORM;CORSO_PS;corso primo soccorso;5;
+0000000001;SCAD_FORM;CORSO_PS;corso primo soccorso;3;
 0000000001;SCAD_FORM;CORSO_QUOTA_DPI;corso lavori in quota e dpi III cat.;5;
 0000000001;SCAD_FORM;CORSO_RLS;corso RLS;1;esonera dalla formazione generale
 0000000001;SCAD_FORM;CORSO_RSPP;corso rspp;5;esonera dalla formazione generale e specifica

@@ -260,9 +260,11 @@ export async function GET(request: Request) {
         if (skipRequiredCourseIds.has(courseId)) continue;
         const course = courseMap.get(courseId);
         if (!course) continue;
+        const freeze = activeFreeze.get(employee.id);
+        const courseExcluded = excludedCourseIdsByEmployee.get(employee.id)?.has(courseId) ?? false;
 
         const family = leveledFamilies.find((fam) => fam.includes(course.code));
-        if (family) {
+        if (family && !courseExcluded) {
           const reqIndex = family.indexOf(course.code);
           const bestLower = findBestLowerValidCourse({
             statusRows: employeeStatusRows,
@@ -279,6 +281,49 @@ export async function GET(request: Request) {
             upgradeCourseIds.add(bestLower.courseId);
             continue;
           }
+
+          const bestHigher = findBestHigherValidCourse({
+            statusRows: employeeStatusRows,
+            family,
+            requiredIndex: reqIndex,
+            courseMap,
+            todayIso,
+          });
+
+          if (bestHigher) {
+            const higherStatus = statusMap.get(`${employee.id}:${bestHigher.courseId}`);
+            const higherCourse = courseMap.get(bestHigher.courseId);
+            if (higherStatus && higherCourse) {
+              if (!requiredCourseIds.has(bestHigher.courseId)) {
+                suppressedAdditionalCourseIds.add(bestHigher.courseId);
+              }
+
+              const state = resolveCourseState(higherStatus, freeze, todayIso, expiringDaysSafe, false);
+
+              const outputRow: WorkerCourseRow = {
+                workerId: employee.id,
+                matricola: employee.matricola,
+                cognome: employee.last_name,
+                nome: employee.first_name,
+                mansione: employee.job_title ?? "",
+                cantiere: extractDisplayName(employee.sites),
+                sottocantiere: extractDisplayName(employee.sub_sites),
+                corsoCode: higherCourse.code,
+                corso: higherCourse.title,
+                dataConclusione: higherStatus.completion_date ?? null,
+                dataScadenza: higherStatus.expiry_date ?? null,
+                stato: state as WorkerCourseRow["stato"],
+                upgradeInfo: null,
+                responsabile: employee.responsible_code,
+                referente: employee.referral ?? "",
+                note: mergeNotes(higherStatus.note ?? null, `Copre obbligo: ${course.code}`),
+                origine: "obbligatorio",
+              };
+
+              rows.push(outputRow);
+              continue;
+            }
+          }
         }
 
         const statusEntry = statusMap.get(`${employee.id}:${courseId}`);
@@ -289,8 +334,6 @@ export async function GET(request: Request) {
           substitutersByToCourseId,
           todayIso,
         });
-        const freeze = activeFreeze.get(employee.id);
-        const courseExcluded = excludedCourseIdsByEmployee.get(employee.id)?.has(courseId) ?? false;
         if (courseExcluded || !substitute) {
           const state = courseExcluded
             ? "escluso"
@@ -1000,6 +1043,17 @@ function buildBaseAggregateRow({
         })
       : null;
 
+  const bestHigher =
+    requiredIndex >= 0
+      ? findBestHigherValidCourse({
+          statusRows: employeeStatusRows,
+          family: formSpecFamily,
+          requiredIndex,
+          courseMap,
+          todayIso,
+        })
+      : null;
+
   const shouldUpgrade =
     !formSpecRequiredStatus?.completion_date && bestLower !== null;
 
@@ -1007,10 +1061,21 @@ function buildBaseAggregateRow({
     return null;
   }
 
-  const effectiveSpecCourseId = shouldUpgrade ? bestLower.courseId : formSpecRequired.courseId;
-  const effectiveSpecStatus = shouldUpgrade
-    ? employeeStatusRows.find((row) => row.course_id === effectiveSpecCourseId)
-    : formSpecRequiredStatus;
+  const higherStatus = bestHigher
+    ? employeeStatusRows.find((row) => row.course_id === bestHigher.courseId)
+    : null;
+
+  const effectiveSpecCourseId = higherStatus
+    ? bestHigher!.courseId
+    : shouldUpgrade
+      ? bestLower!.courseId
+      : formSpecRequired.courseId;
+
+  const effectiveSpecStatus = higherStatus
+    ? higherStatus
+    : shouldUpgrade
+      ? employeeStatusRows.find((row) => row.course_id === effectiveSpecCourseId)
+      : formSpecRequiredStatus;
 
   const substituteForSpec = pickBestSubstituteStatus({
     requiredCourseId: effectiveSpecCourseId,
@@ -1106,12 +1171,18 @@ function mergeBaseStates(a: string, b: string) {
 function pickLatestDate(a: string | null, b: string | null) {
   if (!a) return b;
   if (!b) return a;
+  const ak = parseDateOnlyKey(a);
+  const bk = parseDateOnlyKey(b);
+  if (ak && bk) return ak >= bk ? a : b;
   return a >= b ? a : b;
 }
 
 function pickEarliestDate(a: string | null, b: string | null) {
   if (!a) return b;
   if (!b) return a;
+  const ak = parseDateOnlyKey(a);
+  const bk = parseDateOnlyKey(b);
+  if (ak && bk) return ak <= bk ? a : b;
   return a <= b ? a : b;
 }
 
@@ -1121,23 +1192,54 @@ function normalizeDateOnlyIso(value: string) {
   return `${match[1]}-${match[2]}-${match[3]}`;
 }
 
+function parseDateOnlyKey(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const isoLike = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoLike) {
+    const y = Number(isoLike[1]);
+    const m = Number(isoLike[2]);
+    const d = Number(isoLike[3]);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+    if (m < 1 || m > 12) return null;
+    if (d < 1 || d > 31) return null;
+    return y * 10000 + m * 100 + d;
+  }
+
+  const itLike = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (itLike) {
+    const d = Number(itLike[1]);
+    const m = Number(itLike[2]);
+    const y = Number(itLike[3]);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+    if (m < 1 || m > 12) return null;
+    if (d < 1 || d > 31) return null;
+    return y * 10000 + m * 100 + d;
+  }
+
+  return null;
+}
+
+function addDaysKey(todayKey: number, days: number) {
+  const y = Math.floor(todayKey / 10000);
+  const m = Math.floor((todayKey % 10000) / 100);
+  const d = todayKey % 100;
+  const base = new Date(Date.UTC(y, m - 1, d));
+  if (!Number.isFinite(base.getTime())) return todayKey;
+  base.setUTCDate(base.getUTCDate() + days);
+  const yy = base.getUTCFullYear();
+  const mm = base.getUTCMonth() + 1;
+  const dd = base.getUTCDate();
+  return yy * 10000 + mm * 100 + dd;
+}
+
 function todayLocalIso() {
   const d = new Date();
   const y = String(d.getFullYear());
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function addDaysIso(iso: string, days: number) {
-  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return iso;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const base = new Date(Date.UTC(year, month - 1, day));
-  base.setUTCDate(base.getUTCDate() + days);
-  return base.toISOString().slice(0, 10);
 }
 
 function isSentinelUnlimitedDate(iso: string) {
@@ -1174,13 +1276,48 @@ function findBestLowerValidCourse({
   return candidates[0] ?? null;
 }
 
+function findBestHigherValidCourse({
+  statusRows,
+  family,
+  requiredIndex,
+  courseMap,
+  todayIso,
+}: {
+  statusRows: CourseStatusRow[];
+  family: readonly string[];
+  requiredIndex: number;
+  courseMap: Map<number, { code: string; title: string; is_active: boolean }>;
+  todayIso: string;
+}) {
+  const candidates: Array<{ courseId: number; courseCode: string; familyIndex: number }> = [];
+
+  for (const sr of statusRows) {
+    const course = courseMap.get(sr.course_id);
+    if (!course) continue;
+    if (!family.includes(course.code)) continue;
+    const idx = family.indexOf(course.code);
+    if (idx < 0) continue;
+    if (idx >= requiredIndex) continue;
+    if (!isValidCourseStatus(sr, todayIso)) continue;
+    candidates.push({ courseId: sr.course_id, courseCode: course.code, familyIndex: idx });
+  }
+
+  candidates.sort((a, b) => b.familyIndex - a.familyIndex);
+  return candidates[0] ?? null;
+}
+
 function isValidCourseStatus(row: CourseStatusRow, todayIso: string) {
+  if (row.manual_state === "escluso") return false;
+  if (row.manual_state === "programmato") return false;
   if (!row.completion_date) return false;
   if (!row.expiry_date) return true;
-  const expiryIso = normalizeDateOnlyIso(row.expiry_date);
-  if (!expiryIso) return true;
-  if (isSentinelUnlimitedDate(expiryIso)) return true;
-  return expiryIso >= todayIso;
+  const expiryKey = parseDateOnlyKey(row.expiry_date);
+  if (!expiryKey) return true;
+  const expiryIso = normalizeDateOnlyIso(String(row.expiry_date));
+  if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return true;
+  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
+  if (!todayKey) return true;
+  return expiryKey >= todayKey;
 }
 
 function buildActiveFreezeMap(rows: FreezeRow[]) {
@@ -1226,14 +1363,17 @@ function resolveCourseState(
   if (!row.expiry_date) {
     return "idoneo";
   }
-  const expiryIso = normalizeDateOnlyIso(row.expiry_date);
-  if (!expiryIso) return "idoneo";
-  if (isSentinelUnlimitedDate(expiryIso)) return "idoneo";
+  const expiryKey = parseDateOnlyKey(row.expiry_date);
+  if (!expiryKey) return "idoneo";
+  const expiryIso = normalizeDateOnlyIso(String(row.expiry_date));
+  if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return "idoneo";
 
-  const thresholdIso = addDaysIso(todayIso, expiringDays);
+  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
+  if (!todayKey) return "idoneo";
+  const thresholdKey = addDaysKey(todayKey, expiringDays);
 
-  if (expiryIso < todayIso) return "scaduto";
-  if (expiryIso <= thresholdIso) return "in scadenza";
+  if (expiryKey < todayKey) return "scaduto";
+  if (expiryKey <= thresholdKey) return "in scadenza";
   return "idoneo";
 }
 
