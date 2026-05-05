@@ -107,6 +107,24 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const expiringDays = Number(url.searchParams.get("expiringDays") ?? "30");
     const dateParam = url.searchParams.get("date");
+    const includeExcluded = url.searchParams.get("includeExcluded") === "1";
+    const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+    const category = (url.searchParams.get("category") ?? "").trim();
+    const statesParam = (url.searchParams.get("states") ?? "").trim();
+    const origineParam = (url.searchParams.get("origine") ?? "").trim();
+    const filterMatricola = (url.searchParams.get("matricola") ?? "").trim();
+    const filterCognome = (url.searchParams.get("cognome") ?? "").trim();
+    const filterNome = (url.searchParams.get("nome") ?? "").trim();
+    const filterMansione = (url.searchParams.get("mansione") ?? "").trim();
+    const filterCantiere = (url.searchParams.get("cantiere") ?? "").trim();
+    const filterSottocantiere = (url.searchParams.get("sottocantiere") ?? "").trim();
+    const filterResponsabile = (url.searchParams.get("responsabile") ?? "").trim();
+    const filterReferente = (url.searchParams.get("referente") ?? "").trim();
+    const filterCorso = (url.searchParams.get("corso") ?? "").trim();
+    const filterDataConclusione = (url.searchParams.get("dataConclusione") ?? "").trim();
+    const filterDataScadenza = (url.searchParams.get("dataScadenza") ?? "").trim();
+    const filterNote = (url.searchParams.get("note") ?? "").trim();
+
     const todayIso =
       typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
     const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
@@ -168,13 +186,13 @@ export async function GET(request: Request) {
     });
 
     const shouldExcludeEmployee = (employee: EmployeeRow) => {
-      if (excludedEmployeeIds.has(employee.id)) return true;
+      if (!includeExcluded && excludedEmployeeIds.has(employee.id)) return true;
       if (typeof employee.sub_site_id === "number" && excludedSubSiteIds.has(employee.sub_site_id)) return true;
       if (typeof employee.site_id === "number" && excludedSiteIds.has(employee.site_id)) return true;
       return false;
     };
 
-    const activeFreeze = buildActiveFreezeMap((freezes ?? []) as FreezeRow[]);
+    const activeFreeze = buildActiveFreezeMap((freezes ?? []) as FreezeRow[], todayIso);
     const courseMap = new Map((courses ?? []).map((course) => [course.id, course]));
     const statusRows = (courseRows ?? []) as CourseStatusRow[];
     const statusMap = new Map(statusRows.map((row) => [`${row.employee_id}:${row.course_id}`, row]));
@@ -182,6 +200,8 @@ export async function GET(request: Request) {
     const rulesByScope = groupRulesByScope((rules ?? []) as MatrixRule[]);
     const substitutersByToCourseId = buildSubstitutersByToCourseId((ruleLinks ?? []) as RuleLinkRow[]);
     const substitutionTargetsByFromCourseId = buildSubstitutionTargetsByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
+    const exemptionsByFromCourseId = buildExemptionsByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
+    const prerequisitesByFromCourseId = buildPrerequisitesByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
 
     const rows: WorkerCourseRow[] = [];
 
@@ -190,12 +210,15 @@ export async function GET(request: Request) {
       ["CORSO_AI_3", "CORSO_AI_2", "CORSO_AI_1"],
     ];
 
-    const requiredRiskByEmployeeId = new Map<number, "basso" | "medio" | "alto">();
-
     for (const employee of employees.filter((row) => !shouldExcludeEmployee(row))) {
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
-      const requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
+      const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, todayIso);
+      let requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap);
+      applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
+      expandPrerequisites(requiredCourseIds, prerequisitesByFromCourseId);
+      requiredCourseIds = collapseLeveledCourseRequirements(requiredCourseIds, courseMap);
+      applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
 
       const upgradeInfoByCourseId = new Map<number, string>();
       const upgradeCourseIds = new Set<number>();
@@ -211,13 +234,6 @@ export async function GET(request: Request) {
 
       const formBaseCourseId = findCourseIdByCode("FORM_BASE", courseMap);
       const formSpecRequired = findRequiredFormSpecCourse(requiredCourseIds, courseMap);
-
-      if (formSpecRequired) {
-        const risk = formSpecRequired.code.slice("FORM_SPEC_".length).toLowerCase();
-        if (risk === "basso" || risk === "medio" || risk === "alto") {
-          requiredRiskByEmployeeId.set(employee.id, risk);
-        }
-      }
 
       if (
         typeof formBaseCourseId === "number" &&
@@ -441,114 +457,108 @@ export async function GET(request: Request) {
     const employeeById = new Map(employees.map((e) => [e.id, e]));
     const workbook = XLSX.utils.book_new();
 
-    const headersBasso = [
-      "cognome",
-      "nome",
-      "data nascita",
-      "luogo nascita",
-      "mail",
-      "cellulare",
-      "codice fiscale",
-      "mansione",
-      "cantiere",
-      "sottocantiere",
-      "responsabile",
-      "referente",
-      "tipo corso",
-      "scadenza",
-      "note",
-    ] as const;
+    const baseCodes = new Set([
+      "FORM_BASE",
+      "FORM_SPEC_BASSO",
+      "FORM_SPEC_MEDIO",
+      "FORM_SPEC_ALTO",
+      "CORSO_RLS",
+      "CORSO_RSPP",
+      "CORSO_DIR",
+      "CORSO_ASPP",
+    ]);
+
+    const isBaseCode = (code: string) => baseCodes.has(code) || code.startsWith("FORM_BASE+");
+
+    const statesFilter =
+      statesParam
+        ? new Set(
+            statesParam
+              .split(",")
+              .map((v) => v.trim())
+              .filter(Boolean),
+          )
+        : null;
+
+    const shouldIncludeRow = (row: WorkerCourseRow) => {
+      if (category) {
+        const isBase = isBaseCode(row.corsoCode);
+        if (category === "base" && !isBase) return false;
+        if (category === "operativi" && isBase) return false;
+      }
+      if (statesFilter && !statesFilter.has(row.stato)) return false;
+      if (origineParam && row.origine !== origineParam) return false;
+      if (q) {
+        const searchable = [
+          row.matricola,
+          row.cognome,
+          row.nome,
+          row.mansione,
+          row.cantiere,
+          row.sottocantiere,
+          row.responsabile,
+          row.referente,
+          `${row.corsoCode} ${row.corso}`,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!searchable.includes(q)) return false;
+      }
+      if (filterMatricola && !matchText(row.matricola, filterMatricola)) return false;
+      if (filterCognome && !matchText(row.cognome, filterCognome)) return false;
+      if (filterNome && !matchText(row.nome, filterNome)) return false;
+      if (filterMansione && !matchText(row.mansione, filterMansione)) return false;
+      if (filterCantiere && !matchText(row.cantiere, filterCantiere)) return false;
+      if (filterSottocantiere && !matchText(row.sottocantiere, filterSottocantiere)) return false;
+      if (filterResponsabile && !matchText(row.responsabile, filterResponsabile)) return false;
+      if (filterReferente && !matchText(row.referente, filterReferente)) return false;
+      if (filterCorso && !matchText(`${row.corsoCode} ${row.corso}`, filterCorso)) return false;
+      if (filterDataConclusione && !matchText(row.dataConclusione ?? "", filterDataConclusione)) return false;
+      if (filterDataScadenza && !matchText(row.dataScadenza ?? "", filterDataScadenza)) return false;
+      if (filterNote && !matchText(row.note ?? "", filterNote)) return false;
+      return true;
+    };
+
+    const filtered = rows.filter(shouldIncludeRow);
+
+    filtered.sort((a, b) => {
+      const bySurname = a.cognome.localeCompare(b.cognome, "it", { sensitivity: "base" });
+      if (bySurname !== 0) return bySurname;
+      const byName = a.nome.localeCompare(b.nome, "it", { sensitivity: "base" });
+      if (byName !== 0) return byName;
+      return `${a.corsoCode} ${a.corso}`.localeCompare(`${b.corsoCode} ${b.corso}`, "it", { sensitivity: "base" });
+    });
 
     const headers = [
       "cognome",
       "nome",
-      "data nascita",
-      "luogo nascita",
-      "codice fiscale",
       "mansione",
       "cantiere",
       "sottocantiere",
+      "tipo corso",
+      "data esecuzione",
+      "data scadenza",
+      "note",
+      "idoneo/non idoneo",
       "responsabile",
       "referente",
-      "tipo corso",
-      "scadenza",
-      "note",
+      "data nascita",
+      "luogo nascita",
+      "mail",
+      "cellulare",
     ] as const;
 
-    const sheet1: Record<(typeof headersBasso)[number], string>[] = [];
-    const sheet2: Record<(typeof headers)[number], string>[] = [];
-    const sheet3: Record<(typeof headers)[number], string>[] = [];
-    const sheet4: Record<(typeof headers)[number], string>[] = [];
-    const sheet5: Record<(typeof headers)[number], string>[] = [];
-    const sheet6: Record<(typeof headers)[number], string>[] = [];
+    const sheet: Record<(typeof headers)[number], string>[] = [];
 
-    rows.forEach((row) => {
-      if (row.stato === "idoneo" || row.stato === "escluso") return;
+    filtered.forEach((row) => {
       const employee = employeeById.get(row.workerId);
       if (!employee) return;
-
-      const basePayload = buildExportPayload(employee, row);
-      const isProgrammato = row.stato === "programmato";
-      const isGenSpec = row.corsoCode.startsWith("FORM_BASE+FORM_SPEC_");
-      const isSpec = row.corsoCode.startsWith("FORM_SPEC_");
-      const isBaseOnly = row.corsoCode === "FORM_BASE";
-      const isSpecificUpdate =
-        isSpec && (row.stato === "scaduto" || row.stato === "in scadenza") && Boolean(row.dataConclusione);
-      const isUpgrade = row.stato === "upgrade";
-
-      if (isProgrammato) {
-        sheet5.push(basePayload);
-        return;
-      }
-
-      if (isSpecificUpdate) {
-        sheet4.push(basePayload);
-        return;
-      }
-
-      if (isGenSpec || isSpec || isBaseOnly) {
-        const requiredRisk = requiredRiskByEmployeeId.get(row.workerId) ?? "medio";
-        const baseRisk = isBaseOnly ? requiredRisk : extractRiskFromBaseCode(row.corsoCode);
-
-        const targetRisk = isUpgrade
-          ? (extractUpgradeTargetRisk(row.upgradeInfo) ?? requiredRisk)
-          : baseRisk;
-
-        if (targetRisk === "basso") {
-          sheet1.push(buildExportPayloadBasso(employee, row));
-          return;
-        }
-        if (targetRisk === "medio") {
-          sheet2.push(basePayload);
-          return;
-        }
-        sheet3.push(basePayload);
-        return;
-      }
-
-      sheet6.push(basePayload);
+      sheet.push(buildExportRow(employee, row));
     });
 
-    const ws1 = XLSX.utils.json_to_sheet(sheet1, { header: [...headersBasso] });
-    const ws2 = XLSX.utils.json_to_sheet(sheet2, { header: [...headers] });
-    const ws3 = XLSX.utils.json_to_sheet(sheet3, { header: [...headers] });
-    const ws4 = XLSX.utils.json_to_sheet(sheet4, { header: [...headers] });
-    const ws5 = XLSX.utils.json_to_sheet(sheet5, { header: [...headers] });
-    const ws6 = XLSX.utils.json_to_sheet(sheet6, { header: [...headers] });
-
-    applyCalibri10WithBoldHeader(ws1);
-    applyCalibri10WithBoldHeader(ws2);
-    applyCalibri10WithBoldHeader(ws3);
-    applyCalibri10WithBoldHeader(ws4);
-    applyCalibri10WithBoldHeader(ws5);
-    applyCalibri10WithBoldHeader(ws6);
-
-    XLSX.utils.book_append_sheet(workbook, ws1, "1-base_basso");
-    XLSX.utils.book_append_sheet(workbook, ws2, "2-base_medio");
-    XLSX.utils.book_append_sheet(workbook, ws3, "3-base_alto");
-    XLSX.utils.book_append_sheet(workbook, ws4, "4-agg_specifica");
-    XLSX.utils.book_append_sheet(workbook, ws5, "5-programmati");
-    XLSX.utils.book_append_sheet(workbook, ws6, "6-operativi");
+    const ws = XLSX.utils.json_to_sheet(sheet, { header: [...headers] });
+    applyCalibri10WithBoldHeader(ws);
+    XLSX.utils.book_append_sheet(workbook, ws, "Formazione");
 
     const out = XLSX.write(
       workbook,
@@ -573,48 +583,55 @@ export async function GET(request: Request) {
   }
 }
 
-function buildExportPayload(employee: EmployeeRow, row: WorkerCourseRow) {
-  const scadenza = row.dataScadenza ? isoToItDate(row.dataScadenza) : "";
+function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow) {
   const dataNascita = employee.birth_date ? isoToItDate(employee.birth_date) : "";
+  const dataEsecuzione = row.dataConclusione ? isoToItDate(row.dataConclusione) : "";
+  const dataScadenza = formatExpiryLabel(row);
   const note = mergeNotesForExport(row.note, row.stato === "upgrade" ? row.upgradeInfo : null);
   const tipoCorso = buildTipoCorso(row);
 
   return {
     "cognome": employee.last_name ?? "",
     "nome": employee.first_name ?? "",
-    "data nascita": dataNascita,
-    "luogo nascita": employee.birth_place ?? "",
-    "codice fiscale": employee.tax_code ?? "",
     "mansione": employee.job_title ?? "",
     "cantiere": extractDisplayName(employee.sites),
     "sottocantiere": extractDisplayName(employee.sub_sites),
+    "tipo corso": tipoCorso,
+    "data esecuzione": dataEsecuzione,
+    "data scadenza": dataScadenza,
+    "note": note,
+    "idoneo/non idoneo": buildEsitoLabel(row),
     "responsabile": employee.responsible_code ?? "",
     "referente": employee.referral ?? "",
-    "tipo corso": tipoCorso,
-    "scadenza": scadenza,
-    "note": note,
+    "data nascita": dataNascita,
+    "luogo nascita": employee.birth_place ?? "",
+    "mail": employee.email_primary ?? "",
+    "cellulare": employee.mobile ?? "",
   };
 }
 
-function buildExportPayloadBasso(employee: EmployeeRow, row: WorkerCourseRow) {
-  const base = buildExportPayload(employee, row);
-  return {
-    "cognome": base["cognome"],
-    "nome": base["nome"],
-    "data nascita": base["data nascita"],
-    "luogo nascita": base["luogo nascita"],
-    "mail": employee.email_primary ?? "",
-    "cellulare": employee.mobile ?? "",
-    "codice fiscale": base["codice fiscale"],
-    "mansione": base["mansione"],
-    "cantiere": base["cantiere"],
-    "sottocantiere": base["sottocantiere"],
-    "responsabile": base["responsabile"],
-    "referente": base["referente"],
-    "tipo corso": base["tipo corso"],
-    "scadenza": base["scadenza"],
-    "note": base["note"],
-  };
+function buildEsitoLabel(row: WorkerCourseRow) {
+  if (row.stato === "idoneo") return "IDONEO";
+  if (row.stato === "escluso") return "ESENTE";
+  if (row.stato === "sospeso") return "SOSPESO";
+  return "NON IDONEO";
+}
+
+function formatExpiryLabel(row: WorkerCourseRow) {
+  if (row.stato === "escluso") return "ESENTE";
+  if (!row.dataConclusione) return "";
+  if (!row.dataScadenza) return "ILLIMITATO";
+  return isoToItDate(row.dataScadenza);
+}
+
+function matchText(value: string, filter: string) {
+  const normalizedFilter = filter.trim().toLowerCase();
+  if (!normalizedFilter) return true;
+  const normalizedValue = String(value ?? "").toLowerCase();
+  if (normalizedValue.includes(normalizedFilter)) return true;
+  const formattedValue = isoToItDate(String(value ?? "")).toLowerCase();
+  if (formattedValue !== normalizedValue && formattedValue.includes(normalizedFilter)) return true;
+  return false;
 }
 
 function buildTipoCorso(row: WorkerCourseRow) {
@@ -636,15 +653,6 @@ function extractRiskFromBaseCode(code: string) {
   const match = code.match(/FORM_SPEC_(ALTO|MEDIO|BASSO)/);
   if (!match) return "medio";
   return match[1].toLowerCase();
-}
-
-function extractUpgradeTargetRisk(value: string | null) {
-  const raw = (value ?? "").trim().toLowerCase();
-  const match = raw.match(/->\s*(basso|medio|alto)/);
-  if (!match) return null;
-  const risk = match[1];
-  if (risk === "basso" || risk === "medio" || risk === "alto") return risk;
-  return null;
 }
 
 function mergeNotesForExport(note: string, upgradeInfo: string | null) {
@@ -760,8 +768,8 @@ async function fetchAllRuleLinks(supabase: SupabaseClient) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from("training_rule_links")
-      .select("from_course_id,to_course_id,relation_type")
-      .eq("relation_type", "substitutes")
+      .select("id,from_course_id,to_course_id,relation_type")
+      .order("id")
       .range(from, to);
 
     if (error) throw new Error(error.message);
@@ -830,11 +838,74 @@ function buildSubstitutionTargetsByFromCourseId(links: RuleLinkRow[]) {
   return map;
 }
 
+function buildExemptionsByFromCourseId(links: RuleLinkRow[]) {
+  const map = new Map<number, Set<number>>();
+  links.forEach((row) => {
+    if (row.relation_type !== "exempts") return;
+    const set = map.get(row.from_course_id);
+    if (!set) map.set(row.from_course_id, new Set([row.to_course_id]));
+    else set.add(row.to_course_id);
+  });
+  return map;
+}
+
+function buildPrerequisitesByFromCourseId(links: RuleLinkRow[]) {
+  const map = new Map<number, Set<number>>();
+  links.forEach((row) => {
+    if (row.relation_type !== "prerequisite") return;
+    const set = map.get(row.from_course_id);
+    if (!set) map.set(row.from_course_id, new Set([row.to_course_id]));
+    else set.add(row.to_course_id);
+  });
+  return map;
+}
+
 function isValidForSubstitution(row: CourseStatusRow, todayIso: string) {
   if (row.manual_state === "escluso") return false;
   if (row.manual_state === "programmato") return false;
   if (row.planned_date && !row.completion_date) return false;
   return isValidCourseStatus(row, todayIso);
+}
+
+function buildValidCompletedCourseIdSet(statusRows: CourseStatusRow[], todayIso: string) {
+  const set = new Set<number>();
+  statusRows.forEach((row) => {
+    if (isValidCourseStatus(row, todayIso)) set.add(row.course_id);
+  });
+  return set;
+}
+
+function applyExemptions(
+  requiredCourseIds: Set<number>,
+  validCompletedCourseIds: Set<number>,
+  exemptionsByFromCourseId: Map<number, Set<number>>,
+) {
+  validCompletedCourseIds.forEach((fromCourseId) => {
+    const targets = exemptionsByFromCourseId.get(fromCourseId);
+    if (!targets) return;
+    targets.forEach((toCourseId) => requiredCourseIds.delete(toCourseId));
+  });
+}
+
+function expandPrerequisites(
+  requiredCourseIds: Set<number>,
+  prerequisitesByFromCourseId: Map<number, Set<number>>,
+) {
+  const queue = Array.from(requiredCourseIds.values());
+  const seen = new Set<number>(queue);
+
+  while (queue.length > 0) {
+    const courseId = queue.shift();
+    if (typeof courseId !== "number") continue;
+    const prereqs = prerequisitesByFromCourseId.get(courseId);
+    if (!prereqs) continue;
+    prereqs.forEach((prereqId) => {
+      if (seen.has(prereqId)) return;
+      seen.add(prereqId);
+      requiredCourseIds.add(prereqId);
+      queue.push(prereqId);
+    });
+  }
 }
 
 function pickBestSubstituteStatus(args: {
@@ -1320,14 +1391,17 @@ function isValidCourseStatus(row: CourseStatusRow, todayIso: string) {
   return expiryKey >= todayKey;
 }
 
-function buildActiveFreezeMap(rows: FreezeRow[]) {
-  const now = new Date();
+function buildActiveFreezeMap(rows: FreezeRow[], todayIso: string) {
+  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
   const map = new Map<number, FreezeRow>();
 
+  if (!todayKey) return map;
+
   rows.forEach((row) => {
-    const start = new Date(row.start_date);
-    const end = row.end_date ? new Date(row.end_date) : null;
-    const active = start <= now && (!end || end >= now);
+    const startKey = parseDateOnlyKey(row.start_date);
+    const endKey = row.end_date ? parseDateOnlyKey(row.end_date) : null;
+    if (!startKey) return;
+    const active = startKey <= todayKey && (!endKey || endKey >= todayKey);
     if (active) {
       map.set(row.employee_id, row);
     }

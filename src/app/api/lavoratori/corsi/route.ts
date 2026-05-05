@@ -142,7 +142,9 @@ export async function GET(request: Request) {
       throw new Error(coursesError.message);
     }
 
-    const activeFreeze = buildActiveFreezeMap((freezes ?? []) as FreezeRow[]);
+    const todayIso =
+      typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
+    const activeFreeze = buildActiveFreezeMap((freezes ?? []) as FreezeRow[], todayIso);
     const courseMap = new Map((courses ?? []).map((course) => [course.id, course]));
     const statusRows = (courseRows ?? []) as CourseStatusRow[];
     const statusMap = new Map(statusRows.map((row) => [`${row.employee_id}:${row.course_id}`, row]));
@@ -150,6 +152,8 @@ export async function GET(request: Request) {
     const rulesByScope = groupRulesByScope((rules ?? []) as MatrixRule[]);
     const substitutersByToCourseId = buildSubstitutersByToCourseId((ruleLinks ?? []) as RuleLinkRow[]);
     const substitutionTargetsByFromCourseId = buildSubstitutionTargetsByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
+    const exemptionsByFromCourseId = buildExemptionsByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
+    const prerequisitesByFromCourseId = buildPrerequisitesByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
 
     const excludedSiteIds = new Set<number>();
     const excludedSubSiteIds = new Set<number>();
@@ -183,8 +187,6 @@ export async function GET(request: Request) {
       return false;
     };
 
-    const todayIso =
-      typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
     const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
     const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
 
@@ -221,8 +223,13 @@ export async function GET(request: Request) {
 
     for (const employee of scopedEmployees) {
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
-      const requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
+      const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, todayIso);
+      let requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap);
+      applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
+      expandPrerequisites(requiredCourseIds, prerequisitesByFromCourseId);
+      requiredCourseIds = collapseLeveledCourseRequirements(requiredCourseIds, courseMap);
+      applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
 
       const freeze = activeFreeze.get(employee.id);
       if (freeze) frozenEmployees += 1;
@@ -262,6 +269,12 @@ export async function GET(request: Request) {
         requiredCourseIds.has(formBaseCourseId) &&
         formSpecRequired
       ) {
+        const excludedSet = applyFormazioneExclusions ? excludedCourseIdsByEmployee.get(employee.id) ?? null : null;
+        const baseCourseExcluded = excludedSet?.has(formBaseCourseId) ?? false;
+        const specCourseExcluded = excludedSet?.has(formSpecRequired.courseId) ?? false;
+        const shouldBuildAggregate = !baseCourseExcluded && !specCourseExcluded;
+
+        if (shouldBuildAggregate) {
         const baseAggregate = buildBaseAggregateRow({
           employee,
           formBaseCourseId,
@@ -282,6 +295,7 @@ export async function GET(request: Request) {
             suppressedAdditionalCourseIds.add(baseAggregate.suppressedCourseId);
           }
           rows.push(baseAggregate.row);
+        }
         }
       }
 
@@ -658,8 +672,8 @@ async function fetchAllRuleLinks(supabase: SupabaseClient) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from("training_rule_links")
-      .select("from_course_id,to_course_id,relation_type")
-      .eq("relation_type", "substitutes")
+      .select("id,from_course_id,to_course_id,relation_type")
+      .order("id")
       .range(from, to);
 
     if (error) throw new Error(error.message);
@@ -730,11 +744,74 @@ function buildSubstitutionTargetsByFromCourseId(links: RuleLinkRow[]) {
   return map;
 }
 
+function buildExemptionsByFromCourseId(links: RuleLinkRow[]) {
+  const map = new Map<number, Set<number>>();
+  links.forEach((row) => {
+    if (row.relation_type !== "exempts") return;
+    const set = map.get(row.from_course_id);
+    if (!set) map.set(row.from_course_id, new Set([row.to_course_id]));
+    else set.add(row.to_course_id);
+  });
+  return map;
+}
+
+function buildPrerequisitesByFromCourseId(links: RuleLinkRow[]) {
+  const map = new Map<number, Set<number>>();
+  links.forEach((row) => {
+    if (row.relation_type !== "prerequisite") return;
+    const set = map.get(row.from_course_id);
+    if (!set) map.set(row.from_course_id, new Set([row.to_course_id]));
+    else set.add(row.to_course_id);
+  });
+  return map;
+}
+
 function isValidForSubstitution(row: CourseStatusRow, todayIso: string) {
   if (row.manual_state === "escluso") return false;
   if (row.manual_state === "programmato") return false;
   if (row.planned_date && !row.completion_date) return false;
   return isValidCourseStatus(row, todayIso);
+}
+
+function buildValidCompletedCourseIdSet(statusRows: CourseStatusRow[], todayIso: string) {
+  const set = new Set<number>();
+  statusRows.forEach((row) => {
+    if (isValidCourseStatus(row, todayIso)) set.add(row.course_id);
+  });
+  return set;
+}
+
+function applyExemptions(
+  requiredCourseIds: Set<number>,
+  validCompletedCourseIds: Set<number>,
+  exemptionsByFromCourseId: Map<number, Set<number>>,
+) {
+  validCompletedCourseIds.forEach((fromCourseId) => {
+    const targets = exemptionsByFromCourseId.get(fromCourseId);
+    if (!targets) return;
+    targets.forEach((toCourseId) => requiredCourseIds.delete(toCourseId));
+  });
+}
+
+function expandPrerequisites(
+  requiredCourseIds: Set<number>,
+  prerequisitesByFromCourseId: Map<number, Set<number>>,
+) {
+  const queue = Array.from(requiredCourseIds.values());
+  const seen = new Set<number>(queue);
+
+  while (queue.length > 0) {
+    const courseId = queue.shift();
+    if (typeof courseId !== "number") continue;
+    const prereqs = prerequisitesByFromCourseId.get(courseId);
+    if (!prereqs) continue;
+    prereqs.forEach((prereqId) => {
+      if (seen.has(prereqId)) return;
+      seen.add(prereqId);
+      requiredCourseIds.add(prereqId);
+      queue.push(prereqId);
+    });
+  }
 }
 
 function pickBestSubstituteStatus(args: {
@@ -905,14 +982,17 @@ function formatJobLabel(jobTitle: string) {
   return base;
 }
 
-function buildActiveFreezeMap(rows: FreezeRow[]) {
-  const now = new Date();
+function buildActiveFreezeMap(rows: FreezeRow[], todayIso: string) {
+  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
   const map = new Map<number, FreezeRow>();
 
+  if (!todayKey) return map;
+
   rows.forEach((row) => {
-    const start = new Date(row.start_date);
-    const end = row.end_date ? new Date(row.end_date) : null;
-    const active = start <= now && (!end || end >= now);
+    const startKey = parseDateOnlyKey(row.start_date);
+    const endKey = row.end_date ? parseDateOnlyKey(row.end_date) : null;
+    if (!startKey) return;
+    const active = startKey <= todayKey && (!endKey || endKey >= todayKey);
     if (active) {
       map.set(row.employee_id, row);
     }

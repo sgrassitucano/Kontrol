@@ -925,6 +925,35 @@ export default function HomeFormazionePage() {
       const params = new URLSearchParams();
       params.set("date", simulationDate);
       params.set("expiringDays", String(expiringDays));
+      params.set("panel", "formazione");
+      if (showExcludedEmployees) params.set("includeExcluded", "1");
+
+      const q = search.trim();
+      if (q) params.set("q", q);
+
+      if (dashboardCategoryFilter) params.set("category", dashboardCategoryFilter);
+
+      if (dashboardStateFilter && dashboardStateFilter.length > 0) {
+        params.set("states", dashboardStateFilter.join(","));
+      } else if (columnFilters.stato) {
+        params.set("states", columnFilters.stato);
+      }
+
+      if (columnFilters.origine) params.set("origine", columnFilters.origine);
+
+      if (columnFilters.matricola) params.set("matricola", columnFilters.matricola);
+      if (columnFilters.cognome) params.set("cognome", columnFilters.cognome);
+      if (columnFilters.nome) params.set("nome", columnFilters.nome);
+      if (columnFilters.mansione) params.set("mansione", columnFilters.mansione);
+      if (columnFilters.cantiere) params.set("cantiere", columnFilters.cantiere);
+      if (columnFilters.sottocantiere) params.set("sottocantiere", columnFilters.sottocantiere);
+      if (columnFilters.responsabile) params.set("responsabile", columnFilters.responsabile);
+      if (columnFilters.referente) params.set("referente", columnFilters.referente);
+      if (columnFilters.corso) params.set("corso", columnFilters.corso);
+      if (columnFilters.dataConclusione) params.set("dataConclusione", columnFilters.dataConclusione);
+      if (columnFilters.dataScadenza) params.set("dataScadenza", columnFilters.dataScadenza);
+      if (columnFilters.note) params.set("note", columnFilters.note);
+
       const response = await fetch(`/api/formazione/export?${params.toString()}`);
       if (!response.ok) {
         const body = (await response.json()) as { error?: string };
