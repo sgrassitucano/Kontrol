@@ -107,21 +107,25 @@ export async function processMedicalSurveillanceImport({
   const lookup = await buildEmployeeLookup(supabase, parsed.validRows);
 
   const errors: SurveillanceImportErrorRow[] = [...parsed.errors];
-  const rowsToUpsert: Array<{
-    employee_id: number;
-    provider: string | null;
-    requires_visit: boolean;
-    next_due_date: string | null;
-    limitations: string | null;
-    notes: string | null;
-    created_by: string | null;
-  }> = [];
 
-  let matchedEmployees = 0;
+  const chosenByEmployeeId = new Map<
+    number,
+    {
+      raw: RawRow;
+      upsert: {
+        employee_id: number;
+        provider: string | null;
+        requires_visit: boolean;
+        next_due_date: string | null;
+        limitations: string | null;
+        notes: string | null;
+        created_by: string | null;
+      };
+    }
+  >();
+
+  let matchedRowOccurrences = 0;
   let missingEmployees = 0;
-  let visitRequiredYes = 0;
-  let visitRequiredNo = 0;
-  let dueDateMissing = 0;
 
   parsed.validRows.forEach((row) => {
     const employee =
@@ -142,20 +146,53 @@ export async function processMedicalSurveillanceImport({
       return;
     }
 
-    matchedEmployees += 1;
-    if (row.requiresVisit) visitRequiredYes += 1;
-    else visitRequiredNo += 1;
-    if (row.requiresVisit && !row.nextDueDate) dueDateMissing += 1;
+    matchedRowOccurrences += 1;
 
-    rowsToUpsert.push({
-      employee_id: employee.id,
-      provider: cleanNullable(row.provider),
-      requires_visit: row.requiresVisit,
-      next_due_date: row.nextDueDate,
-      limitations: cleanNullable(row.limitations),
-      notes: cleanNullable(row.notes),
-      created_by: importedBy ?? null,
-    });
+    const candidate = {
+      raw: row,
+      upsert: {
+        employee_id: employee.id,
+        provider: cleanNullable(row.provider),
+        requires_visit: row.requiresVisit,
+        next_due_date: row.nextDueDate,
+        limitations: cleanNullable(row.limitations),
+        notes: cleanNullable(row.notes),
+        created_by: importedBy ?? null,
+      },
+    };
+
+    const existing = chosenByEmployeeId.get(employee.id);
+    if (!existing) {
+      chosenByEmployeeId.set(employee.id, candidate);
+      return;
+    }
+
+    const a = candidate.upsert.next_due_date;
+    const b = existing.upsert.next_due_date;
+    const takeCandidate =
+      a && b
+        ? a > b || (a === b && candidate.raw.rowNumber > existing.raw.rowNumber)
+        : a
+          ? true
+          : b
+            ? false
+            : candidate.raw.rowNumber > existing.raw.rowNumber;
+
+    if (takeCandidate) chosenByEmployeeId.set(employee.id, candidate);
+  });
+
+  const chosen = Array.from(chosenByEmployeeId.values());
+  const rowsToUpsert = chosen.map((c) => c.upsert);
+  const matchedEmployees = rowsToUpsert.length;
+  const duplicateRowsCollapsed = Math.max(0, matchedRowOccurrences - matchedEmployees);
+
+  let visitRequiredYes = 0;
+  let visitRequiredNo = 0;
+  let dueDateMissing = 0;
+  chosen.forEach((c) => {
+    if (c.upsert.requires_visit) visitRequiredYes += 1;
+    else visitRequiredNo += 1;
+    if (c.upsert.requires_visit && !c.upsert.next_due_date) dueDateMissing += 1;
   });
 
   if (mode === "commit" && rowsToUpsert.length > 0) {
@@ -175,7 +212,7 @@ export async function processMedicalSurveillanceImport({
           visitRequiredNo,
           dueDateMissing,
         },
-        previewRows: buildPreview(parsed.validRows).slice(0, 50),
+        previewRows: buildPreview(chosen.map((c) => c.raw)).slice(0, 50),
         errors,
         message: `Import fallito: ${error.message}`,
       };
@@ -195,13 +232,13 @@ export async function processMedicalSurveillanceImport({
 
   const message =
     mode === "commit"
-      ? `Import completato: ${matchedEmployees} righe associate ad anagrafica e salvate.`
-      : `Anteprima completata: ${matchedEmployees} righe associabili ad anagrafica.`;
+      ? `Import completato: ${matchedEmployees} righe associate ad anagrafica e salvate.${duplicateRowsCollapsed > 0 ? ` (Duplicati consolidati: ${duplicateRowsCollapsed})` : ""}`
+      : `Anteprima completata: ${matchedEmployees} righe associabili ad anagrafica.${duplicateRowsCollapsed > 0 ? ` (Duplicati consolidati: ${duplicateRowsCollapsed})` : ""}`;
 
   return {
     mode,
     summary,
-    previewRows: buildPreview(parsed.validRows).slice(0, 50),
+    previewRows: buildPreview(chosen.map((c) => c.raw)).slice(0, 50),
     errors,
     message,
   };
@@ -521,17 +558,23 @@ function parseDateToIso(value: unknown) {
 
   const slashLong = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slashLong) {
-    const mm = String(slashLong[1]).padStart(2, "0");
-    const dd = String(slashLong[2]).padStart(2, "0");
+    const ddNum = Number(slashLong[1]);
+    const mmNum = Number(slashLong[2]);
+    if (!Number.isFinite(ddNum) || !Number.isFinite(mmNum) || ddNum < 1 || ddNum > 31 || mmNum < 1 || mmNum > 12) return null;
+    const dd = String(ddNum).padStart(2, "0");
+    const mm = String(mmNum).padStart(2, "0");
     return `${slashLong[3]}-${mm}-${dd}`;
   }
 
   const slashShort = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
   if (slashShort) {
+    const ddNum = Number(slashShort[1]);
+    const mmNum = Number(slashShort[2]);
+    if (!Number.isFinite(ddNum) || !Number.isFinite(mmNum) || ddNum < 1 || ddNum > 31 || mmNum < 1 || mmNum > 12) return null;
     const yy = Number(slashShort[3]);
     const year = yy >= 70 ? 1900 + yy : 2000 + yy;
-    const mm = String(slashShort[1]).padStart(2, "0");
-    const dd = String(slashShort[2]).padStart(2, "0");
+    const dd = String(ddNum).padStart(2, "0");
+    const mm = String(mmNum).padStart(2, "0");
     return `${year}-${mm}-${dd}`;
   }
 
