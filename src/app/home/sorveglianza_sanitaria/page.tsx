@@ -378,19 +378,22 @@ export default function HomeSorveglianzaPage() {
                 setEventModalToken((v) => v + 1);
                 setEventModalOpen(true);
               }}
-              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold !text-white shadow-sm transition hover:brightness-95"
+              data-soft="true"
+              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               + Evento
             </button>
             <Link
               href="/sorveglianza_sanitaria/matrice"
-              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold !text-white shadow-sm transition hover:brightness-95"
+              data-soft="true"
+              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               Matrice
             </Link>
             <Link
               href="/sorveglianza_sanitaria/import"
-              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold !text-white shadow-sm transition hover:brightness-95"
+              data-soft="true"
+              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               Import
             </Link>
