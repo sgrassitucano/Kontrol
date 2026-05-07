@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx-js-style";
 import { applyCalibri10WithBoldHeader } from "@/lib/excel";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
-import { getCurrentUserContext, requireModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireModuleAccess } from "@/lib/api/access";
 import type { SupabaseClient } from "@supabase/supabase-js";
 type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean };
 
@@ -139,10 +138,7 @@ export async function GET(request: Request) {
     const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
     const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
 
-    const supabase = auth.supabase;
-    const ctx = await getCurrentUserContext(supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : supabase;
+    const dataSupabase = auth.supabase;
 
     const [
       employees,

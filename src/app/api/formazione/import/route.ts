@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { commitLegacyTrainingImport, previewLegacyTrainingImport } from "@/lib/import/training-legacy";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
@@ -39,7 +38,7 @@ export async function POST(request: Request) {
     }
 
     const fileBuffer = await file.arrayBuffer();
-    const supabase = createSupabaseAdminClient();
+    const supabase = auth.supabase;
     const result = await (mode === "commit"
       ? commitLegacyTrainingImport({ fileBuffer, supabase })
       : previewLegacyTrainingImport({ fileBuffer, supabase }));
@@ -48,7 +47,7 @@ export async function POST(request: Request) {
       const summary = (result as { summary?: unknown }).summary as
         | { totalRows?: number; committedRows?: number; missingEmployees?: number; missingCourses?: number }
         | undefined;
-      await supabase.from("import_runs").insert({
+      await auth.supabase.from("import_runs").insert({
         source: "formazione_legacy",
         file_name: file.name,
         imported_by: auth.userId,

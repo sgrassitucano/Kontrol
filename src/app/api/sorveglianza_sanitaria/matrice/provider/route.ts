@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserContext, requireAnyModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireAnyModuleAccess } from "@/lib/api/access";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -21,14 +20,10 @@ export async function GET() {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const ctx = await getCurrentUserContext(auth.supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
-
     const [sites, subSites, assignments] = await Promise.all([
-      fetchAllSites(dataSupabase),
-      fetchAllSubSites(dataSupabase),
-      fetchAllAssignments(dataSupabase),
+      fetchAllSites(auth.supabase),
+      fetchAllSubSites(auth.supabase),
+      fetchAllAssignments(auth.supabase),
     ]);
 
     return NextResponse.json({ sites, subSites, assignments, supportsRules: true });
@@ -45,10 +40,6 @@ export async function PATCH(request: Request) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const ctx = await getCurrentUserContext(auth.supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
-
     const body = (await request.json()) as Partial<{
       scopeType: "site" | "sub_site";
       siteId: number;
@@ -97,7 +88,7 @@ export async function PATCH(request: Request) {
             created_by: auth.userId,
           };
 
-    const { error } = await dataSupabase
+    const { error } = await auth.supabase
       .from("medical_surveillance_provider_assignments")
       .upsert(payload, { onConflict: "scope_type,site_id,sub_site_id" });
     if (error) throw new Error(error.message);

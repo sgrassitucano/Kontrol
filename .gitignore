@@ -46,6 +46,7 @@ next-env.d.ts
 !/corsi.csv
 /*.xls
 /*.xlsx
+/*.pdf
 /commit_result.json
 /preview_result.json
 /*.png

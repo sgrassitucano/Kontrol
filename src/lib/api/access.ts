@@ -22,6 +22,13 @@ export async function requireUser() {
   if (!user) {
     return { ok: false as const, status: 401, error: "Non autenticato." };
   }
+  const { data: isActive, error: isActiveError } = await supabase.rpc("current_user_is_active");
+  if (isActiveError) {
+    return { ok: false as const, status: 500, error: isActiveError.message };
+  }
+  if (!isActive) {
+    return { ok: false as const, status: 403, error: "Utente disattivato." };
+  }
   return { ok: true as const, supabase, userId: user.id };
 }
 

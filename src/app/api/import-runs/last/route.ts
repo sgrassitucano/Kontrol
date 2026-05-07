@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { requireAnyOperationalAccess } from "@/lib/api/access";
+import { requireAnyModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const auth = await requireAnyOperationalAccess();
+  const auth = await requireAnyModuleAccess(["gestione", "formazione", "sorveglianza"], false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
@@ -15,8 +14,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "source obbligatorio." }, { status: 400 });
     }
 
-    const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase
+    const { data, error } = await auth.supabase
       .from("import_runs")
       .select("id,source,file_name,status,created_at,imported_by,total_rows,processed_rows,error_rows")
       .eq("source", source)
@@ -40,12 +38,20 @@ export async function GET(request: Request) {
 
     let importedByName: string | null = null;
     if (run?.imported_by) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name,email")
-        .eq("id", run.imported_by)
-        .maybeSingle();
-      importedByName = (profile as { full_name?: string | null; email?: string | null } | null)?.full_name?.trim() || (profile as { email?: string | null } | null)?.email?.trim() || null;
+      const { data: canSeeProfiles } = await auth.supabase.rpc("has_module_access", {
+        target_module: "gestione",
+        require_write: false,
+      });
+      if (canSeeProfiles) {
+        const { data: profile } = await auth.supabase
+          .from("profiles")
+          .select("full_name,email")
+          .eq("id", run.imported_by)
+          .maybeSingle();
+        importedByName =
+          (profile as { full_name?: string | null; email?: string | null } | null)?.full_name?.trim() ||
+          null;
+      }
     }
 
     return NextResponse.json({

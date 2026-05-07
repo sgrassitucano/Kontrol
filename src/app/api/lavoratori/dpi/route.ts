@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { normalizeJobCode } from "@/lib/training/normalize";
-import { getCurrentUserContext, requireModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireModuleAccess } from "@/lib/api/access";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -106,26 +105,22 @@ export async function GET(request: Request) {
     );
 
     const supabase = auth.supabase;
-    const ctx = await getCurrentUserContext(supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : supabase;
-
-    const employees = await fetchEmployees(dataSupabase, employeeId);
+    const employees = await fetchEmployees(supabase, employeeId);
     const employeeIds = employees.map((e) => e.id);
 
     const [{ data: dpiData, error: dpiError }, { data: rulesData, error: rulesError }, deliveriesResult] =
       await Promise.all([
-        dataSupabase
+        supabase
           .from("dpi_items")
           .select("id,title,risk_activities,category,control_frequency,control_type")
           .eq("is_active", true)
           .order("title"),
-        dataSupabase
+        supabase
           .from("dpi_matrix_rules")
           .select("scope_type,dpi_id,is_required,job_code_norm,employee_id")
           .in("scope_type", ["job", "employee_override"]),
         employeeIds.length > 0
-          ? dataSupabase
+          ? supabase
               .from("dpi_employee_items")
               .select("employee_id,dpi_id,delivered_date,planned_date,next_check_date,note")
               .in("employee_id", employeeIds)

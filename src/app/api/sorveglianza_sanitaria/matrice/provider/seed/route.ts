@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireAnyModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx-js-style";
 
@@ -15,16 +14,15 @@ export async function POST(request: Request) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const admin = createSupabaseAdminClient();
     const file = await readOptionalFile(request);
 
-    const employees = await fetchEmployees(admin);
+    const employees = await fetchEmployees(auth.supabase);
     const providerByEmployeeId = new Map<number, string>();
 
     if (file) {
       const buffer = await file.arrayBuffer();
       const parsed = parseImportFile(buffer);
-      const lookup = await buildEmployeeLookup(admin, parsed);
+      const lookup = await buildEmployeeLookup(auth.supabase, parsed);
       parsed.forEach((row) => {
         const provider = String(row.provider ?? "").trim();
         if (!provider) return;
@@ -36,7 +34,7 @@ export async function POST(request: Request) {
         providerByEmployeeId.set(employeeId, provider);
       });
     } else {
-      const records = await fetchRecords(admin);
+      const records = await fetchRecords(auth.supabase);
       records.forEach((row) => {
         const value = String(row.provider ?? "").trim();
         if (!value) return;
@@ -170,7 +168,7 @@ export async function POST(request: Request) {
 
     const rowsToUpsert = [...siteAssignmentRows, ...subSiteAssignmentRows];
     if (rowsToUpsert.length > 0) {
-      const { error } = await admin
+      const { error } = await auth.supabase
         .from("medical_surveillance_provider_assignments")
         .upsert(rowsToUpsert, { onConflict: "scope_type,site_id,sub_site_id" });
       if (error) throw new Error(error.message);

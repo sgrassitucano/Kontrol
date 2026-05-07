@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserContext, requireAnyModuleAccess, requireModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireAnyModuleAccess, requireModuleAccess } from "@/lib/api/access";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -20,14 +19,10 @@ export async function GET() {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const ctx = await getCurrentUserContext(auth.supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
-
     const [sites, subSites, rules] = await Promise.all([
-      fetchAllSites(dataSupabase),
-      fetchAllSubSites(dataSupabase),
-      fetchAllRules(dataSupabase),
+      fetchAllSites(auth.supabase),
+      fetchAllSubSites(auth.supabase),
+      fetchAllRules(auth.supabase),
     ]);
 
     return NextResponse.json({

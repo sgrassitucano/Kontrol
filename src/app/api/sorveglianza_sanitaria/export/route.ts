@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx-js-style";
 import { requireModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCurrentUserContext } from "@/lib/api/access";
 import { normalizeJobCode } from "@/lib/training/normalize";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyCalibri10WithBoldHeader } from "@/lib/excel";
@@ -284,9 +282,7 @@ export async function GET(request: Request) {
     const thresholdDate = new Date(today);
     thresholdDate.setDate(thresholdDate.getDate() + expiringDaysSafe);
 
-    const ctx = await getCurrentUserContext(auth.supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
+    const dataSupabase = auth.supabase;
 
     const [employees, surveillanceRows, freezeRows, jobRules, scopeRules, providerAssignments, employeeExclusions, employeeOverrides] =
       await Promise.all([
@@ -468,4 +464,3 @@ export async function GET(request: Request) {
     );
   }
 }
-

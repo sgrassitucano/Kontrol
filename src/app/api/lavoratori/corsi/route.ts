@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
-import { getCurrentUserContext, requireAnyModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireAnyModuleAccess } from "@/lib/api/access";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type EmployeeRow = {
@@ -116,10 +115,7 @@ export async function GET(request: Request) {
     const applyFormazioneExclusions = panel === "formazione";
     const includeExcluded = url.searchParams.get("includeExcluded") === "1";
 
-    const supabase = auth.supabase;
-    const ctx = await getCurrentUserContext(supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : supabase;
+    const dataSupabase = auth.supabase;
 
     const [
       employees,

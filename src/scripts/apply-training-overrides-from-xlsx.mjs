@@ -226,7 +226,12 @@ async function main() {
     errors: errors.length,
   };
 
-  console.log(JSON.stringify({ summary, errors: errors.slice(0, 200) }, null, 2));
+  const publicErrors = errors.slice(0, 200).map((e) => ({
+    rowNumber: e.rowNumber,
+    courseLabel: e.courseLabel,
+    error: e.error,
+  }));
+  console.log(JSON.stringify({ summary, errors: publicErrors }, null, 2));
   if (errors.length > 0) process.exitCode = 2;
 }
 

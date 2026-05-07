@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { normalizeJobCode } from "@/lib/training/normalize";
-import { getCurrentUserContext, requireModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireModuleAccess } from "@/lib/api/access";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type JobRuleRow = {
@@ -58,11 +57,7 @@ export async function GET() {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const ctx = await getCurrentUserContext(auth.supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
-
-    const [jobCodes, rulesResult] = await Promise.all([listJobCodes(dataSupabase), listRules(dataSupabase)]);
+    const [jobCodes, rulesResult] = await Promise.all([listJobCodes(auth.supabase), listRules(auth.supabase)]);
     const rulesByCode: Record<string, JobRuleRow> = {};
     rulesResult.rows.forEach((r) => {
       rulesByCode[r.job_code_norm] = r;
@@ -110,8 +105,7 @@ export async function PATCH(request: Request) {
           : null;
     const note = body.note !== undefined ? String(body.note ?? "").trim() || null : null;
 
-    const supabaseAdmin = createSupabaseAdminClient();
-    const { error } = await supabaseAdmin.from("medical_surveillance_job_rules").upsert(
+    const { error } = await auth.supabase.from("medical_surveillance_job_rules").upsert(
       {
         job_code_norm: jobCodeNorm,
         always_exempt: alwaysExempt,
@@ -130,4 +124,3 @@ export async function PATCH(request: Request) {
     );
   }
 }
-

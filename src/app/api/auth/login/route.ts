@@ -28,5 +28,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Credenziali non valide." }, { status: 401 });
   }
 
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("is_active")
+    .eq("id", data.user.id)
+    .maybeSingle();
+  if (profileError) {
+    await supabase.auth.signOut();
+    return NextResponse.json({ error: "Errore verifica profilo." }, { status: 500 });
+  }
+  if (!profile?.is_active) {
+    await supabase.auth.signOut();
+    return NextResponse.json({ error: "Utente disattivato." }, { status: 403 });
+  }
+
   return NextResponse.json({ ok: true, user: { id: data.user.id, email: data.user.email } });
 }

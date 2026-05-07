@@ -73,8 +73,6 @@ async function main() {
         legacyDistinct: legacySet.size,
         dbDistinct: dbSet.size,
         intersection,
-        legacySample: Array.from(legacySet).slice(0, 20),
-        dbSample: Array.from(dbSet).slice(0, 20),
       },
       null,
       2,

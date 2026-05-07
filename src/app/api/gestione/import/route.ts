@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { processAnagraficaImport } from "@/lib/import/anagrafica";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
@@ -33,7 +32,7 @@ export async function POST(request: Request) {
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const supabaseAdmin = createSupabaseAdminClient();
+    const supabase = auth.supabase;
 
     const importedBy = auth.userId;
 
@@ -41,7 +40,7 @@ export async function POST(request: Request) {
       fileBuffer: arrayBuffer,
       fileName: file.name,
       mode,
-      supabase: supabaseAdmin,
+      supabase,
       importedBy,
     });
 

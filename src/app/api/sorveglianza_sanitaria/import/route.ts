@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
 import { processMedicalSurveillanceImport, seedProvidersFromMedicalSurveillanceImportFile } from "@/lib/import/sorveglianza";
 import type { SurveillanceImportColumnMapping } from "@/lib/import/sorveglianza";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
@@ -54,11 +53,10 @@ export async function POST(request: Request) {
     });
 
     if (mode === "commit") {
-      const admin = createSupabaseAdminClient();
       try {
         const seeded = await seedProvidersFromMedicalSurveillanceImportFile({
           fileBuffer: buffer,
-          supabase: admin,
+          supabase: auth.supabase,
           importedBy: auth.userId,
           mapping: mappingTyped,
         });
@@ -70,7 +68,7 @@ export async function POST(request: Request) {
       } catch {
         result.message = `${result.message} Provider: seed fallito.`;
       }
-      await admin.from("import_runs").insert({
+      await auth.supabase.from("import_runs").insert({
         source: "sorveglianza",
         file_name: file.name,
         imported_by: auth.userId,

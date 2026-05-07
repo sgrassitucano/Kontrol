@@ -128,4 +128,40 @@ where tec.course_id = c.id
   and tec.completion_date is not null
   and (tec.manual_state is null or tec.manual_state not in ('programmato', 'escluso'));
 
+drop policy if exists "import_runs_read_management_only" on public.import_runs;
+drop policy if exists "import_runs_read_by_module" on public.import_runs;
+create policy "import_runs_read_by_module"
+  on public.import_runs
+  for select
+  using (
+    public.has_module_access('gestione')
+    or (source = 'formazione_legacy' and public.has_module_access('formazione'))
+    or (source in ('sorveglianza', 'sorveglianza_pdf') and public.has_module_access('sorveglianza'))
+  );
+
+drop policy if exists "import_runs_write_management_only" on public.import_runs;
+drop policy if exists "import_runs_insert_by_module" on public.import_runs;
+drop policy if exists "import_runs_write_management_only_update" on public.import_runs;
+drop policy if exists "import_runs_write_management_only_delete" on public.import_runs;
+
+create policy "import_runs_insert_by_module"
+  on public.import_runs
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (source = 'formazione_legacy' and public.has_module_access('formazione', true))
+    or (source in ('sorveglianza', 'sorveglianza_pdf') and public.has_module_access('sorveglianza', true))
+  );
+
+create policy "import_runs_write_management_only_update"
+  on public.import_runs
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "import_runs_write_management_only_delete"
+  on public.import_runs
+  for delete
+  using (public.has_module_access('gestione', true));
+
 select pg_notify('pgrst','reload schema');

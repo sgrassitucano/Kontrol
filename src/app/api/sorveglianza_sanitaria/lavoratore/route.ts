@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserContext, requireAnyModuleAccess, requireModuleAccess } from "@/lib/api/access";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireAnyModuleAccess, requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
@@ -52,9 +51,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "employeeId non valido." }, { status: 400 });
     }
 
-    const ctx = await getCurrentUserContext(auth.supabase);
-    const dataSupabase =
-      ctx.isActive && (ctx.role === "viewer" || ctx.role === "admin") ? createSupabaseAdminClient() : auth.supabase;
+    const dataSupabase = auth.supabase;
 
     const [employee, record, exclusion, override] = await Promise.all([
       dataSupabase
