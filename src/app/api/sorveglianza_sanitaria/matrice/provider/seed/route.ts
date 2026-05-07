@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAnyModuleAccess } from "@/lib/api/access";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 
 export const runtime = "nodejs";
 

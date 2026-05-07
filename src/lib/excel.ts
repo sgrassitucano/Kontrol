@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 
 function ensureCell(ws: XLSX.WorkSheet, addr: string) {
   const cell = ws[addr];
@@ -14,14 +14,22 @@ export function applyCalibri10WithBoldHeader(ws: XLSX.WorkSheet) {
 
   const range = XLSX.utils.decode_range(ref);
 
-  const baseStyle = { font: { name: "Calibri", sz: 9 } };
-  const headerStyle = { font: { name: "Calibri", sz: 9, bold: true } };
-
   for (let r = range.s.r; r <= range.e.r; r++) {
     for (let c = range.s.c; c <= range.e.c; c++) {
       const addr = XLSX.utils.encode_cell({ r, c });
       const cell = ensureCell(ws, addr);
-      cell.s = r === range.s.r ? headerStyle : baseStyle;
+      const isHeader = r === range.s.r;
+      const existingStyle = (cell.s ?? {}) as Record<string, unknown>;
+      const existingFont = (existingStyle.font ?? {}) as Record<string, unknown>;
+      cell.s = {
+        ...existingStyle,
+        font: {
+          ...existingFont,
+          name: "Calibri",
+          sz: 9,
+          bold: isHeader ? true : false,
+        },
+      };
     }
   }
 

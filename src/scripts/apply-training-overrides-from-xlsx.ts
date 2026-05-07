@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { createClient } from "@supabase/supabase-js";
 
 type InputRow = {

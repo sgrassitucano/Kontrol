@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { applyCalibri10WithBoldHeader } from "@/lib/excel";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { getCurrentUserContext, requireModuleAccess } from "@/lib/api/access";
