@@ -205,6 +205,24 @@ button[data-chip="true"]:hover:not(:disabled) {
   filter: none !important;
 }
 
+button[data-soft="true"] {
+  background: #ffffff !important;
+  color: var(--brand-soft) !important;
+  font-weight: 700 !important;
+  border: 1px solid var(--brand-line) !important;
+  filter: none !important;
+}
+
+button[data-soft="true"] * {
+  color: inherit !important;
+  font-weight: inherit !important;
+}
+
+button[data-soft="true"]:hover:not(:disabled) {
+  background: var(--brand-panel-2) !important;
+  filter: none !important;
+}
+
 .bg-\[var\(--brand-primary\)\] {
   color: #ffffff !important;
   font-weight: 700 !important;

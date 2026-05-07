@@ -183,7 +183,8 @@ export function SurveillanceEventModal(props: {
             <button
               type="button"
               onClick={clearSelection}
-              className="ml-2 rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-xs font-bold text-[var(--brand-ink)]"
+              data-soft="true"
+              className="ml-2 rounded-lg px-2 py-1 text-xs"
             >
               Svuota
             </button>
@@ -430,4 +431,3 @@ function FieldEditor(props: {
     </div>
   );
 }
-

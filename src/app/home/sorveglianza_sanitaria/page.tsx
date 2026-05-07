@@ -501,14 +501,16 @@ export default function HomeSorveglianzaPage() {
                 <button
                   type="button"
                   onClick={selectVisible}
-                  className="ml-2 rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-xs font-bold text-[var(--brand-ink)]"
+                  data-soft="true"
+                  className="ml-2 rounded-lg px-2 py-1 text-xs"
                 >
                   Seleziona filtrati
                 </button>
                 <button
                   type="button"
                   onClick={clearSelection}
-                  className="rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-xs font-bold text-[var(--brand-ink)]"
+                  data-soft="true"
+                  className="rounded-lg px-2 py-1 text-xs"
                 >
                   Svuota
                 </button>
@@ -673,7 +675,8 @@ export default function HomeSorveglianzaPage() {
                     <button
                       type="button"
                       onClick={() => void openWorkerDetail(row.workerId)}
-                      className="rounded-xl bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
+                      data-soft="true"
+                      className="rounded-xl px-3 py-1.5 text-xs"
                     >
                       Dettaglio
                     </button>
