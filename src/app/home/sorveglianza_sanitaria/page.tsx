@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, StatusPill } from "@/components/module-ui";
+import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
 
 type WorkerSurveillanceRow = {
   workerId: number;
@@ -60,17 +61,26 @@ export default function HomeSorveglianzaPage() {
   const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [includeExcluded, setIncludeExcluded] = useState(false);
   const [expiringDays, setExpiringDays] = useState(30);
 
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      setDebouncedSearch(search);
-    }, 350);
-    return () => window.clearTimeout(id);
-  }, [search]);
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState<Set<number>>(() => new Set());
+  const [eventModalOpen, setEventModalOpen] = useState(false);
+  const [eventModalToken, setEventModalToken] = useState(0);
+
+  const toggleWorkerSelection = useCallback((workerId: number) => {
+    setSelectedWorkerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(workerId)) next.delete(workerId);
+      else next.add(workerId);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedWorkerIds(new Set());
+  }, []);
 
   const [meta, setMeta] = useState<{
     totalActiveEmployees: number;
@@ -124,7 +134,6 @@ export default function HomeSorveglianzaPage() {
       const params = new URLSearchParams();
       params.set("expiringDays", String(expiringDays));
       if (includeExcluded) params.set("includeExcluded", "1");
-      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       const response = await fetch(`/api/sorveglianza_sanitaria/lavoratori?${params.toString()}`);
       const body = (await response.json()) as ApiResponse;
       if (!response.ok || body.error) {
@@ -150,7 +159,7 @@ export default function HomeSorveglianzaPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [debouncedSearch, expiringDays, includeExcluded]);
+  }, [expiringDays, includeExcluded]);
 
   useEffect(() => {
     void loadRows();
@@ -233,6 +242,19 @@ export default function HomeSorveglianzaPage() {
     });
     return list;
   }, [filtered, sort.dir, sort.key]);
+
+  const selectVisible = useCallback(() => {
+    setSelectedWorkerIds((prev) => {
+      const next = new Set(prev);
+      sorted.forEach((r) => next.add(r.workerId));
+      return next;
+    });
+  }, [sorted]);
+
+  const allVisibleSelected = useMemo(() => {
+    if (sorted.length === 0) return false;
+    return sorted.every((r) => selectedWorkerIds.has(r.workerId));
+  }, [selectedWorkerIds, sorted]);
 
   const toggleSort = useCallback((key: SortKey) => {
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
@@ -350,6 +372,16 @@ export default function HomeSorveglianzaPage() {
         description="Cruscotto e tabella lavoratori. Import e matrice restano raggiungibili dalle azioni."
         actions={
           <>
+            <button
+              type="button"
+              onClick={() => {
+                setEventModalToken((v) => v + 1);
+                setEventModalOpen(true);
+              }}
+              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold !text-white shadow-sm transition hover:brightness-95"
+            >
+              + Evento
+            </button>
             <Link
               href="/sorveglianza_sanitaria/matrice"
               className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold !text-white shadow-sm transition hover:brightness-95"
@@ -463,6 +495,24 @@ export default function HomeSorveglianzaPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm">
+                <span className="text-slate-600">Selezionati:</span>
+                <span className="font-bold text-[var(--brand-ink)]">{selectedWorkerIds.size}</span>
+                <button
+                  type="button"
+                  onClick={selectVisible}
+                  className="ml-2 rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-xs font-bold text-[var(--brand-ink)]"
+                >
+                  Seleziona filtrati
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-xs font-bold text-[var(--brand-ink)]"
+                >
+                  Svuota
+                </button>
+              </div>
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -504,6 +554,21 @@ export default function HomeSorveglianzaPage() {
           <table className="w-full table-fixed text-left text-xs">
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                <th className="sticky top-0 z-20 w-[44px] bg-[var(--brand-panel)] px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSelectedWorkerIds((prev) => {
+                        const next = new Set(prev);
+                        if (checked) sorted.forEach((r) => next.add(r.workerId));
+                        else sorted.forEach((r) => next.delete(r.workerId));
+                        return next;
+                      });
+                    }}
+                  />
+                </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("cognome")} className="inline-flex items-center gap-1">
                     Cognome {sortIcon("cognome")}
@@ -570,6 +635,13 @@ export default function HomeSorveglianzaPage() {
                   key={row.workerId}
                   className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                 >
+                  <td className="w-[44px] px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedWorkerIds.has(row.workerId)}
+                      onChange={() => toggleWorkerSelection(row.workerId)}
+                    />
+                  </td>
                   <td className="w-[14%] px-4 py-2.5 font-semibold text-slate-800">{row.cognome}</td>
                   <td className="w-[12%] px-4 py-2.5 text-slate-800">{row.nome}</td>
                   <td className="w-[20%] px-4 py-2.5 text-slate-600">
@@ -610,7 +682,7 @@ export default function HomeSorveglianzaPage() {
               ))}
               {!isLoading && sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-6 text-center text-sm text-slate-500">
+                  <td colSpan={11} className="px-4 py-6 text-center text-sm text-slate-500">
                     Nessun risultato.
                   </td>
                 </tr>
@@ -619,6 +691,27 @@ export default function HomeSorveglianzaPage() {
           </table>
         </div>
       </section>
+
+      <SurveillanceEventModal
+        isOpen={eventModalOpen}
+        token={eventModalToken}
+        onClose={() => setEventModalOpen(false)}
+        selectedWorkerIds={selectedWorkerIds}
+        toggleWorkerSelection={toggleWorkerSelection}
+        clearSelection={clearSelection}
+        workerOptions={rows.map((r) => ({
+          workerId: r.workerId,
+          matricola: r.matricola,
+          fullName: `${r.cognome} ${r.nome}`.trim(),
+          cantiere: r.cantiere,
+          sottocantiere: r.sottocantiere,
+        }))}
+        onSaved={async () => {
+          setEventModalOpen(false);
+          clearSelection();
+          await loadRows();
+        }}
+      />
 
       {workerDetailId ? (
         <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
