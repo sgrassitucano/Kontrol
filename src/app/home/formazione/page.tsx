@@ -18,7 +18,16 @@ type WorkerCourseRow = {
   corso: string;
   dataConclusione: string | null;
   dataScadenza: string | null;
-  stato: "idoneo" | "in scadenza" | "scaduto" | "da fare" | "sospeso" | "programmato" | "upgrade" | "escluso";
+  stato:
+    | "idoneo"
+    | "in scadenza"
+    | "scaduto"
+    | "perso"
+    | "da fare"
+    | "sospeso"
+    | "programmato"
+    | "upgrade"
+    | "escluso";
   upgradeInfo: string | null;
   responsabile: string;
   referente: string;
@@ -1519,6 +1528,7 @@ export default function HomeFormazionePage() {
                     <option value="idoneo">Idoneo</option>
                     <option value="in scadenza">In scadenza</option>
                     <option value="scaduto">Scaduto</option>
+                    <option value="perso">Perso</option>
                     <option value="da fare">Da fare</option>
                     <option value="sospeso">Sospeso</option>
                     <option value="programmato">Programmato</option>
@@ -1533,10 +1543,17 @@ export default function HomeFormazionePage() {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((row) => (
+              {sortedRows.map((row) => {
+                const isLost = row.stato === "perso";
+                const textClass = isLost ? "text-slate-400" : "text-slate-600";
+                const rowClass = isLost
+                  ? "border-t border-[var(--brand-line)] bg-slate-50/70 transition hover:bg-slate-100/60"
+                  : "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60";
+
+                return (
                 <tr
                   key={`${row.workerId}-${row.corsoCode}`}
-                  className="border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60"
+                  className={rowClass}
                 >
                   <td className="px-4 py-2.5">
                     <input
@@ -1546,19 +1563,19 @@ export default function HomeFormazionePage() {
                       aria-label={`Seleziona ${row.cognome} ${row.nome} (${row.matricola})`}
                     />
                   </td>
-                  <td className="px-4 py-2.5 text-slate-600">{row.matricola}</td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.cognome}>{row.cognome}</td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.nome}>{row.nome}</td>
-                  <td className="max-w-[220px] truncate px-4 py-2.5 text-slate-600" title={row.mansione || "-"}>{row.mansione || "-"}</td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.cantiere}>{row.cantiere}</td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.sottocantiere}>{row.sottocantiere}</td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.responsabile || "-"}>{row.responsabile || "-"}</td>
-                  <td className="max-w-[170px] truncate px-4 py-2.5 text-slate-600" title={row.referente || "-"}>{row.referente || "-"}</td>
-                  <td className="max-w-[220px] truncate px-4 py-2.5 text-slate-600" title={row.corso}>{row.corso}</td>
-                  <td className="px-4 py-2.5 font-medium tabular-nums text-slate-600">
+                  <td className={`px-4 py-2.5 ${textClass}`}>{row.matricola}</td>
+                  <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.cognome}>{row.cognome}</td>
+                  <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.nome}>{row.nome}</td>
+                  <td className={`max-w-[220px] truncate px-4 py-2.5 ${textClass}`} title={row.mansione || "-"}>{row.mansione || "-"}</td>
+                  <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.cantiere}>{row.cantiere}</td>
+                  <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.sottocantiere}>{row.sottocantiere}</td>
+                  <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.responsabile || "-"}>{row.responsabile || "-"}</td>
+                  <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.referente || "-"}>{row.referente || "-"}</td>
+                  <td className={`max-w-[220px] truncate px-4 py-2.5 ${textClass}`} title={row.corso}>{row.corso}</td>
+                  <td className={`px-4 py-2.5 font-medium tabular-nums ${textClass}`}>
                     {formatDateIt(row.dataConclusione)}
                   </td>
-                  <td className="px-4 py-2.5 font-medium tabular-nums text-slate-600">
+                  <td className={`px-4 py-2.5 font-medium tabular-nums ${textClass}`}>
                     {formatDateIt(row.dataScadenza)}
                   </td>
                   <td className="px-4 py-2.5">
@@ -1573,7 +1590,7 @@ export default function HomeFormazionePage() {
                       </span>
                       {row.stato === "upgrade" && row.upgradeInfo ? (
                         <span
-                          className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-600"
+                          className={`min-w-0 flex-1 truncate text-[11px] font-semibold ${textClass}`}
                           title={row.upgradeInfo}
                         >
                           {row.upgradeInfo}
@@ -1629,11 +1646,12 @@ export default function HomeFormazionePage() {
                       </button>
                     </div>
                   </td>
-                  <td className="max-w-[220px] truncate px-4 py-2.5 text-slate-600" title={row.note || "-"}>
+                  <td className={`max-w-[220px] truncate px-4 py-2.5 ${textClass}`} title={row.note || "-"}>
                     {row.note || "-"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {!isLoading && sortedRows.length === 0 ? (
                 <tr>
                   <td colSpan={16} className="px-4 py-8 text-center text-sm text-slate-500">
@@ -2539,6 +2557,8 @@ function statusClassName(status: WorkerCourseRow["stato"]) {
     "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-[2px] text-[9px] font-medium uppercase tracking-[0.04em] leading-none";
   if (status === "escluso")
     return `${base} border-slate-200 bg-white text-slate-600`;
+  if (status === "perso")
+    return `${base} border-slate-200 bg-slate-50 text-slate-500`;
   if (status === "scaduto")
     return `${base} border-red-200 bg-red-50 text-red-700`;
   if (status === "in scadenza")

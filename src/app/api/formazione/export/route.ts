@@ -89,7 +89,16 @@ type WorkerCourseRow = {
   corso: string;
   dataConclusione: string | null;
   dataScadenza: string | null;
-  stato: "idoneo" | "in scadenza" | "scaduto" | "da fare" | "sospeso" | "programmato" | "upgrade" | "escluso";
+  stato:
+    | "idoneo"
+    | "in scadenza"
+    | "scaduto"
+    | "perso"
+    | "da fare"
+    | "sospeso"
+    | "programmato"
+    | "upgrade"
+    | "escluso";
   upgradeInfo: string | null;
   responsabile: string;
   referente: string;
@@ -351,9 +360,16 @@ export async function GET(request: Request) {
           todayIso,
         });
         if (courseExcluded || !substitute) {
+          const lost =
+            !courseExcluded &&
+            Boolean(statusEntry?.expiry_date) &&
+            resolveCourseState(statusEntry, undefined, todayIso, expiringDaysSafe, false) === "perso";
+
           const state = courseExcluded
             ? "escluso"
-            : resolveCourseState(statusEntry, freeze, todayIso, expiringDaysSafe, false);
+            : lost
+              ? resolveCourseState(undefined, freeze, todayIso, expiringDaysSafe, false)
+              : resolveCourseState(statusEntry, freeze, todayIso, expiringDaysSafe, false);
 
           const outputRow: WorkerCourseRow = {
             workerId: employee.id,
@@ -365,17 +381,40 @@ export async function GET(request: Request) {
             sottocantiere: extractDisplayName(employee.sub_sites),
             corsoCode: course.code,
             corso: course.title,
-            dataConclusione: statusEntry?.completion_date ?? null,
-            dataScadenza: statusEntry?.expiry_date ?? null,
+            dataConclusione: lost ? null : statusEntry?.completion_date ?? null,
+            dataScadenza: lost ? null : statusEntry?.expiry_date ?? null,
             stato: state as WorkerCourseRow["stato"],
             upgradeInfo: null,
             responsabile: employee.responsible_code,
             referente: employee.referral ?? "",
-            note: statusEntry?.note ?? "",
+            note: lost ? "" : statusEntry?.note ?? "",
             origine: "obbligatorio",
           };
 
           rows.push(outputRow);
+
+          if (lost && statusEntry) {
+            const lostRow: WorkerCourseRow = {
+              workerId: employee.id,
+              matricola: employee.matricola,
+              cognome: employee.last_name,
+              nome: employee.first_name,
+              mansione: employee.job_title ?? "",
+              cantiere: extractDisplayName(employee.sites),
+              sottocantiere: extractDisplayName(employee.sub_sites),
+              corsoCode: course.code,
+              corso: course.title,
+              dataConclusione: statusEntry.completion_date ?? null,
+              dataScadenza: statusEntry.expiry_date ?? null,
+              stato: "perso",
+              upgradeInfo: null,
+              responsabile: employee.responsible_code,
+              referente: employee.referral ?? "",
+              note: statusEntry.note ?? "",
+              origine: "obbligatorio",
+            };
+            rows.push(lostRow);
+          }
           continue;
         }
 
@@ -423,11 +462,14 @@ export async function GET(request: Request) {
         const isUpgrade = upgradeCourseIds.has(statusEntry.course_id);
         const courseExcluded =
           excludedCourseIdsByEmployee.get(employee.id)?.has(statusEntry.course_id) ?? false;
-        const baseState = freeze
-          ? "sospeso"
-          : isUpgrade
-            ? "upgrade"
-            : resolveCourseState(statusEntry, freeze, todayIso, expiringDaysSafe);
+        const lost = resolveCourseState(statusEntry, undefined, todayIso, expiringDaysSafe) === "perso";
+        const baseState = lost
+          ? "perso"
+          : freeze
+            ? "sospeso"
+            : isUpgrade
+              ? "upgrade"
+              : resolveCourseState(statusEntry, freeze, todayIso, expiringDaysSafe);
         const state = courseExcluded ? "escluso" : baseState;
 
         const outputRow: WorkerCourseRow = {
@@ -613,6 +655,7 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow) {
 function buildEsitoLabel(row: WorkerCourseRow) {
   if (row.stato === "idoneo") return "IDONEO";
   if (row.stato === "escluso") return "ESENTE";
+  if (row.stato === "perso") return "PERSO";
   if (row.stato === "sospeso") return "SOSPESO";
   return "NON IDONEO";
 }
@@ -1305,6 +1348,18 @@ function addDaysKey(todayKey: number, days: number) {
   return yy * 10000 + mm * 100 + dd;
 }
 
+function addMonthsKey(dateKey: number, months: number) {
+  const y = Math.floor(dateKey / 10000);
+  const m = Math.floor((dateKey % 10000) / 100);
+  const d = dateKey % 100;
+  const total = y * 12 + (m - 1) + months;
+  const yy = Math.floor(total / 12);
+  const mm = (total % 12) + 1;
+  const lastDay = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  const dd = Math.min(d, lastDay);
+  return yy * 10000 + mm * 100 + dd;
+}
+
 function todayLocalIso() {
   const d = new Date();
   const y = String(d.getFullYear());
@@ -1446,7 +1501,11 @@ function resolveCourseState(
   if (!todayKey) return "idoneo";
   const thresholdKey = addDaysKey(todayKey, expiringDays);
 
-  if (expiryKey < todayKey) return "scaduto";
+  if (expiryKey < todayKey) {
+    const lostKey = addMonthsKey(expiryKey, 6);
+    if (lostKey < todayKey) return "perso";
+    return "scaduto";
+  }
   if (expiryKey <= thresholdKey) return "in scadenza";
   return "idoneo";
 }

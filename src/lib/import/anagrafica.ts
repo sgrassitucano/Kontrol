@@ -263,6 +263,7 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
     if (!raw.firstName) rowIssues.push("nome mancante (usato NON_INDICATO)");
     if (!birthDateIso) rowIssues.push("data nascita mancante/non valida (usata 1900-01-01)");
     if (!raw.birthPlace) rowIssues.push("luogo nascita mancante (usato NON_INDICATO)");
+    if (!raw.jobTitle) rowIssues.push("mansione mancante (usata MANSIONE_NON_ASSEGNATA)");
     if (!raw.site) rowIssues.push("cantiere mancante (usato NON_ASSEGNATO)");
     if (theoreticalWeeklyMinutes === null) {
       rowIssues.push("teorico settimanale mancante/non valido (usato 0)");

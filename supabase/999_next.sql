@@ -96,6 +96,11 @@ set validity_years = 2,
     is_unlimited = false
 where code = 'CORSO_PREP';
 
+update public.training_courses
+set validity_years = 4,
+    is_unlimited = false
+where code = 'CORSO_PONT';
+
 update public.training_employee_courses tec
 set expiry_date = (tec.completion_date + interval '3 years')::date,
     updated_at = timezone('utc', now())
@@ -111,6 +116,15 @@ set expiry_date = (tec.completion_date + interval '2 years')::date,
 from public.training_courses c
 where tec.course_id = c.id
   and c.code = 'CORSO_PREP'
+  and tec.completion_date is not null
+  and (tec.manual_state is null or tec.manual_state not in ('programmato', 'escluso'));
+
+update public.training_employee_courses tec
+set expiry_date = (tec.completion_date + interval '4 years')::date,
+    updated_at = timezone('utc', now())
+from public.training_courses c
+where tec.course_id = c.id
+  and c.code = 'CORSO_PONT'
   and tec.completion_date is not null
   and (tec.manual_state is null or tec.manual_state not in ('programmato', 'escluso'));
 

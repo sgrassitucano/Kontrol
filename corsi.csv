@@ -17,7 +17,7 @@ Azienda;Tipo;Scadenza;descrizione;validit� in anni;regole aggiuntive
 0000000001;SCAD_FORM;CORSO_HACCP;corso HACCP;illimitato;
 0000000001;SCAD_FORM;CORSO_MUL;corso uso muletto;5;
 0000000001;SCAD_FORM;CORSO_PLE;corso PLE;5;deve avere lavori in quota e dpi III cat.
-0000000001;SCAD_FORM;CORSO_PONT;corso ponteggio;5;deve avere lavori in quota e dpi III cat.
+0000000001;SCAD_FORM;CORSO_PONT;corso ponteggio;4;deve avere lavori in quota e dpi III cat.
 0000000001;SCAD_FORM;CORSO_PREP;corso preposto;2;
 0000000001;SCAD_FORM;CORSO_PS;corso primo soccorso;3;
 0000000001;SCAD_FORM;CORSO_QUOTA_DPI;corso lavori in quota e dpi III cat.;5;
