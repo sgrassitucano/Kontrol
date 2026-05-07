@@ -59,6 +59,7 @@ export default function HomeSorveglianzaPage() {
   const [rows, setRows] = useState<WorkerSurveillanceRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
@@ -80,6 +81,26 @@ export default function HomeSorveglianzaPage() {
 
   const clearSelection = useCallback(() => {
     setSelectedWorkerIds(new Set());
+  }, []);
+
+  const downloadFrom = useCallback(async (url: string) => {
+    setExporting(true);
+    try {
+      const response = await fetch(url, { method: "GET" });
+      if (!response.ok) throw new Error("Errore export.");
+      const blob = await response.blob();
+      const disp = response.headers.get("content-disposition") ?? "";
+      const match = disp.match(/filename=\"([^\"]+)\"/i);
+      const filename = match?.[1] ?? "export.xlsx";
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } finally {
+      setExporting(false);
+    }
   }, []);
 
   const [meta, setMeta] = useState<{
@@ -382,6 +403,22 @@ export default function HomeSorveglianzaPage() {
               className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               + Evento
+            </button>
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => {
+                const params = new URLSearchParams();
+                params.set("expiringDays", String(expiringDays));
+                if (includeExcluded) params.set("includeExcluded", "1");
+                if (search.trim()) params.set("q", search.trim());
+                if (statusFilter) params.set("status", statusFilter);
+                void downloadFrom(`/api/sorveglianza_sanitaria/export?${params.toString()}`);
+              }}
+              data-soft="true"
+              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {exporting ? "Export..." : "Export"}
             </button>
             <Link
               href="/sorveglianza_sanitaria/matrice"
