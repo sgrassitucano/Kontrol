@@ -50,6 +50,14 @@ begin
 end
 $$;
 
+do $$
+begin
+  if exists (select 1 from pg_type where typname = 'user_role') then
+    alter type public.user_role add value if not exists 'manager';
+  end if;
+end
+$$;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null unique,
