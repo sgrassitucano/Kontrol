@@ -256,6 +256,8 @@ export default function HomeFormazionePage() {
   const [exclusionNoteKind, setExclusionNoteKind] = useState<"employee" | "course">("course");
   const [exclusionNoteCourseId, setExclusionNoteCourseId] = useState<number | null>(null);
   const [exclusionNoteDraft, setExclusionNoteDraft] = useState("");
+  const [inlineSaveError, setInlineSaveError] = useState("");
+  const [inlineSavingKeys, setInlineSavingKeys] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -418,6 +420,80 @@ export default function HomeFormazionePage() {
       }
     },
     [expiringDays, simulationDate],
+  );
+
+  const setInlineSaving = useCallback((key: string, saving: boolean) => {
+    setInlineSavingKeys((prev) => {
+      const next = new Set(prev);
+      if (saving) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const updateInline = useCallback(
+    async (payload: { employeeId: number; courseCode: string; type: "PROGRAMMATO" | "DA_FARE" | "NOTE"; note?: string | null }) => {
+      const response = await fetch("/api/formazione/eventi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: payload.employeeId,
+          courseCode: payload.courseCode,
+          type: payload.type,
+          note: payload.note ?? null,
+        }),
+      });
+      const body = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || body.error) {
+        throw new Error(body.error ?? "Errore salvataggio.");
+      }
+    },
+    [],
+  );
+
+  const saveInlineState = useCallback(
+    async (row: WorkerCourseRow, next: "programmato" | "da fare") => {
+      const key = `${row.workerId}-${row.corsoCode}`;
+      setInlineSaveError("");
+      setInlineSaving(key, true);
+      try {
+        await updateInline({
+          employeeId: row.workerId,
+          courseCode: row.corsoCode,
+          type: next === "programmato" ? "PROGRAMMATO" : "DA_FARE",
+        });
+        await loadRows();
+        if (isWorkerDetailOpen && workerDetailEmployeeId === row.workerId) await loadWorkerDetail(row.workerId);
+      } catch (err) {
+        setInlineSaveError(err instanceof Error ? err.message : "Errore salvataggio.");
+      } finally {
+        setInlineSaving(key, false);
+      }
+    },
+    [isWorkerDetailOpen, loadRows, loadWorkerDetail, setInlineSaving, updateInline, workerDetailEmployeeId],
+  );
+
+  const saveInlineNote = useCallback(
+    async (row: WorkerCourseRow, note: string) => {
+      const key = `${row.workerId}-${row.corsoCode}`;
+      setInlineSaveError("");
+      setInlineSaving(key, true);
+      try {
+        await updateInline({
+          employeeId: row.workerId,
+          courseCode: row.corsoCode,
+          type: "NOTE",
+          note: note.trim() ? note : null,
+        });
+        await loadRows();
+        if (isWorkerDetailOpen && workerDetailEmployeeId === row.workerId) await loadWorkerDetail(row.workerId);
+      } catch (err) {
+        setInlineSaveError(err instanceof Error ? err.message : "Errore salvataggio.");
+      } finally {
+        setInlineSaving(key, false);
+      }
+    },
+    [isWorkerDetailOpen, loadRows, loadWorkerDetail, setInlineSaving, updateInline, workerDetailEmployeeId],
   );
 
   const openWorkerDetail = useCallback(
@@ -1343,6 +1419,7 @@ export default function HomeFormazionePage() {
         </p>
         {filterError ? <p className="mt-2 text-xs font-medium text-red-600">{filterError}</p> : null}
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
+        {inlineSaveError ? <p className="mt-2 text-xs font-medium text-red-600">{inlineSaveError}</p> : null}
       </PanelCard>
 
       <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
@@ -1549,6 +1626,12 @@ export default function HomeFormazionePage() {
                 const rowClass = isLost
                   ? "border-t border-[var(--brand-line)] bg-slate-50/70 transition hover:bg-slate-100/60"
                   : "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60";
+                const inlineKey = `${row.workerId}-${row.corsoCode}`;
+                const isInlineSaving = inlineSavingKeys.has(inlineKey);
+                const isAggregate = row.corsoCode.startsWith("FORM_BASE+");
+                const canInlineState =
+                  !isAggregate &&
+                  (row.stato === "programmato" || row.stato === "da fare");
 
                 return (
                 <tr
@@ -1585,9 +1668,21 @@ export default function HomeFormazionePage() {
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className={statusClassName(row.stato)} title={row.stato}>
-                        {row.stato}
-                      </span>
+                      {canInlineState ? (
+                        <select
+                          value={row.stato}
+                          disabled={isInlineSaving}
+                          onChange={(event) => void saveInlineState(row, event.target.value as "programmato" | "da fare")}
+                          className="h-7 rounded-lg border border-[var(--brand-line)] bg-white px-2 text-[11px] font-bold uppercase tracking-wide text-slate-600"
+                        >
+                          <option value="da fare">da fare</option>
+                          <option value="programmato">programmato</option>
+                        </select>
+                      ) : (
+                        <span className={statusClassName(row.stato)} title={row.stato}>
+                          {row.stato}
+                        </span>
+                      )}
                       {row.stato === "upgrade" && row.upgradeInfo ? (
                         <span
                           className={`min-w-0 flex-1 truncate text-[11px] font-semibold ${textClass}`}
@@ -1646,8 +1741,25 @@ export default function HomeFormazionePage() {
                       </button>
                     </div>
                   </td>
-                  <td className={`max-w-[220px] truncate px-4 py-2.5 ${textClass}`} title={row.note || "-"}>
-                    {row.note || "-"}
+                  <td className={`max-w-[240px] px-4 py-2.5 ${textClass}`}>
+                    {isAggregate ? (
+                      <span className="truncate" title={row.note || "-"}>
+                        {row.note || "-"}
+                      </span>
+                    ) : (
+                      <input
+                        key={`${inlineKey}-${row.note}`}
+                        type="text"
+                        defaultValue={row.note ?? ""}
+                        disabled={isInlineSaving}
+                        onBlur={(event) => {
+                          const next = String(event.target.value ?? "");
+                          if (next !== row.note) void saveInlineNote(row, next);
+                        }}
+                        className="w-full rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] text-slate-700"
+                        placeholder="-"
+                      />
+                    )}
                   </td>
                 </tr>
                 );

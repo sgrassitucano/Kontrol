@@ -3,7 +3,7 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
-type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE";
+type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 
 function parseDateIso(value: unknown) {
   const raw = String(value ?? "").trim();
@@ -66,7 +66,8 @@ export async function POST(request: Request) {
       type !== "SVOLTO" &&
       type !== "MODIFICA_DATA" &&
       type !== "ANNULLA" &&
-      type !== "DA_FARE"
+      type !== "DA_FARE" &&
+      type !== "NOTE"
     ) {
       return NextResponse.json({ error: "Tipo evento non valido." }, { status: 400 });
     }
@@ -83,6 +84,21 @@ export async function POST(request: Request) {
     if (!course) return NextResponse.json({ error: "Corso non trovato." }, { status: 404 });
 
     const courseId = (course as { id: number }).id;
+
+    if (type === "NOTE") {
+      if (dryRun) return NextResponse.json({ ok: true, upserts: employeeIds.length });
+      const { error: noteError } = await auth.supabase.from("training_employee_courses").upsert(
+        employeeIds.map((employeeId) => ({
+          employee_id: employeeId,
+          course_id: courseId,
+          updated_by: auth.userId,
+          note,
+        })),
+        { onConflict: "employee_id,course_id" },
+      );
+      if (noteError) return NextResponse.json({ error: noteError.message }, { status: 500 });
+      return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
+    }
 
     if (type === "ANNULLA") {
       const { data: existing, error: existingError } = await auth.supabase
@@ -190,7 +206,7 @@ export async function POST(request: Request) {
         .in("employee_id", employeeIds);
       if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
 
-      const conflicts = new Set<number>();
+      const completedIds = new Set<number>();
       (existing ?? []).forEach((row) => {
         const r = row as {
           employee_id: number;
@@ -198,16 +214,14 @@ export async function POST(request: Request) {
           planned_date: string | null;
           manual_state: string | null;
         };
-        if (r.completion_date || r.planned_date || r.manual_state) {
-          conflicts.add(r.employee_id);
-        }
+        if (r.completion_date) completedIds.add(r.employee_id);
       });
 
       if (dryRun) {
-        return NextResponse.json({ ok: true, conflicts: conflicts.size });
+        return NextResponse.json({ ok: true, completed: completedIds.size, upserts: employeeIds.length - completedIds.size });
       }
 
-      const toWrite = employeeIds.filter((id) => !conflicts.has(id));
+      const toWrite = employeeIds.filter((id) => !completedIds.has(id));
       if (toWrite.length === 0) {
         return NextResponse.json({ ok: true, processed: 0, skipped: employeeIds.length });
       }
@@ -227,7 +241,7 @@ export async function POST(request: Request) {
       );
       if (writeError) return NextResponse.json({ error: writeError.message }, { status: 500 });
 
-      return NextResponse.json({ ok: true, processed: toWrite.length, skipped: conflicts.size });
+      return NextResponse.json({ ok: true, processed: toWrite.length, skipped: completedIds.size });
     }
 
     const expiryDate = dateIso ? computeExpiryFromCompletion(dateIso, course as { validity_years: number | null; is_unlimited: boolean }) : null;

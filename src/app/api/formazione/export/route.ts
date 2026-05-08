@@ -138,6 +138,19 @@ export async function GET(request: Request) {
     const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
     const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
 
+    const baseCodes = new Set([
+      "FORM_BASE",
+      "FORM_SPEC_BASSO",
+      "FORM_SPEC_MEDIO",
+      "FORM_SPEC_ALTO",
+      "CORSO_RLS",
+      "CORSO_RSPP",
+      "CORSO_DIR",
+      "CORSO_ASPP",
+    ]);
+
+    const isBaseCode = (code: string) => baseCodes.has(code) || code.startsWith("FORM_BASE+");
+
     const dataSupabase = auth.supabase;
 
     const [
@@ -453,6 +466,7 @@ export async function GET(request: Request) {
         if (requiredCourseIds.has(statusEntry.course_id)) continue;
         const course = courseMap.get(statusEntry.course_id);
         if (!course) continue;
+        if (isBaseCode(course.code)) continue;
 
         const freeze = activeFreeze.get(employee.id);
         const isUpgrade = upgradeCourseIds.has(statusEntry.course_id);
@@ -494,19 +508,6 @@ export async function GET(request: Request) {
 
     const employeeById = new Map(employees.map((e) => [e.id, e]));
     const workbook = XLSX.utils.book_new();
-
-    const baseCodes = new Set([
-      "FORM_BASE",
-      "FORM_SPEC_BASSO",
-      "FORM_SPEC_MEDIO",
-      "FORM_SPEC_ALTO",
-      "CORSO_RLS",
-      "CORSO_RSPP",
-      "CORSO_DIR",
-      "CORSO_ASPP",
-    ]);
-
-    const isBaseCode = (code: string) => baseCodes.has(code) || code.startsWith("FORM_BASE+");
 
     const statesFilter =
       statesParam

@@ -549,6 +549,7 @@ export async function GET(request: Request) {
         if (requiredCourseIds.has(statusEntry.course_id)) continue;
         const course = courseMap.get(statusEntry.course_id);
         if (!course) continue;
+        if (baseCodes.has(course.code) || course.code.startsWith("FORM_BASE+")) continue;
 
         const freeze = activeFreeze.get(employee.id);
         const isUpgrade = upgradeCourseIds.has(statusEntry.course_id);

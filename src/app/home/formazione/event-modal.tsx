@@ -155,15 +155,15 @@ export function EventModal(props: {
             dryRun: true,
           }),
         });
-        const previewBody = (await previewResponse.json()) as { error?: string; conflicts?: number };
+        const previewBody = (await previewResponse.json()) as { error?: string; completed?: number };
         if (!previewResponse.ok || previewBody.error) {
           throw new Error(previewBody.error ?? "Errore salvataggio evento.");
         }
 
-        const conflicts = Number(previewBody.conflicts ?? 0);
-        if (conflicts > 0) {
+        const completed = Number(previewBody.completed ?? 0);
+        if (completed > 0) {
           const ok = window.confirm(
-            `Ci sono ${conflicts} dipendenti che hanno già questo corso registrato. Procedo inserendo “DA FARE” solo per gli altri?`,
+            `Ci sono ${completed} dipendenti che risultano già “SVOLTO” per questo corso. Procedo comunque ad impostare “DA FARE” per gli altri?`,
           );
           if (!ok) return;
         }
