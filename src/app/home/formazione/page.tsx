@@ -457,11 +457,18 @@ export default function HomeFormazionePage() {
       setInlineSaveError("");
       setInlineSaving(key, true);
       try {
-        await updateInline({
-          employeeId: row.workerId,
-          courseCode: row.corsoCode,
-          type: next === "programmato" ? "PROGRAMMATO" : "DA_FARE",
-        });
+        const courseCodes = row.corsoCode.startsWith("FORM_BASE+")
+          ? ["FORM_BASE", row.corsoCode.slice("FORM_BASE+".length)]
+          : [row.corsoCode];
+        await Promise.all(
+          courseCodes.map((courseCode) =>
+            updateInline({
+              employeeId: row.workerId,
+              courseCode,
+              type: next === "programmato" ? "PROGRAMMATO" : "DA_FARE",
+            }),
+          ),
+        );
         await loadRows();
         if (isWorkerDetailOpen && workerDetailEmployeeId === row.workerId) await loadWorkerDetail(row.workerId);
       } catch (err) {
@@ -479,12 +486,20 @@ export default function HomeFormazionePage() {
       setInlineSaveError("");
       setInlineSaving(key, true);
       try {
-        await updateInline({
-          employeeId: row.workerId,
-          courseCode: row.corsoCode,
-          type: "NOTE",
-          note: note.trim() ? note : null,
-        });
+        const courseCodes = row.corsoCode.startsWith("FORM_BASE+")
+          ? ["FORM_BASE", row.corsoCode.slice("FORM_BASE+".length)]
+          : [row.corsoCode];
+        const normalizedNote = note.trim() ? note : null;
+        await Promise.all(
+          courseCodes.map((courseCode) =>
+            updateInline({
+              employeeId: row.workerId,
+              courseCode,
+              type: "NOTE",
+              note: normalizedNote,
+            }),
+          ),
+        );
         await loadRows();
         if (isWorkerDetailOpen && workerDetailEmployeeId === row.workerId) await loadWorkerDetail(row.workerId);
       } catch (err) {
@@ -1628,9 +1643,7 @@ export default function HomeFormazionePage() {
                   : "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60";
                 const inlineKey = `${row.workerId}-${row.corsoCode}`;
                 const isInlineSaving = inlineSavingKeys.has(inlineKey);
-                const isAggregate = row.corsoCode.startsWith("FORM_BASE+");
                 const canInlineState =
-                  !isAggregate &&
                   (row.stato === "programmato" || row.stato === "da fare");
 
                 return (
@@ -1742,24 +1755,18 @@ export default function HomeFormazionePage() {
                     </div>
                   </td>
                   <td className={`max-w-[240px] px-4 py-2.5 ${textClass}`}>
-                    {isAggregate ? (
-                      <span className="truncate" title={row.note || "-"}>
-                        {row.note || "-"}
-                      </span>
-                    ) : (
-                      <input
-                        key={`${inlineKey}-${row.note}`}
-                        type="text"
-                        defaultValue={row.note ?? ""}
-                        disabled={isInlineSaving}
-                        onBlur={(event) => {
-                          const next = String(event.target.value ?? "");
-                          if (next !== row.note) void saveInlineNote(row, next);
-                        }}
-                        className="w-full rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] text-slate-700"
-                        placeholder="-"
-                      />
-                    )}
+                    <input
+                      key={`${inlineKey}-${row.note}`}
+                      type="text"
+                      defaultValue={row.note ?? ""}
+                      disabled={isInlineSaving}
+                      onBlur={(event) => {
+                        const next = String(event.target.value ?? "");
+                        if (next !== row.note) void saveInlineNote(row, next);
+                      }}
+                      className="w-full rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] text-slate-700"
+                      placeholder="-"
+                    />
                   </td>
                 </tr>
                 );
