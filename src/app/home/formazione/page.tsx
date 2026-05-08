@@ -1462,15 +1462,15 @@ export default function HomeFormazionePage() {
               <col style={{ width: 220 }} />
               <col style={{ width: 170 }} />
               <col style={{ width: 170 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 170 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 130 }} />
               <col style={{ width: 240 }} />
-              <col style={{ width: 130 }} />
-              <col style={{ width: 130 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 110 }} />
               <col style={{ width: 120 }} />
               <col style={{ width: 190 }} />
               <col style={{ width: 80 }} />
-              <col style={{ width: 260 }} />
+              <col style={{ width: 380 }} />
             </colgroup>
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
@@ -1754,7 +1754,7 @@ export default function HomeFormazionePage() {
                       </button>
                     </div>
                   </td>
-                  <td className={`max-w-[240px] px-4 py-2.5 ${textClass}`}>
+                  <td className={`max-w-[380px] px-4 py-2.5 ${textClass}`}>
                     <input
                       key={`${inlineKey}-${row.note}`}
                       type="text"
