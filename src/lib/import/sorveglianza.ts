@@ -14,22 +14,11 @@ export type SurveillanceImportField =
   | "limitations"
   | "notes";
 
-export type SurveillanceImportColumnMapping = Partial<Record<SurveillanceImportField, string>>;
-
-export type SurveillanceImportSchema = {
-  sheetName: string;
-  headerRowIndex: number;
-  headers: string[];
-  signature: string;
-  suggestedMapping: SurveillanceImportColumnMapping;
-};
-
 type ImportParams = {
   fileBuffer: ArrayBuffer;
   mode: ImportMode;
   supabase: SupabaseClient;
   importedBy?: string | null;
-  mapping?: SurveillanceImportColumnMapping;
 };
 
 type EmployeeLookupRow = {
@@ -101,9 +90,8 @@ export async function processMedicalSurveillanceImport({
   mode,
   supabase,
   importedBy,
-  mapping,
 }: ImportParams): Promise<SurveillanceImportResult> {
-  const parsed = parseWorkbook(fileBuffer, mapping);
+  const parsed = parseWorkbook(fileBuffer);
   const lookup = await buildEmployeeLookup(supabase, parsed.validRows);
 
   const errors: SurveillanceImportErrorRow[] = [...parsed.errors];
@@ -248,9 +236,8 @@ export async function seedProvidersFromMedicalSurveillanceImportFile(params: {
   fileBuffer: ArrayBuffer;
   supabase: SupabaseClient;
   importedBy?: string | null;
-  mapping?: SurveillanceImportColumnMapping;
 }): Promise<ProviderSeedResult> {
-  const parsed = parseWorkbook(params.fileBuffer, params.mapping);
+  const parsed = parseWorkbook(params.fileBuffer);
   const rowsWithProvider = parsed.validRows.filter((r) => String(r.provider ?? "").trim().length > 0);
   if (rowsWithProvider.length === 0) return { seeded: 0, sites: 0, subSites: 0 };
 
@@ -476,57 +463,6 @@ function cleanCell(value: unknown) {
   return String(value ?? "").trim();
 }
 
-const COLUMN_ALIASES: Record<SurveillanceImportField, string[]> = {
-  matricola: ["matricola", "matr", "matricola dipendente", "id dipendente", "id"],
-  taxCode: ["codice fiscale", "cf", "c f", "codicefiscale", "codice fiscale dipendente"],
-  lastName: ["cognome", "cognome dipendente"],
-  firstName: ["nome", "nome dipendente"],
-  provider: ["provider", "medico", "medico competente", "ente", "medico ente", "medico/ente"],
-  visitFlag: ["visita si/no", "visita", "visita si no", "richiede visita", "visita richiesta"],
-  dueDate: ["scadenza visita", "data scadenza visita", "prossima visita", "prossima scadenza", "scadenza"],
-  limitations: ["limitazioni", "limitazione", "prescrizioni", "idoneita", "idoneità"],
-  notes: ["note", "nota", "osservazioni"],
-};
-
-function getFirstByField(
-  row: unknown[],
-  headerIndex: Map<string, number[]>,
-  mapping: SurveillanceImportColumnMapping | undefined,
-  field: SurveillanceImportField,
-) {
-  const explicit = mapping?.[field];
-  if (explicit) return getFirstByName(row, headerIndex, explicit);
-  const aliases = COLUMN_ALIASES[field] ?? [];
-  for (const name of aliases) {
-    const value = getFirstByName(row, headerIndex, name);
-    if (value) return value;
-  }
-  return "";
-}
-
-function scoreHeaderRow(normalizedRow: string[]) {
-  let score = 0;
-  (Object.keys(COLUMN_ALIASES) as SurveillanceImportField[]).forEach((field) => {
-    const aliases = COLUMN_ALIASES[field] ?? [];
-    if (aliases.some((a) => normalizedRow.includes(normalizeHeaderCell(a)))) score += 1;
-  });
-  return score;
-}
-
-function detectHeaderRowIndex(rows: unknown[][]) {
-  const candidates = rows.slice(0, 30);
-  for (let i = 0; i < candidates.length; i += 1) {
-    const row = candidates[i] ?? [];
-    const normalized = row.map((c) => normalizeHeaderCell(c));
-    const hasMatricola = (COLUMN_ALIASES.matricola ?? []).some((a) => normalized.includes(normalizeHeaderCell(a)));
-    const hasTax = (COLUMN_ALIASES.taxCode ?? []).some((a) => normalized.includes(normalizeHeaderCell(a)));
-    if (hasMatricola && hasTax) {
-      return i;
-    }
-  }
-  return 0;
-}
-
 function parseBooleanSiNo(value: string) {
   const raw = String(value ?? "").trim().toUpperCase();
   if (!raw) return null;
@@ -584,14 +520,6 @@ function parseDateToIso(value: unknown) {
   return null;
 }
 
-function hashSignature(value: string) {
-  let hash = 5381;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(36);
-}
-
 function readSheetRows(workbook: XLSX.WorkBook, sheetName: string) {
   const worksheet = workbook.Sheets[sheetName];
   const rows = (XLSX.utils.sheet_to_json(worksheet, {
@@ -602,76 +530,36 @@ function readSheetRows(workbook: XLSX.WorkBook, sheetName: string) {
   return rows;
 }
 
-function analyzeWorkbook(workbook: XLSX.WorkBook) {
-  const candidates = workbook.SheetNames.map((sheetName) => {
-    const rows = readSheetRows(workbook, sheetName);
-    const headerRowIndex = detectHeaderRowIndex(rows);
-    const headerRow = rows[headerRowIndex] ?? [];
-    const normalizedHeader = headerRow.map((c) => normalizeHeaderCell(c)).filter(Boolean);
-    const score = scoreHeaderRow(headerRow.map((c) => normalizeHeaderCell(c)));
-    return { sheetName, rows, headerRowIndex, headerRow, normalizedHeader, score };
-  });
-
-  const best =
-    candidates.reduce((acc, cur) => {
-      if (!acc) return cur;
-      if (cur.score > acc.score) return cur;
-      if (cur.score === acc.score && cur.headerRowIndex < acc.headerRowIndex) return cur;
-      return acc;
-    }, null as null | (typeof candidates)[number]) ?? candidates[0];
-
-  const headers = (best?.headerRow ?? []).map((c) => String(c ?? "").trim()).filter(Boolean);
-  const signature = hashSignature(Array.from(new Set(best?.normalizedHeader ?? [])).sort().join("|"));
-  const headerIndex = buildHeaderIndex(best?.headerRow ?? []);
-
-  const suggestedMapping: SurveillanceImportColumnMapping = {};
-  (Object.keys(COLUMN_ALIASES) as SurveillanceImportField[]).forEach((field) => {
-    const aliases = COLUMN_ALIASES[field] ?? [];
-    for (const alias of aliases) {
-      const key = normalizeHeaderCell(alias);
-      const indices = headerIndex.get(key);
-      const idx = indices?.[0];
-      if (typeof idx === "number") {
-        const raw = String((best?.headerRow ?? [])[idx] ?? "").trim();
-        if (raw) suggestedMapping[field] = raw;
-        break;
-      }
-    }
-  });
-
-  return {
-    sheetName: best?.sheetName ?? workbook.SheetNames[0],
-    rows: best?.rows ?? readSheetRows(workbook, workbook.SheetNames[0]),
-    headerRowIndex: best?.headerRowIndex ?? 0,
-    headerRow: best?.headerRow ?? [],
-    headerIndex,
-    headers,
-    signature,
-    suggestedMapping,
-  };
-}
-
-export function analyzeMedicalSurveillanceImportFile(fileBuffer: ArrayBuffer): SurveillanceImportSchema {
-  const workbook = XLSX.read(Buffer.from(fileBuffer), { cellDates: true });
-  const analyzed = analyzeWorkbook(workbook);
-  return {
-    sheetName: analyzed.sheetName,
-    headerRowIndex: analyzed.headerRowIndex,
-    headers: analyzed.headers,
-    signature: analyzed.signature,
-    suggestedMapping: analyzed.suggestedMapping,
-  };
-}
-
 function parseWorkbook(
   fileBuffer: ArrayBuffer,
-  mapping?: SurveillanceImportColumnMapping,
 ): { validRows: RawRow[]; errors: SurveillanceImportErrorRow[]; totalRows: number } {
   const workbook = XLSX.read(Buffer.from(fileBuffer), { cellDates: true });
-  const analyzed = analyzeWorkbook(workbook);
-  const rows = analyzed.rows;
-  const headerRowIndex = analyzed.headerRowIndex;
-  const headerIndex = analyzed.headerIndex;
+  const rows = readSheetRows(workbook, workbook.SheetNames[0]);
+  const headerRowIndex = 0;
+  const headerRow = rows[headerRowIndex] ?? [];
+  const headerIndex = buildHeaderIndex(headerRow);
+
+  const templateHeaders: Record<SurveillanceImportField, string> = {
+    matricola: "matricola",
+    taxCode: "codice fiscale",
+    lastName: "cognome",
+    firstName: "nome",
+    provider: "provider",
+    visitFlag: "visita si/no",
+    dueDate: "scadenza visita",
+    limitations: "limitazioni",
+    notes: "note",
+  };
+
+  const missingHeaders = (Object.keys(templateHeaders) as SurveillanceImportField[]).filter((field) => {
+    const key = normalizeHeaderCell(templateHeaders[field]);
+    const indices = headerIndex.get(key);
+    return !indices || indices.length === 0;
+  });
+  if (missingHeaders.length > 0) {
+    const missingNames = missingHeaders.map((f) => templateHeaders[f]).join(", ");
+    throw new Error(`File non conforme al modello import Sorveglianza. Colonne mancanti: ${missingNames}.`);
+  }
 
   const dataRows = rows.slice(headerRowIndex + 1);
   const validRows: RawRow[] = [];
@@ -682,15 +570,15 @@ function parseWorkbook(
     const firstCell = cleanCell(row[0]);
     if (firstCell.toLowerCase().startsWith("totale")) return;
 
-    const matricola = cleanCell(getFirstByField(row, headerIndex, mapping, "matricola"));
-    const taxCode = cleanCell(getFirstByField(row, headerIndex, mapping, "taxCode")).toUpperCase();
-    const lastName = cleanCell(getFirstByField(row, headerIndex, mapping, "lastName"));
-    const firstName = cleanCell(getFirstByField(row, headerIndex, mapping, "firstName"));
-    const provider = cleanCell(getFirstByField(row, headerIndex, mapping, "provider"));
-    const visitRaw = cleanCell(getFirstByField(row, headerIndex, mapping, "visitFlag"));
-    const dueRaw = getFirstByField(row, headerIndex, mapping, "dueDate");
-    const limitations = cleanCell(getFirstByField(row, headerIndex, mapping, "limitations"));
-    const notes = cleanCell(getFirstByField(row, headerIndex, mapping, "notes"));
+    const matricola = cleanCell(getFirstByName(row, headerIndex, templateHeaders.matricola));
+    const taxCode = cleanCell(getFirstByName(row, headerIndex, templateHeaders.taxCode)).toUpperCase();
+    const lastName = cleanCell(getFirstByName(row, headerIndex, templateHeaders.lastName));
+    const firstName = cleanCell(getFirstByName(row, headerIndex, templateHeaders.firstName));
+    const provider = cleanCell(getFirstByName(row, headerIndex, templateHeaders.provider));
+    const visitRaw = cleanCell(getFirstByName(row, headerIndex, templateHeaders.visitFlag));
+    const dueRaw = getFirstByName(row, headerIndex, templateHeaders.dueDate);
+    const limitations = cleanCell(getFirstByName(row, headerIndex, templateHeaders.limitations));
+    const notes = cleanCell(getFirstByName(row, headerIndex, templateHeaders.notes));
 
     if (!matricola && !taxCode) return;
 

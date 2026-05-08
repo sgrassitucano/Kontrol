@@ -2,10 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
-  SurveillanceImportColumnMapping,
   SurveillanceImportErrorRow,
   SurveillanceImportPreviewRow,
-  SurveillanceImportSchema,
   SurveillanceImportSummary,
 } from "@/lib/import/sorveglianza";
 import { ModuleHeader, PanelCard } from "@/components/module-ui";
@@ -36,12 +34,8 @@ function formatDateTimeIt(value: string) {
 export default function SorveglianzaImportPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [serverError, setServerError] = useState<string>("");
-  const [schemaError, setSchemaError] = useState<string>("");
   const [result, setResult] = useState<ImportResponse | null>(null);
-  const [schema, setSchema] = useState<SurveillanceImportSchema | null>(null);
-  const [mapping, setMapping] = useState<SurveillanceImportColumnMapping>({});
   const [progress, setProgress] = useState(0);
   const [lastRun, setLastRun] = useState<LastImportRun | null>(null);
   const progressTimerRef = useRef<number | null>(null);
@@ -96,88 +90,8 @@ export default function SorveglianzaImportPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!selectedFile) {
-        setSchema(null);
-        setMapping({});
-        setSchemaError("");
-        return;
-      }
-
-      setIsAnalyzing(true);
-      setSchemaError("");
-      try {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-        const response = await fetch("/api/sorveglianza_sanitaria/import/schema", {
-          method: "POST",
-          body: formData,
-        });
-        const payload = (await response.json()) as SurveillanceImportSchema | { error: string };
-        if (cancelled) return;
-        if (!response.ok || "error" in payload) {
-          throw new Error("error" in payload ? payload.error : "Errore analisi file.");
-        }
-
-        setSchema(payload);
-
-        const templates = loadMappingTemplates();
-        const template = templates[payload.signature];
-        setMapping(template ?? payload.suggestedMapping ?? {});
-      } catch (error) {
-        if (cancelled) return;
-        setSchema(null);
-        setMapping({});
-        setSchemaError(error instanceof Error ? error.message : "Errore analisi file.");
-      } finally {
-        if (cancelled) return;
-        setIsAnalyzing(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedFile]);
-
-  function loadMappingTemplates() {
-    try {
-      const raw = window.localStorage.getItem("sorveglianza_import_mapping_v1");
-      if (!raw) return {} as Record<string, SurveillanceImportColumnMapping>;
-      const parsed = JSON.parse(raw) as Record<string, SurveillanceImportColumnMapping>;
-      if (!parsed || typeof parsed !== "object") return {} as Record<string, SurveillanceImportColumnMapping>;
-      return parsed;
-    } catch {
-      return {} as Record<string, SurveillanceImportColumnMapping>;
-    }
-  }
-
-  function saveMappingTemplates(next: Record<string, SurveillanceImportColumnMapping>) {
-    window.localStorage.setItem("sorveglianza_import_mapping_v1", JSON.stringify(next));
-  }
-
-  function saveTemplate(signature: string, nextMapping: SurveillanceImportColumnMapping) {
-    const templates = loadMappingTemplates();
-    templates[signature] = nextMapping;
-    saveMappingTemplates(templates);
-  }
-
-  function deleteTemplate(signature: string) {
-    const templates = loadMappingTemplates();
-    delete templates[signature];
-    saveMappingTemplates(templates);
-  }
-
   async function runImport(mode: "preview" | "commit") {
     if (!selectedFile) return;
-
-    const mappedMatricola = String(mapping.matricola ?? "").trim();
-    const mappedTaxCode = String(mapping.taxCode ?? "").trim();
-    if (!mappedMatricola || !mappedTaxCode) {
-      setServerError("Seleziona le colonne obbligatorie: matricola e codice fiscale.");
-      return;
-    }
 
     runTokenRef.current += 1;
     const token = runTokenRef.current;
@@ -202,9 +116,6 @@ export default function SorveglianzaImportPage() {
       const formData = new FormData();
       formData.append("mode", mode);
       formData.append("file", selectedFile);
-      if (Object.keys(mapping ?? {}).length > 0) {
-        formData.append("mapping", JSON.stringify(mapping));
-      }
 
       const response = await fetch("/api/sorveglianza_sanitaria/import", {
         method: "POST",
@@ -243,7 +154,7 @@ export default function SorveglianzaImportPage() {
     <div className="space-y-6">
       <ModuleHeader
         title="Import sorveglianza sanitaria"
-        description="Upload, anteprima e commit del tracciato anagrafica_sorveglianza (visita SI/NO, scadenza, limitazioni, note)."
+        description="Scarica il modello, compilalo e poi fai upload: anteprima e commit del tracciato sorveglianza (visita SI/NO, scadenza, limitazioni, note)."
       >
         {lastRun ? (
           <p className="mt-2 text-xs text-slate-500">
@@ -256,6 +167,12 @@ export default function SorveglianzaImportPage() {
       <PanelCard>
         <h2 className="text-base font-semibold text-[var(--brand-ink)]">Caricamento file</h2>
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+          <a
+            href="/api/sorveglianza_sanitaria/import/template"
+            className="inline-flex items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+          >
+            Scarica modello
+          </a>
           <input
             type="file"
             accept=".xls,.xlsx"
@@ -264,7 +181,6 @@ export default function SorveglianzaImportPage() {
               setSelectedFile(nextFile);
               setResult(null);
               setServerError("");
-              setSchemaError("");
             }}
             className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
           />
@@ -288,12 +204,6 @@ export default function SorveglianzaImportPage() {
         <p className="mt-3 text-xs text-slate-500">
           File selezionato: {selectedFile?.name || "nessuno"}
         </p>
-        {isAnalyzing ? (
-          <p className="mt-2 text-xs text-slate-500">Analisi colonne in corso...</p>
-        ) : null}
-        {schemaError ? (
-          <p className="mt-2 text-xs font-medium text-red-600">{schemaError}</p>
-        ) : null}
         {result ? (
           <p className="mt-2 text-xs font-medium text-[var(--brand-primary)]">
             {result.message}
@@ -317,110 +227,6 @@ export default function SorveglianzaImportPage() {
           </div>
         ) : null}
       </PanelCard>
-
-      {schema ? (
-        <PanelCard>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-[var(--brand-ink)]">Mapping colonne</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Foglio: {schema.sheetName} · Header riga: {schema.headerRowIndex + 1}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => saveTemplate(schema.signature, mapping)}
-                className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-bold text-[var(--brand-ink)]"
-              >
-                Salva template
-              </button>
-              <button
-                type="button"
-                onClick={() => setMapping(schema.suggestedMapping ?? {})}
-                className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-bold text-[var(--brand-ink)]"
-              >
-                Usa suggerimenti
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  deleteTemplate(schema.signature);
-                  setMapping(schema.suggestedMapping ?? {});
-                }}
-                className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-bold text-[var(--brand-ink)]"
-              >
-                Cancella template
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <MappingSelect
-              label="Matricola (obbligatoria)"
-              value={String(mapping.matricola ?? "")}
-              required
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, matricola: value }))}
-            />
-            <MappingSelect
-              label="Codice fiscale (obbligatorio)"
-              value={String(mapping.taxCode ?? "")}
-              required
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, taxCode: value }))}
-            />
-            <MappingSelect
-              label="Cognome"
-              value={String(mapping.lastName ?? "")}
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, lastName: value }))}
-            />
-            <MappingSelect
-              label="Nome"
-              value={String(mapping.firstName ?? "")}
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, firstName: value }))}
-            />
-            <MappingSelect
-              label="Visita SI/NO"
-              value={String(mapping.visitFlag ?? "")}
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, visitFlag: value }))}
-            />
-            <MappingSelect
-              label="Scadenza visita"
-              value={String(mapping.dueDate ?? "")}
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, dueDate: value }))}
-            />
-            <MappingSelect
-              label="Provider (medico/ente)"
-              value={String(mapping.provider ?? "")}
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, provider: value }))}
-            />
-            <MappingSelect
-              label="Limitazioni"
-              value={String(mapping.limitations ?? "")}
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, limitations: value }))}
-            />
-            <MappingSelect
-              label="Note"
-              value={String(mapping.notes ?? "")}
-              options={schema.headers}
-              onChange={(value) => setMapping((prev) => ({ ...prev, notes: value }))}
-            />
-          </div>
-
-          {!String(mapping.matricola ?? "").trim() || !String(mapping.taxCode ?? "").trim() ? (
-            <p className="mt-3 text-xs font-medium text-red-600">
-              Seleziona matricola e codice fiscale prima di fare anteprima/import.
-            </p>
-          ) : null}
-        </PanelCard>
-      ) : null}
 
       <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
         <StatCard label="Righe totali" value={counters.righeTotali} />
@@ -533,33 +339,5 @@ function StatCard({ label, value }: { label: string; value: number }) {
         {value}
       </p>
     </article>
-  );
-}
-
-function MappingSelect(props: {
-  label: string;
-  value: string;
-  options: string[];
-  required?: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-semibold text-slate-600">{props.label}</span>
-      <select
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        className="w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
-      >
-        <option value="">
-          {props.required ? "Seleziona..." : "(non presente)"}
-        </option>
-        {props.options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
