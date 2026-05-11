@@ -81,20 +81,62 @@ function extractTaxCode(text: string) {
 function extractNextDueDate(text: string) {
   const lines = text.split(/\r?\n/).map((l) => cleanSpaces(l)).filter(Boolean);
   const joined = lines.join(" ");
-  const candidates: string[] = [];
+  const primaryMatch = joined.match(
+    /(?:prossim\w*\s+visita|scaden\w*\s+visita|entro\s+il)\s*(?:il\s*)?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i,
+  );
+  if (primaryMatch?.[1]) {
+    const iso = parseItDateToIso(primaryMatch[1]);
+    if (iso) return { iso, candidates: [primaryMatch[1]], chosenRaw: primaryMatch[1] };
+  }
 
-  const within = joined.match(/(?:prossim\w*\s+visita|scaden\w*\s+visita|entro\s+il)\s*(?:il\s*)?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
-  if (within?.[1]) candidates.push(within[1]);
+  const includeWords = ["visita", "prossim", "scaden", "entro il", "idone"];
+  const excludeWords = ["nasc", "nato", "nata", "nato il", "nata il", "data nasc", "emission", "rilasc", "stamp", "protocol", "referto"];
 
-  const all = joined.match(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g) ?? [];
-  all.forEach((d) => candidates.push(d));
+  const dateRegex = /\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g;
+  const allMatches: Array<{ raw: string; index: number }> = [];
+  for (let m = dateRegex.exec(joined); m; m = dateRegex.exec(joined)) {
+    allMatches.push({ raw: m[0], index: m.index });
+  }
 
-  const unique = Array.from(new Set(candidates));
-  const parsed = unique.map((d) => ({ raw: d, iso: parseItDateToIso(d) })).filter((x) => Boolean(x.iso));
-  if (parsed.length === 0) return { iso: null, candidates: unique, chosenRaw: null };
-  parsed.sort((a, b) => String(a.iso).localeCompare(String(b.iso)));
-  const chosen = parsed[parsed.length - 1];
-  return { iso: (chosen?.iso ?? null) as string | null, candidates: unique, chosenRaw: chosen?.raw ?? null };
+  const uniqueAll = Array.from(new Set(allMatches.map((m) => m.raw)));
+  const byRawFirstIndex = new Map<string, number>();
+  allMatches.forEach((m) => {
+    if (!byRawFirstIndex.has(m.raw)) byRawFirstIndex.set(m.raw, m.index);
+  });
+
+  const scored = uniqueAll
+    .map((raw) => {
+      const iso = parseItDateToIso(raw);
+      if (!iso) return null;
+      const year = Number(String(iso).slice(0, 4));
+      const idx = byRawFirstIndex.get(raw) ?? -1;
+      const start = Math.max(0, idx - 40);
+      const end = Math.min(joined.length, idx + raw.length + 40);
+      const ctx = joined.slice(start, end).toLowerCase();
+
+      let score = 0;
+      if (excludeWords.some((w) => ctx.includes(w))) score -= 200;
+      if (includeWords.some((w) => ctx.includes(w))) score += 40;
+      if (ctx.includes("visita") && (ctx.includes("scaden") || ctx.includes("prossim") || ctx.includes("entro"))) score += 80;
+      if (year < 2000) score -= 120;
+      if (year < 1900 || year > 2200) score -= 500;
+
+      return { raw, iso, score };
+    })
+    .filter(Boolean) as Array<{ raw: string; iso: string; score: number }>;
+
+  const filteredCandidates = scored.filter((s) => s.score > -100).map((s) => s.raw);
+  const candidates = filteredCandidates.length > 0 ? filteredCandidates : uniqueAll;
+
+  const scoredCandidates = scored.filter((s) => candidates.includes(s.raw));
+  if (scoredCandidates.length === 0) return { iso: null, candidates, chosenRaw: null };
+
+  scoredCandidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(b.iso).localeCompare(String(a.iso));
+  });
+  const chosen = scoredCandidates[0];
+  return { iso: (chosen?.iso ?? null) as string | null, candidates, chosenRaw: chosen?.raw ?? null };
 }
 
 function extractLimitationsText(text: string) {
