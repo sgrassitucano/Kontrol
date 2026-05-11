@@ -51,6 +51,8 @@ type LastImportRun = {
   importedByName: string | null;
 };
 
+const MAX_PDF_UPLOAD_BYTES = 4_000_000;
+
 function formatDateTimeIt(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
@@ -78,6 +80,26 @@ type EditableRow = {
   nextDueDateIt: string;
   limitations: string;
 };
+
+async function readJsonOrThrow(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  const text = await response.text();
+  const looksJson = contentType.includes("application/json") || text.trim().startsWith("{") || text.trim().startsWith("[");
+  if (looksJson) {
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(`Risposta non valida dal server (${response.status}).`);
+    }
+  }
+
+  if (response.status === 413 || text.toLowerCase().includes("request entity too large")) {
+    throw new Error("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~4MB) e riprova.");
+  }
+
+  const snippet = text.trim().slice(0, 180);
+  throw new Error(`Errore server (${response.status}): ${snippet || "risposta non valida"}`);
+}
 
 export default function SorveglianzaPdfImportPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -153,6 +175,10 @@ export default function SorveglianzaPdfImportPage() {
 
   async function runPreview() {
     if (!selectedFile) return;
+    if (selectedFile.size > MAX_PDF_UPLOAD_BYTES) {
+      setServerError("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~4MB) e riprova.");
+      return;
+    }
 
     runTokenRef.current += 1;
     const token = runTokenRef.current;
@@ -183,10 +209,8 @@ export default function SorveglianzaPdfImportPage() {
         body: formData,
       });
 
-      const payload = (await response.json()) as ImportResponse | { error: string };
-      if (!response.ok || "error" in payload) {
-        throw new Error("error" in payload ? payload.error : "Errore in fase di import.");
-      }
+      const payload = (await readJsonOrThrow(response)) as ImportResponse | { error: string };
+      if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "Errore in fase di import.");
 
       setResult(payload);
       const nextRows: EditableRow[] = (payload.previewRows ?? []).map((r) => {
@@ -278,10 +302,8 @@ export default function SorveglianzaPdfImportPage() {
         method: "POST",
         body: formData,
       });
-      const payload = (await response.json()) as ImportResponse | { error: string };
-      if (!response.ok || "error" in payload) {
-        throw new Error("error" in payload ? payload.error : "Errore in fase di import.");
-      }
+      const payload = (await readJsonOrThrow(response)) as ImportResponse | { error: string };
+      if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "Errore in fase di import.");
 
       setResult(payload);
       if (runTokenRef.current === token && progressTimerRef.current !== null) {
@@ -329,6 +351,9 @@ export default function SorveglianzaPdfImportPage() {
               const nextFile = event.target.files?.[0] ?? null;
               setSelectedFile(nextFile);
               resetRunState();
+              if (nextFile && nextFile.size > MAX_PDF_UPLOAD_BYTES) {
+                setServerError("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~4MB) e riprova.");
+              }
             }}
             className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
           />
