@@ -220,6 +220,47 @@ async function buildEmployeeLookupByTaxCode(supabase: SupabaseClient, taxCodes: 
   return byTax;
 }
 
+function collapseUpsertsByEmployeeId(
+  rows: Array<{ page: number; employee_id: number; created_by: string | null; next_due_date?: string | null; limitations?: string | null }>,
+) {
+  const map = new Map<
+    number,
+    { page: number; upsert: { employee_id: number; created_by: string | null; next_due_date?: string | null; limitations?: string | null } }
+  >();
+
+  rows.forEach((r) => {
+    const existing = map.get(r.employee_id);
+    const candidateUpsert = {
+      employee_id: r.employee_id,
+      created_by: r.created_by,
+      next_due_date: r.next_due_date,
+      limitations: r.limitations,
+    };
+    if (!existing) {
+      map.set(r.employee_id, { page: r.page, upsert: candidateUpsert });
+      return;
+    }
+
+    const out = { ...existing.upsert };
+
+    const a = candidateUpsert.next_due_date ?? null;
+    const b = existing.upsert.next_due_date ?? null;
+    if (a && b) out.next_due_date = a > b ? a : b;
+    else if (a && !b) out.next_due_date = a;
+
+    const candLim = (candidateUpsert.limitations ?? "").trim();
+    const prevLim = (existing.upsert.limitations ?? "").trim();
+    if (candLim && !prevLim) out.limitations = candLim;
+    else if (candLim && prevLim && candLim !== prevLim) {
+      if (r.page >= existing.page) out.limitations = candLim;
+    }
+
+    map.set(r.employee_id, { page: Math.max(existing.page, r.page), upsert: out });
+  });
+
+  return Array.from(map.values()).map((x) => x.upsert);
+}
+
 export async function POST(request: Request) {
   const auth = await requireModuleAccess("sorveglianza", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -266,7 +307,7 @@ export async function POST(request: Request) {
       let limitationsFound = 0;
       let updatedRecords = 0;
 
-      const rowsToUpsert: Array<{ employee_id: number; next_due_date?: string | null; limitations?: string | null; created_by: string | null }> = [];
+      const rowsToUpsertWithMeta: Array<{ page: number; employee_id: number; next_due_date?: string | null; limitations?: string | null; created_by: string | null }> = [];
 
       normalizedUpdates.forEach((u) => {
         if (!isLikelyTaxCode(u.taxCode)) {
@@ -313,10 +354,14 @@ export async function POST(request: Request) {
         }
 
         if (Object.keys(upsert).length > 2) {
-          rowsToUpsert.push(upsert);
-          matchedEmployees += 1;
+          rowsToUpsertWithMeta.push({ page: u.page, ...upsert });
         }
       });
+
+      const rowsToUpsert = collapseUpsertsByEmployeeId(rowsToUpsertWithMeta);
+      matchedEmployees = rowsToUpsert.length;
+      dueDateFound = rowsToUpsert.filter((r) => Boolean(r.next_due_date)).length;
+      limitationsFound = rowsToUpsert.filter((r) => Boolean(String(r.limitations ?? "").trim())).length;
 
       if (rowsToUpsert.length > 0) {
         const { error } = await auth.supabase
@@ -393,7 +438,7 @@ export async function POST(request: Request) {
     let updatedRecords = 0;
 
     const previewRows: PdfImportPreviewRow[] = [];
-    const rowsToUpsert: Array<{ employee_id: number; next_due_date?: string | null; limitations?: string | null; created_by: string | null }> = [];
+    const rowsToUpsertWithMeta: Array<{ page: number; employee_id: number; next_due_date?: string | null; limitations?: string | null; created_by: string | null }> = [];
 
     parsed.forEach((row) => {
       const issues: string[] = [];
@@ -465,9 +510,11 @@ export async function POST(request: Request) {
         };
         if (row.nextDueDate) upsert.next_due_date = row.nextDueDate;
         if (row.limitationsFound) upsert.limitations = row.limitations;
-        if (Object.keys(upsert).length > 2) rowsToUpsert.push(upsert);
+        if (Object.keys(upsert).length > 2) rowsToUpsertWithMeta.push({ page: row.page, ...upsert });
       }
     });
+
+    const rowsToUpsert = collapseUpsertsByEmployeeId(rowsToUpsertWithMeta);
 
     if (mode === "commit" && rowsToUpsert.length > 0) {
       const { error } = await auth.supabase
