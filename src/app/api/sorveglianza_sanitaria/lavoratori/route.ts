@@ -279,7 +279,7 @@ export async function GET(request: Request) {
         visitaRichiesta: requiresVisit ? "SI" : "NO",
         scadenzaVisita: record?.next_due_date ?? null,
         stato: state,
-        medico: (record?.provider ?? "").trim() || (providerFromAssignment ?? "").trim() || "-",
+        medico: (providerFromAssignment ?? "").trim() || (record?.provider ?? "").trim() || "-",
         limitazioni: (record?.limitations ?? "").trim(),
         note: (record?.notes ?? "").trim(),
       };

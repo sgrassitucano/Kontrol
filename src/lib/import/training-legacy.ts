@@ -6,6 +6,11 @@ type LegacyPreviewParams = {
   supabase: SupabaseClient;
 };
 
+type LegacyCommitParams = LegacyPreviewParams & {
+  importRunId?: string | null;
+  importedBy?: string | null;
+};
+
 type EmployeeRow = {
   id: number;
   matricola: string;
@@ -282,7 +287,8 @@ export async function previewLegacyTrainingImport({
 export async function commitLegacyTrainingImport({
   fileBuffer,
   supabase,
-}: LegacyPreviewParams): Promise<LegacyCommitResult> {
+  importRunId,
+}: LegacyCommitParams): Promise<LegacyCommitResult> {
   const preview = await previewLegacyTrainingImport({ fileBuffer, supabase });
   const parsedRows = parseLegacyWorkbook(fileBuffer);
   const [employees, courses] = await Promise.all([
@@ -354,26 +360,8 @@ export async function commitLegacyTrainingImport({
     course_id: number;
     completion_date: string | null;
     expiry_date: string | null;
-    planned_date: string | null;
-    note: string | null;
   }> = [];
   let skippedDaFareRows = 0;
-
-  const { error: clearNotesError } = await supabase
-    .from("training_employee_courses")
-    .update({ note: null })
-    .not("note", "is", null);
-  if (clearNotesError) {
-    throw new Error(`Errore azzeramento note: ${clearNotesError.message}`);
-  }
-
-  const { error: clearEmptyNotesError } = await supabase
-    .from("training_employee_courses")
-    .update({ note: null })
-    .eq("note", "");
-  if (clearEmptyNotesError) {
-    throw new Error(`Errore azzeramento note vuote: ${clearEmptyNotesError.message}`);
-  }
 
   for (const item of selectedByKey.values()) {
     const { interpretation, row, employeeId, course } = item;
@@ -388,8 +376,6 @@ export async function commitLegacyTrainingImport({
         course_id: course.id,
         completion_date: row.startDate ?? todayIso,
         expiry_date: null,
-        planned_date: null,
-        note: null,
       });
       continue;
     }
@@ -401,9 +387,51 @@ export async function commitLegacyTrainingImport({
       course_id: course.id,
       completion_date: completionDate,
       expiry_date: expiryDate,
-      planned_date: null,
-      note: null,
     });
+  }
+
+  if (importRunId && payload.length > 0) {
+    const employeeIds = Array.from(new Set(payload.map((r) => r.employee_id)));
+    const existingByKey = new Map<string, { employee_id: number; course_id: number; completion_date: string | null; expiry_date: string | null }>();
+    for (const part of chunkArray(employeeIds, 500)) {
+      const { data, error } = await supabase
+        .from("training_employee_courses")
+        .select("employee_id,course_id,completion_date,expiry_date")
+        .in("employee_id", part);
+      if (error) throw new Error(error.message);
+      (data ?? []).forEach((row) => {
+        existingByKey.set(`${row.employee_id}:${row.course_id}`, row);
+      });
+    }
+
+    const changes = payload.map((row) => {
+      const before = existingByKey.get(`${row.employee_id}:${row.course_id}`) ?? null;
+      return {
+        import_run_id: importRunId,
+        table_name: "training_employee_courses",
+        action: before ? "update" : "insert",
+        row_key: { employee_id: row.employee_id, course_id: row.course_id },
+        before_row: before
+          ? {
+              employee_id: before.employee_id,
+              course_id: before.course_id,
+              completion_date: before.completion_date,
+              expiry_date: before.expiry_date,
+            }
+          : null,
+        after_row: {
+          employee_id: row.employee_id,
+          course_id: row.course_id,
+          completion_date: row.completion_date,
+          expiry_date: row.expiry_date,
+        },
+      };
+    });
+
+    for (const part of chunkArray(changes, 500)) {
+      const { error } = await supabase.from("import_run_changes").insert(part);
+      if (error) throw new Error(error.message);
+    }
   }
 
   for (const chunk of chunkArray(payload, 500)) {

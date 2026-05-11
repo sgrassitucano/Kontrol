@@ -377,7 +377,7 @@ export async function GET(request: Request) {
         typeof employee.sub_site_id === "number" && employee.sub_site_id
           ? providerBySubSiteId.get(employee.sub_site_id)?.provider ?? null
           : providerBySiteId.get(employee.site_id)?.provider ?? null;
-      const provider = (record?.provider ?? "").trim() || (providerFromAssignment ?? "").trim() || "-";
+      const provider = (providerFromAssignment ?? "").trim() || (record?.provider ?? "").trim() || "-";
 
       const limitations = String(record?.limitations ?? "").trim();
       const nextDueDate = record?.next_due_date ?? null;

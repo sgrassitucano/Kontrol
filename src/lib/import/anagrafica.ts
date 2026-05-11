@@ -9,6 +9,7 @@ type ImportParams = {
   mode: ImportMode;
   supabase: SupabaseClient;
   importedBy?: string | null;
+  confirmHighDismissals?: boolean;
 };
 
 type RawEmployeeRow = {
@@ -79,6 +80,7 @@ export type ImportSummary = {
   updatedRows: number;
   reactivatedRows: number;
   dismissedRows: number;
+  existingActiveEmployees: number;
 };
 
 export type ImportResult = {
@@ -110,9 +112,11 @@ export async function processAnagraficaImport({
   mode,
   supabase,
   importedBy,
+  confirmHighDismissals,
 }: ImportParams): Promise<ImportResult> {
   const parsed = parseWorkbook(fileBuffer);
   const existingEmployees = await fetchExistingEmployees(supabase);
+  const existingActiveEmployees = existingEmployees.filter((e) => e.status === "attivo").length;
 
   const analysis = analyzeAgainstExisting(
     parsed.validRows,
@@ -138,6 +142,7 @@ export async function processAnagraficaImport({
     updatedRows: analysis.updatedRows,
     reactivatedRows: analysis.reactivatedRows,
     dismissedRows: analysis.dismissedRows,
+    existingActiveEmployees,
   };
 
   if (mode === "preview") {
@@ -148,6 +153,21 @@ export async function processAnagraficaImport({
       errors: allErrors,
       importRunId: null,
       message: "Anteprima completata.",
+    };
+  }
+
+  if (
+    existingActiveEmployees > 0 &&
+    analysis.dismissedRows / existingActiveEmployees > 0.05 &&
+    !confirmHighDismissals
+  ) {
+    return {
+      mode: "preview",
+      summary: summaryBase,
+      previewRows,
+      errors: allErrors,
+      importRunId: null,
+      message: "ATTENZIONE: dimessi > 5% degli attivi. Conferma richiesta prima del commit.",
     };
   }
 

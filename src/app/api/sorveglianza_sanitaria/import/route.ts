@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
-import { processMedicalSurveillanceImport, seedProvidersFromMedicalSurveillanceImportFile } from "@/lib/import/sorveglianza";
+import { processMedicalSurveillanceImport } from "@/lib/import/sorveglianza";
 
 export const runtime = "nodejs";
 
@@ -8,6 +8,7 @@ export async function POST(request: Request) {
   const auth = await requireModuleAccess("sorveglianza", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
+  let importRunId: string | null = null;
   try {
     const formData = await request.formData();
     const mode = String(formData.get("mode") ?? "").trim() as "preview" | "commit";
@@ -22,41 +23,61 @@ export async function POST(request: Request) {
     }
 
     const buffer = await file.arrayBuffer();
+
+    if (mode === "commit") {
+      const inserted = await auth.supabase
+        .from("import_runs")
+        .insert({
+          source: "sorveglianza",
+          file_name: file.name,
+          imported_by: auth.userId,
+          total_rows: 0,
+          processed_rows: 0,
+          error_rows: 0,
+          status: "preview",
+        })
+        .select("id")
+        .single();
+      if (inserted.error || !inserted.data?.id) {
+        return NextResponse.json(
+          { error: "Impossibile creare la traccia import per il rollback." },
+          { status: 500 },
+        );
+      }
+      importRunId = inserted.data.id;
+    }
+
     const result = await processMedicalSurveillanceImport({
       fileBuffer: buffer,
       mode,
       supabase: auth.supabase,
       importedBy: auth.userId,
+      importRunId,
     });
 
     if (mode === "commit") {
-      try {
-        const seeded = await seedProvidersFromMedicalSurveillanceImportFile({
-          fileBuffer: buffer,
-          supabase: auth.supabase,
-          importedBy: auth.userId,
-        });
-        if (seeded.seeded > 0) {
-          result.message = `${result.message} Provider: aggiornate ${seeded.seeded} assegnazioni.`;
-        } else {
-          result.message = `${result.message} Provider: nessuna assegnazione aggiornata (campo provider vuoto o match anagrafica mancante).`;
-        }
-      } catch {
-        result.message = `${result.message} Provider: seed fallito.`;
+      if (importRunId) {
+        const status = result.message.startsWith("Import fallito:") ? "failed" : "completed";
+        await auth.supabase
+          .from("import_runs")
+          .update({
+            total_rows: result.summary.totalRows,
+            processed_rows: result.summary.matchedEmployees,
+            error_rows: result.summary.errorRows,
+            status,
+          })
+          .eq("id", importRunId);
       }
-      await auth.supabase.from("import_runs").insert({
-        source: "sorveglianza",
-        file_name: file.name,
-        imported_by: auth.userId,
-        total_rows: result.summary.totalRows,
-        processed_rows: result.summary.matchedEmployees,
-        error_rows: result.summary.errorRows,
-        status: "completed",
-      });
     }
 
     return NextResponse.json(result);
   } catch (err) {
+    if (importRunId) {
+      await auth.supabase
+        .from("import_runs")
+        .update({ status: "failed" })
+        .eq("id", importRunId);
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore import." },
       { status: 500 },

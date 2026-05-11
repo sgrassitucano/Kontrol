@@ -434,6 +434,13 @@ export default function HomeSorveglianzaPage() {
             >
               Import
             </Link>
+            <Link
+              href="/sorveglianza_sanitaria/import_pdf"
+              data-soft="true"
+              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
+            >
+              Import PDF
+            </Link>
           </>
         }
       >

@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const mode = String(formData.get("mode") ?? "preview");
     const file = formData.get("file");
+    const confirmHighDismissals = String(formData.get("confirmHighDismissals") ?? "") === "1";
 
     if (mode !== "preview" && mode !== "commit") {
       return NextResponse.json(
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
       mode,
       supabase,
       importedBy,
+      confirmHighDismissals,
     });
 
     return NextResponse.json(result);

@@ -16,7 +16,6 @@ export async function GET() {
     "codice fiscale",
     "cognome",
     "nome",
-    "provider",
     "visita si/no",
     "scadenza visita",
     "limitazioni",

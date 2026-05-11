@@ -42,6 +42,7 @@ export default function GestioneImportPage() {
   const runTokenRef = useRef(0);
   const statusPollRef = useRef<number | null>(null);
   const lastRunPollRef = useRef<number | null>(null);
+  const [confirmHighDismissals, setConfirmHighDismissals] = useState(false);
 
   const derivedCounts = useMemo(() => {
     const warningRows = result?.errors?.filter((row) => row.errorType === "row_imported_with_issues").length ?? 0;
@@ -74,6 +75,14 @@ export default function GestioneImportPage() {
       bloccanti: derivedCounts.blockingRows,
     };
   }, [derivedCounts.blockingRows, derivedCounts.warningRows, result]);
+
+  const dismissRate = useMemo(() => {
+    const totalActive = result?.summary.existingActiveEmployees ?? 0;
+    if (!totalActive) return 0;
+    return (result?.summary.dismissedRows ?? 0) / totalActive;
+  }, [result]);
+
+  const isHighDismissals = dismissRate > 0.05;
 
   useEffect(() => {
     let cancelled = false;
@@ -158,6 +167,9 @@ export default function GestioneImportPage() {
       const formData = new FormData();
       formData.append("mode", mode);
       formData.append("file", selectedFile);
+      if (mode === "commit") {
+        formData.append("confirmHighDismissals", confirmHighDismissals ? "1" : "0");
+      }
 
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 180000);
@@ -234,6 +246,7 @@ export default function GestioneImportPage() {
               setSelectedFile(nextFile);
               setResult(null);
               setServerError("");
+              setConfirmHighDismissals(false);
             }}
             className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
           />
@@ -247,7 +260,23 @@ export default function GestioneImportPage() {
           </button>
           <button
             type="button"
-            disabled={!selectedFile || isLoading}
+            disabled={
+              !selectedFile ||
+              isLoading ||
+              !result ||
+              result.mode !== "preview" ||
+              derivedCounts.blockingRows > 0 ||
+              (isHighDismissals && !confirmHighDismissals)
+            }
+            title={
+              !result || result.mode !== "preview"
+                ? "Esegui prima l'anteprima."
+                : derivedCounts.blockingRows > 0
+                  ? "Risolvi prima gli errori bloccanti."
+                  : isHighDismissals && !confirmHighDismissals
+                    ? "Dimessi > 5%: conferma richiesta."
+                    : "Esegui commit import."
+            }
             onClick={() => runImport("commit")}
             className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -257,6 +286,23 @@ export default function GestioneImportPage() {
         <p className="mt-3 text-xs text-slate-500">
           File selezionato: {selectedFile?.name || "nessuno"}
         </p>
+        {result && isHighDismissals ? (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <label className="flex items-start gap-2 text-xs text-amber-800">
+              <input
+                type="checkbox"
+                checked={confirmHighDismissals}
+                onChange={(e) => setConfirmHighDismissals(e.target.checked)}
+                className="mt-[2px]"
+              />
+              <span>
+                Dimessi stimati: {result.summary.dismissedRows} su {result.summary.existingActiveEmployees} attivi
+                ({Math.round(dismissRate * 1000) / 10}%).
+                Confermo di voler procedere comunque.
+              </span>
+            </label>
+          </div>
+        ) : null}
         {result ? (
           <p className="mt-2 text-xs font-medium text-[var(--brand-primary)]">
             {result.message}

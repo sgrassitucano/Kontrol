@@ -230,6 +230,8 @@ export default function HomeFormazionePage() {
   const [importError, setImportError] = useState("");
   const [importProgress, setImportProgress] = useState(0);
   const [importLastRun, setImportLastRun] = useState<{ createdAt: string; fileName: string; importedByName: string | null } | null>(null);
+  const [importUndoLoading, setImportUndoLoading] = useState(false);
+  const [importUndoMessage, setImportUndoMessage] = useState("");
   const importProgressTimerRef = useRef<number | null>(null);
   const importRunTokenRef = useRef(0);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
@@ -902,6 +904,7 @@ export default function HomeFormazionePage() {
     setImportFile(null);
     setImportPreview(null);
     setImportError("");
+    setImportUndoMessage("");
   }
 
   async function runImportPreview() {
@@ -1015,6 +1018,32 @@ export default function HomeFormazionePage() {
         importProgressTimerRef.current = null;
       }
       setImportLoading(false);
+    }
+  }
+
+  async function runImportUndo() {
+    setImportUndoLoading(true);
+    setImportError("");
+    setImportUndoMessage("");
+    try {
+      const response = await fetch("/api/formazione/import/undo", { method: "POST" });
+      const body = (await response.json()) as
+        | { ok: true; deletedRows: number; restoredRows: number; skippedRows: number; source: string }
+        | { error: string };
+      if (!response.ok || "error" in body) {
+        throw new Error("error" in body ? body.error : "Errore annullamento import.");
+      }
+      setImportUndoMessage(
+        `Annullamento completato (${body.source}): ripristinate ${body.restoredRows}, eliminate ${body.deletedRows}, saltate ${body.skippedRows}.`,
+      );
+      const last = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
+      const lastBody = (await last.json()) as { run: { createdAt: string; fileName: string; importedByName: string | null } | null; error?: string };
+      if (last.ok && !lastBody.error) setImportLastRun(lastBody.run);
+      await loadRows();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Errore annullamento import.");
+    } finally {
+      setImportUndoLoading(false);
     }
   }
 
@@ -2416,6 +2445,19 @@ export default function HomeFormazionePage() {
                 {importLastRun.importedByName ? ` · ${importLastRun.importedByName}` : ""} · {importLastRun.fileName}
               </p>
             ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void runImportUndo()}
+                disabled={importUndoLoading || importLoading}
+                className="rounded-lg border border-[var(--brand-line)] bg-white px-3 py-1.5 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
+              >
+                {importUndoLoading ? "Annullamento..." : "Annulla ultimo import"}
+              </button>
+              {importUndoMessage ? (
+                <p className="text-xs font-medium text-[var(--brand-primary)]">{importUndoMessage}</p>
+              ) : null}
+            </div>
             <div className="mt-4 grid gap-3 md:grid-cols-4">
               {["Template", "Upload", "Preview", "Commit"].map((step, index) => (
                 <div
@@ -2462,6 +2504,7 @@ export default function HomeFormazionePage() {
                     setImportFile(selected);
                     setImportPreview(null);
                     setImportError("");
+                    setImportUndoMessage("");
                   }}
                   className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 />

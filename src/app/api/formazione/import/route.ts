@@ -8,6 +8,7 @@ export async function POST(request: Request) {
   const auth = await requireModuleAccess("gestione", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
+  let importRunId: string | null = null;
   try {
     const formData = await request.formData();
     const mode = String(formData.get("mode") ?? "preview");
@@ -39,29 +40,60 @@ export async function POST(request: Request) {
 
     const fileBuffer = await file.arrayBuffer();
     const supabase = auth.supabase;
+    if (mode === "commit") {
+      const inserted = await auth.supabase
+        .from("import_runs")
+        .insert({
+          source: "formazione_legacy",
+          file_name: file.name,
+          imported_by: auth.userId,
+          total_rows: 0,
+          processed_rows: 0,
+          error_rows: 0,
+          status: "preview",
+        })
+        .select("id")
+        .single();
+      if (inserted.error || !inserted.data?.id) {
+        return NextResponse.json(
+          { error: "Impossibile creare la traccia import per il rollback." },
+          { status: 500 },
+        );
+      }
+      importRunId = inserted.data.id;
+    }
+
     const result = await (mode === "commit"
-      ? commitLegacyTrainingImport({ fileBuffer, supabase })
+      ? commitLegacyTrainingImport({ fileBuffer, supabase, importRunId, importedBy: auth.userId })
       : previewLegacyTrainingImport({ fileBuffer, supabase }));
 
     if (mode === "commit") {
       const summary = (result as { summary?: unknown }).summary as
         | { totalRows?: number; committedRows?: number; missingEmployees?: number; missingCourses?: number }
         | undefined;
-      await auth.supabase.from("import_runs").insert({
-        source: "formazione_legacy",
-        file_name: file.name,
-        imported_by: auth.userId,
-        total_rows: typeof summary?.totalRows === "number" ? summary.totalRows : 0,
-        processed_rows: typeof summary?.committedRows === "number" ? summary.committedRows : 0,
-        error_rows:
-          (typeof summary?.missingEmployees === "number" ? summary.missingEmployees : 0) +
-          (typeof summary?.missingCourses === "number" ? summary.missingCourses : 0),
-        status: "completed",
-      });
+      if (importRunId) {
+        await auth.supabase
+          .from("import_runs")
+          .update({
+            total_rows: typeof summary?.totalRows === "number" ? summary.totalRows : 0,
+            processed_rows: typeof summary?.committedRows === "number" ? summary.committedRows : 0,
+            error_rows:
+              (typeof summary?.missingEmployees === "number" ? summary.missingEmployees : 0) +
+              (typeof summary?.missingCourses === "number" ? summary.missingCourses : 0),
+            status: "completed",
+          })
+          .eq("id", importRunId);
+      }
     }
 
     return NextResponse.json(result);
   } catch (error) {
+    if (importRunId) {
+      await auth.supabase
+        .from("import_runs")
+        .update({ status: "failed" })
+        .eq("id", importRunId);
+    }
     const message =
       error instanceof Error
         ? error.message

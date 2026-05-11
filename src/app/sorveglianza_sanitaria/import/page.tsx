@@ -34,7 +34,9 @@ function formatDateTimeIt(value: string) {
 export default function SorveglianzaImportPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUndoing, setIsUndoing] = useState(false);
   const [serverError, setServerError] = useState<string>("");
+  const [undoMessage, setUndoMessage] = useState<string>("");
   const [result, setResult] = useState<ImportResponse | null>(null);
   const [progress, setProgress] = useState(0);
   const [lastRun, setLastRun] = useState<LastImportRun | null>(null);
@@ -150,6 +152,31 @@ export default function SorveglianzaImportPage() {
     }
   }
 
+  async function undoLastImport() {
+    setIsUndoing(true);
+    setServerError("");
+    setUndoMessage("");
+    try {
+      const response = await fetch("/api/sorveglianza_sanitaria/import/undo", { method: "POST" });
+      const body = (await response.json()) as
+        | { ok: true; deletedRows: number; restoredRows: number; skippedRows: number; source: string }
+        | { error: string };
+      if (!response.ok || "error" in body) {
+        throw new Error("error" in body ? body.error : "Errore annullamento import.");
+      }
+      setUndoMessage(
+        `Annullamento completato (${body.source}): ripristinate ${body.restoredRows}, eliminate ${body.deletedRows}, saltate ${body.skippedRows}.`,
+      );
+      const last = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
+      const lastBody = (await last.json()) as { run: LastImportRun | null; error?: string };
+      if (last.ok && !lastBody.error) setLastRun(lastBody.run);
+    } catch (err) {
+      setServerError(err instanceof Error ? err.message : "Errore annullamento import.");
+    } finally {
+      setIsUndoing(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <ModuleHeader
@@ -173,6 +200,14 @@ export default function SorveglianzaImportPage() {
           >
             Scarica modello
           </a>
+          <button
+            type="button"
+            disabled={isLoading || isUndoing}
+            onClick={() => void undoLastImport()}
+            className="inline-flex items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isUndoing ? "Annullamento..." : "Annulla ultimo import"}
+          </button>
           <input
             type="file"
             accept=".xls,.xlsx"
@@ -181,6 +216,7 @@ export default function SorveglianzaImportPage() {
               setSelectedFile(nextFile);
               setResult(null);
               setServerError("");
+              setUndoMessage("");
             }}
             className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
           />
@@ -211,6 +247,9 @@ export default function SorveglianzaImportPage() {
         ) : null}
         {serverError ? (
           <p className="mt-2 text-xs font-medium text-red-600">{serverError}</p>
+        ) : null}
+        {undoMessage ? (
+          <p className="mt-2 text-xs font-medium text-[var(--brand-primary)]">{undoMessage}</p>
         ) : null}
         {isLoading || progress > 0 ? (
           <div className="mt-4">

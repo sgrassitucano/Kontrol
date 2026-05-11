@@ -8,7 +8,6 @@ export type SurveillanceImportField =
   | "taxCode"
   | "lastName"
   | "firstName"
-  | "provider"
   | "visitFlag"
   | "dueDate"
   | "limitations"
@@ -19,6 +18,7 @@ type ImportParams = {
   mode: ImportMode;
   supabase: SupabaseClient;
   importedBy?: string | null;
+  importRunId?: string | null;
 };
 
 type EmployeeLookupRow = {
@@ -33,7 +33,6 @@ type RawRow = {
   taxCode: string;
   lastName: string;
   firstName: string;
-  provider: string;
   requiresVisit: boolean;
   nextDueDate: string | null;
   limitations: string;
@@ -55,7 +54,6 @@ export type SurveillanceImportPreviewRow = {
   cognome: string;
   nome: string;
   codiceFiscale: string;
-  provider: string;
   visitaRichiesta: "SI" | "NO";
   scadenzaVisita: string;
 };
@@ -79,17 +77,12 @@ export type SurveillanceImportResult = {
   message: string;
 };
 
-export type ProviderSeedResult = {
-  seeded: number;
-  sites: number;
-  subSites: number;
-};
-
 export async function processMedicalSurveillanceImport({
   fileBuffer,
   mode,
   supabase,
   importedBy,
+  importRunId,
 }: ImportParams): Promise<SurveillanceImportResult> {
   const parsed = parseWorkbook(fileBuffer);
   const lookup = await buildEmployeeLookup(supabase, parsed.validRows);
@@ -102,7 +95,6 @@ export async function processMedicalSurveillanceImport({
       raw: RawRow;
       upsert: {
         employee_id: number;
-        provider: string | null;
         requires_visit: boolean;
         next_due_date: string | null;
         limitations: string | null;
@@ -140,7 +132,6 @@ export async function processMedicalSurveillanceImport({
       raw: row,
       upsert: {
         employee_id: employee.id,
-        provider: cleanNullable(row.provider),
         requires_visit: row.requiresVisit,
         next_due_date: row.nextDueDate,
         limitations: cleanNullable(row.limitations),
@@ -184,6 +175,62 @@ export async function processMedicalSurveillanceImport({
   });
 
   if (mode === "commit" && rowsToUpsert.length > 0) {
+    if (importRunId) {
+      const employeeIds = rowsToUpsert.map((r) => r.employee_id);
+      const existingByEmployeeId = new Map<
+        number,
+        {
+          employee_id: number;
+          requires_visit: boolean;
+          next_due_date: string | null;
+          limitations: string | null;
+          notes: string | null;
+        }
+      >();
+
+      for (const part of chunk(employeeIds, 500)) {
+        const { data, error } = await supabase
+          .from("medical_surveillance_records")
+          .select("employee_id,requires_visit,next_due_date,limitations,notes")
+          .in("employee_id", part);
+        if (error) throw new Error(error.message);
+        (data ?? []).forEach((row) => {
+          existingByEmployeeId.set(row.employee_id, row);
+        });
+      }
+
+      const changes = rowsToUpsert.map((row) => {
+        const before = existingByEmployeeId.get(row.employee_id) ?? null;
+        return {
+          import_run_id: importRunId,
+          table_name: "medical_surveillance_records",
+          action: before ? "update" : "insert",
+          row_key: { employee_id: row.employee_id },
+          before_row: before
+            ? {
+                employee_id: before.employee_id,
+                requires_visit: before.requires_visit,
+                next_due_date: before.next_due_date,
+                limitations: before.limitations,
+                notes: before.notes,
+              }
+            : null,
+          after_row: {
+            employee_id: row.employee_id,
+            requires_visit: row.requires_visit,
+            next_due_date: row.next_due_date,
+            limitations: row.limitations,
+            notes: row.notes,
+          },
+        };
+      });
+
+      for (const part of chunk(changes, 500)) {
+        const { error } = await supabase.from("import_run_changes").insert(part);
+        if (error) throw new Error(error.message);
+      }
+    }
+
     const { error } = await supabase
       .from("medical_surveillance_records")
       .upsert(rowsToUpsert, { onConflict: "employee_id" });
@@ -232,178 +279,6 @@ export async function processMedicalSurveillanceImport({
   };
 }
 
-export async function seedProvidersFromMedicalSurveillanceImportFile(params: {
-  fileBuffer: ArrayBuffer;
-  supabase: SupabaseClient;
-  importedBy?: string | null;
-}): Promise<ProviderSeedResult> {
-  const parsed = parseWorkbook(params.fileBuffer);
-  const rowsWithProvider = parsed.validRows.filter((r) => String(r.provider ?? "").trim().length > 0);
-  if (rowsWithProvider.length === 0) return { seeded: 0, sites: 0, subSites: 0 };
-
-  const lookup = await buildEmployeeLookup(params.supabase, rowsWithProvider);
-
-  const employeeIdSet = new Set<number>();
-  rowsWithProvider.forEach((row) => {
-    const employee =
-      (row.taxCode ? lookup.byTaxCode.get(row.taxCode) : undefined) ??
-      (row.matricola ? lookup.byMatricola.get(row.matricola) : undefined);
-    if (!employee) return;
-    employeeIdSet.add(employee.id);
-  });
-
-  const employeeIds = Array.from(employeeIdSet.values());
-  if (employeeIds.length === 0) return { seeded: 0, sites: 0, subSites: 0 };
-
-  const employeeById = await fetchEmployeesByIds(params.supabase, employeeIds);
-
-  const providersBySubSiteId = new Map<number, Map<string, number>>();
-  const providersBySiteIdNoSub = new Map<number, Map<string, number>>();
-  const subSitesBySiteId = new Map<number, Set<number>>();
-
-  rowsWithProvider.forEach((row) => {
-    const employee =
-      (row.taxCode ? lookup.byTaxCode.get(row.taxCode) : undefined) ??
-      (row.matricola ? lookup.byMatricola.get(row.matricola) : undefined);
-    if (!employee) return;
-    const employeeScope = employeeById.get(employee.id);
-    if (!employeeScope) return;
-    const provider = String(row.provider ?? "").trim();
-    if (!provider) return;
-
-    if (employeeScope.sub_site_id) {
-      subSitesBySiteId.set(
-        employeeScope.site_id,
-        (subSitesBySiteId.get(employeeScope.site_id) ?? new Set()).add(employeeScope.sub_site_id),
-      );
-      const map = providersBySubSiteId.get(employeeScope.sub_site_id) ?? new Map<string, number>();
-      map.set(provider, (map.get(provider) ?? 0) + 1);
-      providersBySubSiteId.set(employeeScope.sub_site_id, map);
-      return;
-    }
-
-    const siteMap = providersBySiteIdNoSub.get(employeeScope.site_id) ?? new Map<string, number>();
-    siteMap.set(provider, (siteMap.get(provider) ?? 0) + 1);
-    providersBySiteIdNoSub.set(employeeScope.site_id, siteMap);
-  });
-
-  const bestProvider = (countMap: Map<string, number>) => {
-    let best = "";
-    let bestCount = -1;
-    for (const [provider, count] of countMap.entries()) {
-      if (count > bestCount) {
-        best = provider;
-        bestCount = count;
-      }
-    }
-    return best;
-  };
-
-  const createdBy = params.importedBy ?? null;
-  const note = "Seed da import sorveglianza";
-
-  const subSiteAssignmentRows: Array<{
-    scope_type: "sub_site";
-    site_id: null;
-    sub_site_id: number;
-    provider: string;
-    is_active: boolean;
-    note: string | null;
-    created_by: string | null;
-  }> = [];
-
-  for (const [subSiteId, countMap] of providersBySubSiteId.entries()) {
-    const provider = bestProvider(countMap);
-    if (!provider) continue;
-    subSiteAssignmentRows.push({
-      scope_type: "sub_site",
-      site_id: null,
-      sub_site_id: subSiteId,
-      provider,
-      is_active: true,
-      note,
-      created_by: createdBy,
-    });
-  }
-
-  const siteAssignmentRows: Array<{
-    scope_type: "site";
-    site_id: number;
-    sub_site_id: null;
-    provider: string;
-    is_active: boolean;
-    note: string | null;
-    created_by: string | null;
-  }> = [];
-
-  const allSiteIds = new Set<number>([
-    ...providersBySiteIdNoSub.keys(),
-    ...subSitesBySiteId.keys(),
-    ...Array.from(employeeById.values()).map((e) => e.site_id),
-  ]);
-
-  for (const siteId of allSiteIds) {
-    const siteNoSub = providersBySiteIdNoSub.get(siteId) ?? null;
-    const siteSubIds = Array.from(subSitesBySiteId.get(siteId) ?? []);
-
-    if (siteSubIds.length === 0) {
-      if (!siteNoSub) continue;
-      const provider = bestProvider(siteNoSub);
-      if (!provider) continue;
-      siteAssignmentRows.push({
-        scope_type: "site",
-        site_id: siteId,
-        sub_site_id: null,
-        provider,
-        is_active: true,
-        note,
-        created_by: createdBy,
-      });
-      continue;
-    }
-
-    const uniqueProviders = new Set<string>();
-    siteSubIds.forEach((subSiteId) => {
-      const p = subSiteAssignmentRows.find((r) => r.sub_site_id === subSiteId)?.provider;
-      if (p) uniqueProviders.add(p);
-    });
-
-    if (uniqueProviders.size === 1) {
-      const provider = Array.from(uniqueProviders)[0] ?? "";
-      if (!provider) continue;
-      siteAssignmentRows.push({
-        scope_type: "site",
-        site_id: siteId,
-        sub_site_id: null,
-        provider,
-        is_active: true,
-        note,
-        created_by: createdBy,
-      });
-    } else if (uniqueProviders.size > 1) {
-      siteAssignmentRows.push({
-        scope_type: "site",
-        site_id: siteId,
-        sub_site_id: null,
-        provider: "MISTO",
-        is_active: true,
-        note,
-        created_by: createdBy,
-      });
-    }
-  }
-
-  const rowsToUpsert = [...siteAssignmentRows, ...subSiteAssignmentRows];
-  if (rowsToUpsert.length === 0) return { seeded: 0, sites: 0, subSites: 0 };
-
-  const { error } = await params.supabase
-    .from("medical_surveillance_provider_assignments")
-    .upsert(rowsToUpsert, { onConflict: "scope_type,site_id,sub_site_id" });
-  if (error) throw new Error(error.message);
-
-  return { seeded: rowsToUpsert.length, sites: siteAssignmentRows.length, subSites: subSiteAssignmentRows.length };
-}
-
 function cleanNullable(value: string) {
   const v = String(value ?? "").trim();
   return v ? v : null;
@@ -415,7 +290,6 @@ function buildPreview(rows: RawRow[]): SurveillanceImportPreviewRow[] {
     cognome: row.lastName,
     nome: row.firstName,
     codiceFiscale: row.taxCode,
-    provider: row.provider || "-",
     visitaRichiesta: row.requiresVisit ? "SI" : "NO",
     scadenzaVisita: row.nextDueDate ? formatDateIt(row.nextDueDate) : "-",
   }));
@@ -544,7 +418,6 @@ function parseWorkbook(
     taxCode: "codice fiscale",
     lastName: "cognome",
     firstName: "nome",
-    provider: "provider",
     visitFlag: "visita si/no",
     dueDate: "scadenza visita",
     limitations: "limitazioni",
@@ -574,7 +447,6 @@ function parseWorkbook(
     const taxCode = cleanCell(getFirstByName(row, headerIndex, templateHeaders.taxCode)).toUpperCase();
     const lastName = cleanCell(getFirstByName(row, headerIndex, templateHeaders.lastName));
     const firstName = cleanCell(getFirstByName(row, headerIndex, templateHeaders.firstName));
-    const provider = cleanCell(getFirstByName(row, headerIndex, templateHeaders.provider));
     const visitRaw = cleanCell(getFirstByName(row, headerIndex, templateHeaders.visitFlag));
     const dueRaw = getFirstByName(row, headerIndex, templateHeaders.dueDate);
     const limitations = cleanCell(getFirstByName(row, headerIndex, templateHeaders.limitations));
@@ -616,7 +488,6 @@ function parseWorkbook(
       taxCode,
       lastName,
       firstName,
-      provider,
       requiresVisit,
       nextDueDate,
       limitations,
@@ -662,19 +533,6 @@ async function buildEmployeeLookup(supabase: SupabaseClient, rows: RawRow[]) {
   }
 
   return { byTaxCode, byMatricola };
-}
-
-async function fetchEmployeesByIds(supabase: SupabaseClient, ids: number[]) {
-  const out = new Map<number, { id: number; site_id: number; sub_site_id: number | null }>();
-  const chunks = chunk(ids, 500);
-  for (const part of chunks) {
-    const { data, error } = await supabase.from("employees").select("id,site_id,sub_site_id").in("id", part);
-    if (error) throw new Error(error.message);
-    ((data ?? []) as Array<{ id: number; site_id: number; sub_site_id: number | null }>).forEach((row) => {
-      out.set(row.id, row);
-    });
-  }
-  return out;
 }
 
 function chunk<T>(items: T[], size: number) {
