@@ -50,12 +50,11 @@ type JobEntity = {
 };
 
 type CourseOption = { code: string; title: string };
-type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE";
+type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 type EventModalInit = {
-  tab: "evento" | "da_fare";
   courseCode: string;
   courseSearch: string;
-  type: Exclude<EventType, "DA_FARE">;
+  type: EventType;
   date: string;
   note: string;
   token: number;
@@ -214,7 +213,6 @@ export default function HomeFormazionePage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<Set<number>>(() => new Set());
   const [eventModalInit, setEventModalInit] = useState<EventModalInit>({
-    tab: "evento",
     courseCode: "",
     courseSearch: "",
     type: "PROGRAMMATO",
@@ -887,7 +885,6 @@ export default function HomeFormazionePage() {
   const openEventModal = useCallback(
     (init?: Partial<Omit<EventModalInit, "token">>) => {
       setEventModalInit((prev) => ({
-        tab: init?.tab ?? "evento",
         courseCode: init?.courseCode ?? "",
         courseSearch: init?.courseSearch ?? "",
         type: init?.type ?? "PROGRAMMATO",
@@ -1116,7 +1113,6 @@ export default function HomeFormazionePage() {
 
     if (row.corsoCode.startsWith("FORM_BASE+")) {
       openEventModal({
-        tab: "evento",
         courseCode: "",
         courseSearch: "",
         type: row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO",
@@ -1127,9 +1123,19 @@ export default function HomeFormazionePage() {
     }
 
     openEventModal({
-      tab: "evento",
       courseCode: row.corsoCode,
       courseSearch: `${row.corsoCode} ${row.corso}`,
+      type: row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO",
+      date: "",
+      note: "",
+    });
+  }
+
+  function openRowEvent(row: WorkerCourseRow) {
+    setSelectedWorkerIds(new Set([row.workerId]));
+    openEventModal({
+      courseCode: row.corsoCode,
+      courseSearch: `${row.corsoCode} ${row.corso}`.trim(),
       type: row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO",
       date: "",
       note: "",
@@ -1672,8 +1678,6 @@ export default function HomeFormazionePage() {
                   : "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60";
                 const inlineKey = `${row.workerId}-${row.corsoCode}`;
                 const isInlineSaving = inlineSavingKeys.has(inlineKey);
-                const canInlineState =
-                  (row.stato === "programmato" || row.stato === "da fare");
 
                 return (
                 <tr
@@ -1710,21 +1714,18 @@ export default function HomeFormazionePage() {
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex min-w-0 items-center gap-2">
-                      {canInlineState ? (
-                        <select
-                          value={row.stato}
-                          disabled={isInlineSaving}
-                          onChange={(event) => void saveInlineState(row, event.target.value as "programmato" | "da fare")}
-                          className="h-7 rounded-lg border border-[var(--brand-line)] bg-white px-2 text-[11px] font-bold uppercase tracking-wide text-slate-600"
-                        >
-                          <option value="da fare">da fare</option>
-                          <option value="programmato">programmato</option>
-                        </select>
-                      ) : (
-                        <span className={statusClassName(row.stato)} title={row.stato}>
-                          {row.stato}
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        disabled={isInlineSaving}
+                        onClick={() => openRowEvent(row)}
+                        className={[
+                          statusClassName(row.stato),
+                          "transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60",
+                        ].join(" ")}
+                        title="Cambia stato (Evento)"
+                      >
+                        {row.stato}
+                      </button>
                       {row.stato === "upgrade" && row.upgradeInfo ? (
                         <span
                           className={`min-w-0 flex-1 truncate text-[11px] font-semibold ${textClass}`}
@@ -2197,7 +2198,6 @@ export default function HomeFormazionePage() {
                                           if (!courseId) return;
                                           setSelectedWorkerIds(new Set([r.workerId]));
                                           openEventModal({
-                                            tab: "evento",
                                             courseCode: r.corsoCode,
                                             courseSearch: `${r.corsoCode} ${r.corso}`.trim(),
                                             type: r.dataConclusione ? "MODIFICA_DATA" : "SVOLTO",

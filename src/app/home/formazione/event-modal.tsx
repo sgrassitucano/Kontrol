@@ -5,9 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 type CourseOption = { code: string; title: string };
 type WorkerOption = { workerId: number; matricola: string; fullName: string; cantiere: string; sottocantiere: string };
 
-type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE";
-
-type EventTab = "evento" | "da_fare";
+type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 
 export function EventModal(props: {
   isOpen: boolean;
@@ -18,10 +16,9 @@ export function EventModal(props: {
   workerOptions: WorkerOption[];
   courseOptions: CourseOption[];
   initial: {
-    tab: EventTab;
     courseCode: string;
     courseSearch: string;
-    type: Exclude<EventType, "DA_FARE">;
+    type: EventType;
     date: string;
     note: string;
     token: number;
@@ -40,11 +37,10 @@ export function EventModal(props: {
     onSaved,
   } = props;
 
-  const [eventTab, setEventTab] = useState<EventTab>("evento");
   const [eventWorkerSearch, setEventWorkerSearch] = useState("");
   const [eventCourseSearch, setEventCourseSearch] = useState("");
   const [eventSelectedCourseCode, setEventSelectedCourseCode] = useState("");
-  const [eventType, setEventType] = useState<Exclude<EventType, "DA_FARE">>("PROGRAMMATO");
+  const [eventType, setEventType] = useState<EventType>("PROGRAMMATO");
   const [eventDate, setEventDate] = useState("");
   const [eventNote, setEventNote] = useState("");
   const [eventSaveError, setEventSaveError] = useState("");
@@ -52,7 +48,6 @@ export function EventModal(props: {
 
   useEffect(() => {
     if (!isOpen) return;
-    setEventTab(initial.tab);
     setEventWorkerSearch("");
     setEventCourseSearch(initial.courseSearch);
     setEventSelectedCourseCode(initial.courseCode);
@@ -98,8 +93,7 @@ export function EventModal(props: {
   const canSaveEvent = Boolean(
     selectedEventWorkers.length > 0 &&
       selectedEventCourse &&
-      (eventTab !== "evento" ||
-        (!(eventType === "SVOLTO" || eventType === "MODIFICA_DATA") || Boolean(eventDate))),
+      (!(eventType === "SVOLTO" || eventType === "MODIFICA_DATA") || Boolean(eventDate)),
   );
 
   const saveEvent = useCallback(async () => {
@@ -110,31 +104,40 @@ export function EventModal(props: {
     setEventSaveError("");
     try {
       const employeeIds = selectedEventWorkers.map((w) => w.workerId);
-      const typeToSend: EventType = eventTab === "da_fare" ? "DA_FARE" : eventType;
+      const typeToSend: EventType = eventType;
+
+      const courseCodes = selectedEventCourse.code.startsWith("FORM_BASE+")
+        ? ["FORM_BASE", selectedEventCourse.code.slice("FORM_BASE+".length)]
+        : [selectedEventCourse.code];
 
       if (typeToSend === "ANNULLA") {
-        const previewResponse = await fetch("/api/formazione/eventi", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            employeeIds,
-            courseCode: selectedEventCourse.code,
-            type: "ANNULLA",
-            note: eventNote,
-            dryRun: true,
+        const previews = await Promise.all(
+          courseCodes.map(async (courseCode) => {
+            const previewResponse = await fetch("/api/formazione/eventi", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                employeeIds,
+                courseCode,
+                type: "ANNULLA",
+                note: eventNote,
+                dryRun: true,
+              }),
+            });
+            const previewBody = (await previewResponse.json()) as {
+              error?: string;
+              excluded?: number;
+              clearedPlanned?: number;
+              completed?: number;
+            };
+            if (!previewResponse.ok || previewBody.error) {
+              throw new Error(previewBody.error ?? "Errore salvataggio evento.");
+            }
+            return previewBody;
           }),
-        });
-        const previewBody = (await previewResponse.json()) as {
-          error?: string;
-          excluded?: number;
-          clearedPlanned?: number;
-          completed?: number;
-        };
-        if (!previewResponse.ok || previewBody.error) {
-          throw new Error(previewBody.error ?? "Errore salvataggio evento.");
-        }
+        );
 
-        const completed = Number(previewBody.completed ?? 0);
+        const completed = previews.reduce((acc, p) => acc + Number(p.completed ?? 0), 0);
         if (completed > 0) {
           const ok = window.confirm(
             `Ci sono ${completed} dipendenti che risultano già “SVOLTO” per questo corso. Procedo comunque ad annullare per gli altri?`,
@@ -144,23 +147,28 @@ export function EventModal(props: {
       }
 
       if (typeToSend === "DA_FARE") {
-        const previewResponse = await fetch("/api/formazione/eventi", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            employeeIds,
-            courseCode: selectedEventCourse.code,
-            type: "DA_FARE",
-            note: eventNote,
-            dryRun: true,
+        const previews = await Promise.all(
+          courseCodes.map(async (courseCode) => {
+            const previewResponse = await fetch("/api/formazione/eventi", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                employeeIds,
+                courseCode,
+                type: "DA_FARE",
+                note: eventNote,
+                dryRun: true,
+              }),
+            });
+            const previewBody = (await previewResponse.json()) as { error?: string; completed?: number };
+            if (!previewResponse.ok || previewBody.error) {
+              throw new Error(previewBody.error ?? "Errore salvataggio evento.");
+            }
+            return previewBody;
           }),
-        });
-        const previewBody = (await previewResponse.json()) as { error?: string; completed?: number };
-        if (!previewResponse.ok || previewBody.error) {
-          throw new Error(previewBody.error ?? "Errore salvataggio evento.");
-        }
+        );
 
-        const completed = Number(previewBody.completed ?? 0);
+        const completed = previews.reduce((acc, p) => acc + Number(p.completed ?? 0), 0);
         if (completed > 0) {
           const ok = window.confirm(
             `Ci sono ${completed} dipendenti che risultano già “SVOLTO” per questo corso. Procedo comunque ad impostare “DA FARE” per gli altri?`,
@@ -169,21 +177,25 @@ export function EventModal(props: {
         }
       }
 
-      const response = await fetch("/api/formazione/eventi", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          employeeIds,
-          courseCode: selectedEventCourse.code,
-          type: typeToSend,
-          date: eventDate || undefined,
-          note: eventNote,
+      await Promise.all(
+        courseCodes.map(async (courseCode) => {
+          const response = await fetch("/api/formazione/eventi", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              employeeIds,
+              courseCode,
+              type: typeToSend,
+              date: eventDate || undefined,
+              note: eventNote,
+            }),
+          });
+          const body = (await response.json()) as { ok?: boolean; error?: string };
+          if (!response.ok || body.error) {
+            throw new Error(body.error ?? "Errore salvataggio evento.");
+          }
         }),
-      });
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore salvataggio evento.");
-      }
+      );
 
       await onSaved(employeeIds);
     } catch (err) {
@@ -191,7 +203,7 @@ export function EventModal(props: {
     } finally {
       setEventSaving(false);
     }
-  }, [eventDate, eventNote, eventTab, eventType, onSaved, selectedEventCourse, selectedEventWorkers]);
+  }, [eventDate, eventNote, eventType, onSaved, selectedEventCourse, selectedEventWorkers]);
 
   if (!isOpen) return null;
 
@@ -211,29 +223,6 @@ export function EventModal(props: {
         <p className="mt-1 text-xs text-slate-500">Selezione guidata con ricerca su anagrafica e catalogo corsi.</p>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="inline-flex rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-1 text-sm">
-            <button
-              type="button"
-              onClick={() => setEventTab("evento")}
-              className={[
-                "rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 font-bold text-white shadow-sm transition hover:brightness-95",
-                eventTab === "evento" ? "" : "opacity-80",
-              ].join(" ")}
-            >
-              Evento
-            </button>
-            <button
-              type="button"
-              onClick={() => setEventTab("da_fare")}
-              className={[
-                "rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 font-bold text-white shadow-sm transition hover:brightness-95",
-                eventTab === "da_fare" ? "" : "opacity-80",
-              ].join(" ")}
-            >
-              Da fare
-            </button>
-          </div>
-
           <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-xs text-slate-700">
             <span className="font-semibold text-[var(--brand-ink)]">{selectedEventWorkers.length}</span>
             <span>selezionati</span>
@@ -347,41 +336,33 @@ export function EventModal(props: {
               </div>
             </div>
 
-            {eventTab === "evento" ? (
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <select
-                  value={eventType}
-                  onChange={(event) => setEventType(event.target.value as Exclude<EventType, "DA_FARE">)}
-                  className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
-                >
-                  <option value="PROGRAMMATO">PROGRAMMATO</option>
-                  <option value="SVOLTO">SVOLTO</option>
-                  <option value="MODIFICA_DATA">MODIFICA_DATA</option>
-                  <option value="ANNULLA">ANNULLA</option>
-                </select>
-                <input
-                  type="date"
-                  value={eventDate}
-                  onChange={(event) => setEventDate(event.target.value)}
-                  className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
-                />
-                <input
-                  value={eventNote}
-                  onChange={(event) => setEventNote(event.target.value)}
-                  className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm md:col-span-2"
-                  placeholder="Note evento"
-                />
-              </div>
-            ) : (
-              <div className="mt-3 grid gap-3">
-                <input
-                  value={eventNote}
-                  onChange={(event) => setEventNote(event.target.value)}
-                  className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
-                  placeholder="Note (opzionali)"
-                />
-              </div>
-            )}
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <select
+                value={eventType}
+                onChange={(event) => setEventType(event.target.value as EventType)}
+                className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
+              >
+                <option value="PROGRAMMATO">PROGRAMMATO</option>
+                <option value="DA_FARE">DA_FARE</option>
+                <option value="SVOLTO">SVOLTO</option>
+                <option value="MODIFICA_DATA">MODIFICA_DATA</option>
+                <option value="ANNULLA">ANNULLA</option>
+                <option value="NOTE">NOTE</option>
+              </select>
+              <input
+                type="date"
+                value={eventDate}
+                onChange={(event) => setEventDate(event.target.value)}
+                disabled={!(eventType === "SVOLTO" || eventType === "MODIFICA_DATA" || eventType === "PROGRAMMATO")}
+                className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm disabled:bg-slate-100"
+              />
+              <input
+                value={eventNote}
+                onChange={(event) => setEventNote(event.target.value)}
+                className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm md:col-span-2"
+                placeholder="Note (opzionali)"
+              />
+            </div>
           </div>
         </div>
 
