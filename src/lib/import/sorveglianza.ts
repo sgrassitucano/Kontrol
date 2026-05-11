@@ -350,8 +350,24 @@ function parseDateToIso(value: unknown) {
     return value.toISOString().slice(0, 10);
   }
 
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const n = value;
+    if (n > 20000 && n < 80000) {
+      const millis = Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000;
+      return new Date(millis).toISOString().slice(0, 10);
+    }
+  }
+
   const raw = String(value ?? "").trim();
   if (!raw) return null;
+
+  if (raw.match(/^\d+(\.\d+)?$/)) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 20000 && n < 80000) {
+      const millis = Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000;
+      return new Date(millis).toISOString().slice(0, 10);
+    }
+  }
 
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
@@ -366,7 +382,7 @@ function parseDateToIso(value: unknown) {
     return `${dot[3]}-${mm}-${dd}`;
   }
 
-  const slashLong = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const slashLong = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (slashLong) {
     const ddNum = Number(slashLong[1]);
     const mmNum = Number(slashLong[2]);
@@ -376,7 +392,7 @@ function parseDateToIso(value: unknown) {
     return `${slashLong[3]}-${mm}-${dd}`;
   }
 
-  const slashShort = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  const slashShort = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{2})/);
   if (slashShort) {
     const ddNum = Number(slashShort[1]);
     const mmNum = Number(slashShort[2]);
@@ -398,7 +414,7 @@ function readSheetRows(workbook: XLSX.WorkBook, sheetName: string) {
   const worksheet = workbook.Sheets[sheetName];
   const rows = (XLSX.utils.sheet_to_json(worksheet, {
     header: 1,
-    raw: false,
+    raw: true,
     defval: "",
   }) ?? []) as unknown[][];
   return rows;
@@ -481,6 +497,18 @@ function parseWorkbook(
     }
     const requiresVisit = requiresVisitParsed ?? true;
     const nextDueDate = parseDateToIso(dueRaw);
+    const dueRawText = cleanCell(dueRaw);
+    if (dueRawText && !nextDueDate) {
+      errors.push({
+        rowNumber,
+        matricola,
+        taxCode,
+        lastName,
+        firstName,
+        errorType: "invalid_due_date",
+        errorMessage: `Data non valida in "scadenza visita": "${dueRawText}".`,
+      });
+    }
 
     validRows.push({
       rowNumber,
