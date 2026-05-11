@@ -78,7 +78,7 @@ export function pickComparableFields<T extends Record<string, unknown>>(
   fields: string[],
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const v = value ?? {};
+  const v: Record<string, unknown> = (value ?? {}) as Record<string, unknown>;
   fields.forEach((f) => {
     out[f] = v[f];
   });
