@@ -2716,24 +2716,26 @@ export default function HomeFormazionePage() {
 
 function statusClassName(status: WorkerCourseRow["stato"]) {
   const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-[2px] text-[9px] font-medium uppercase tracking-[0.04em] leading-none";
+    "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-[3px] text-[9px] font-bold uppercase tracking-[0.06em] leading-none";
   if (status === "escluso")
-    return `${base} border-slate-200 bg-white text-slate-600`;
+    return `${base} border-slate-200 bg-slate-100 text-slate-700`;
   if (status === "perso")
-    return `${base} border-slate-200 bg-slate-50 text-slate-500`;
+    return `${base} border-slate-200 bg-slate-200 text-slate-800`;
+  if (status === "da fare")
+    return `${base} border-rose-700 bg-rose-600 text-white`;
   if (status === "scaduto")
-    return `${base} border-red-200 bg-red-50 text-red-700`;
+    return `${base} border-red-700 bg-red-600 text-white`;
   if (status === "in scadenza")
-    return `${base} border-amber-200 bg-amber-50 text-amber-700`;
+    return `${base} border-amber-600 bg-amber-500 text-white`;
   if (status === "idoneo")
-    return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
+    return `${base} border-emerald-700 bg-emerald-600 text-white`;
   if (status === "sospeso")
-    return `${base} border-slate-300 bg-slate-100 text-slate-700`;
+    return `${base} border-slate-600 bg-slate-500 text-white`;
   if (status === "programmato")
-    return `${base} border-sky-200 bg-sky-50 text-sky-700`;
+    return `${base} border-sky-700 bg-sky-600 text-white`;
   if (status === "upgrade")
-    return `${base} border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800`;
-  return `${base} border-red-200 bg-red-50 text-red-700`;
+    return `${base} border-fuchsia-700 bg-fuchsia-600 text-white`;
+  return `${base} border-slate-300 bg-slate-100 text-slate-700`;
 }
 
 function originClassName(origine: WorkerCourseRow["origine"]) {
