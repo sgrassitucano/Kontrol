@@ -144,6 +144,7 @@ function extractLimitationsText(text: string) {
 }
 
 async function extractPdfPagesText(fileBuffer: ArrayBuffer) {
+  await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(fileBuffer);
   const loadingTask = pdfjs.getDocument({ data, disableWorker: true } as never);
