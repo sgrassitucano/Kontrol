@@ -414,7 +414,7 @@ function readSheetRows(workbook: XLSX.WorkBook, sheetName: string) {
   const worksheet = workbook.Sheets[sheetName];
   const rows = (XLSX.utils.sheet_to_json(worksheet, {
     header: 1,
-    raw: true,
+    raw: false,
     defval: "",
   }) ?? []) as unknown[][];
   return rows;
@@ -424,7 +424,9 @@ function parseWorkbook(
   fileBuffer: ArrayBuffer,
 ): { validRows: RawRow[]; errors: SurveillanceImportErrorRow[]; totalRows: number } {
   const workbook = XLSX.read(Buffer.from(fileBuffer), { cellDates: true });
-  const rows = readSheetRows(workbook, workbook.SheetNames[0]);
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const rows = readSheetRows(workbook, sheetName);
   const headerRowIndex = 0;
   const headerRow = rows[headerRowIndex] ?? [];
   const headerIndex = buildHeaderIndex(headerRow);
@@ -449,6 +451,10 @@ function parseWorkbook(
     const missingNames = missingHeaders.map((f) => templateHeaders[f]).join(", ");
     throw new Error(`File non conforme al modello import Sorveglianza. Colonne mancanti: ${missingNames}.`);
   }
+
+  const dueKey = normalizeHeaderCell(templateHeaders.dueDate);
+  const dueIndices = headerIndex.get(dueKey) ?? [];
+  const dueColIndex = dueIndices[0] ?? -1;
 
   const dataRows = rows.slice(headerRowIndex + 1);
   const validRows: RawRow[] = [];
@@ -496,8 +502,34 @@ function parseWorkbook(
       });
     }
     const requiresVisit = requiresVisitParsed ?? true;
-    const nextDueDate = parseDateToIso(dueRaw);
-    const dueRawText = cleanCell(dueRaw);
+    let nextDueDate = parseDateToIso(dueRaw);
+
+    const dueCell =
+      worksheet && dueColIndex >= 0
+        ? (worksheet[XLSX.utils.encode_cell({ r: headerRowIndex + 1 + i, c: dueColIndex })] as
+            | { v?: unknown; w?: unknown; f?: unknown }
+            | undefined)
+        : undefined;
+
+    const dueRawText = cleanCell(dueCell?.w ?? dueRaw);
+
+    if (!nextDueDate && dueCell) {
+      if (dueCell.f && (dueCell.v === undefined || dueCell.v === null || dueCell.v === "")) {
+        errors.push({
+          rowNumber,
+          matricola,
+          taxCode,
+          lastName,
+          firstName,
+          errorType: "due_date_formula_not_supported",
+          errorMessage:
+            'La cella "scadenza visita" contiene una formula senza valore. Salva/Esporta il file con valori (incolla valori) e reimporta.',
+        });
+      } else {
+        nextDueDate = parseDateToIso(dueCell.v ?? dueCell.w ?? dueRaw);
+      }
+    }
+
     if (dueRawText && !nextDueDate) {
       errors.push({
         rowNumber,
