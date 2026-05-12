@@ -184,6 +184,7 @@ export function SurveillanceEventModal(props: {
               type="button"
               onClick={clearSelection}
               data-soft="true"
+              data-tone="muted"
               className="ml-2 rounded-lg px-2 py-1 text-xs"
             >
               Svuota

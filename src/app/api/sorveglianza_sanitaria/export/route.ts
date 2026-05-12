@@ -158,6 +158,8 @@ async function fetchAllEmployees(supabase: SupabaseClient) {
       )
       .eq("status", "attivo")
       .order("last_name")
+      .order("first_name")
+      .order("id")
       .range(from, to);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as EmployeeRow[];
@@ -180,6 +182,7 @@ async function fetchAllSurveillanceRows(supabase: SupabaseClient) {
     const { data, error } = await supabase
       .from("medical_surveillance_records")
       .select("employee_id,provider,is_planned,next_due_date,limitations,notes")
+      .order("employee_id")
       .range(from, to);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as SurveillanceRow[];
@@ -202,6 +205,8 @@ async function fetchAllFreezes(supabase: SupabaseClient) {
     const { data, error } = await supabase
       .from("employee_freeze_periods")
       .select("employee_id,freeze_status,start_date,end_date")
+      .order("employee_id")
+      .order("start_date")
       .range(from, to);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as FreezeRow[];

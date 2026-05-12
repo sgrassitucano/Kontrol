@@ -400,6 +400,7 @@ export default function HomeSorveglianzaPage() {
                 setEventModalOpen(true);
               }}
               data-soft="true"
+              data-tone="success"
               className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               + Evento
@@ -416,13 +417,32 @@ export default function HomeSorveglianzaPage() {
                 void downloadFrom(`/api/sorveglianza_sanitaria/export?${params.toString()}`);
               }}
               data-soft="true"
+              data-tone="info"
               className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Esporta la vista corrente (filtri inclusi)."
             >
-              {exporting ? "Export..." : "Export"}
+              {exporting ? "Export..." : "Export vista"}
+            </button>
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => {
+                const params = new URLSearchParams();
+                params.set("expiringDays", String(expiringDays));
+                params.set("includeExcluded", "1");
+                void downloadFrom(`/api/sorveglianza_sanitaria/export?${params.toString()}`);
+              }}
+              data-soft="true"
+              data-tone="success"
+              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Esporta tutti i lavoratori attivi (ignora ricerca/stato; include anche gli esclusi)."
+            >
+              {exporting ? "Export..." : "Export tutto"}
             </button>
             <Link
               href="/sorveglianza_sanitaria/matrice"
               data-soft="true"
+              data-tone="purple"
               className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               Matrice
@@ -430,6 +450,7 @@ export default function HomeSorveglianzaPage() {
             <Link
               href="/sorveglianza_sanitaria/import"
               data-soft="true"
+              data-tone="warning"
               className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               Import
@@ -437,6 +458,7 @@ export default function HomeSorveglianzaPage() {
             <Link
               href="/sorveglianza_sanitaria/import_pdf"
               data-soft="true"
+              data-tone="warning"
               className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               Import PDF
