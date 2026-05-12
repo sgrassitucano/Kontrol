@@ -180,8 +180,6 @@ const DASHBOARD_STATES: DashboardStateKey[] = [
   "escluso",
 ];
 
-const CRITICAL_STATES = ["scaduto", "da fare", "programmato", "upgrade"] as const;
-
 export default function HomeFormazionePage() {
   const [rows, setRows] = useState<WorkerCourseRow[]>([]);
   const [totalActiveEmployees, setTotalActiveEmployees] = useState(0);
@@ -1172,8 +1170,8 @@ export default function HomeFormazionePage() {
         total,
         base: baseSummary,
         operativi: operativiSummary,
-        baseCritico: countUniqueWorkersByStates(baseRowsForJob, CRITICAL_STATES),
-        operativiCritico: countUniqueWorkersByStates(operativiRowsForJob, CRITICAL_STATES),
+        baseCritico: baseSummary.counts.scaduto + baseSummary.counts["da fare"] + baseSummary.counts.upgrade,
+        operativiCritico: operativiSummary.counts.scaduto + operativiSummary.counts["da fare"] + operativiSummary.counts.upgrade,
       };
     });
   }, [dashboardRows, jobEntities]);
@@ -1306,7 +1304,7 @@ export default function HomeFormazionePage() {
               ] as const
             ).map((panel) => {
               const summary = panel.summary;
-              const criticoCount = countUniqueWorkersByStates(panel.rows, CRITICAL_STATES);
+              const criticoCount = summary.counts.scaduto + summary.counts["da fare"] + summary.counts.upgrade;
               const criticoPct = percentage(criticoCount, summary.total);
 
               return (
@@ -1337,7 +1335,7 @@ export default function HomeFormazionePage() {
                         subValue={`${criticoPct}%`}
                         tone="danger"
                         onClick={() =>
-                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "programmato", "upgrade"] })
+                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "upgrade"] })
                         }
                       />
                       <KpiCard
@@ -2695,23 +2693,23 @@ function statusClassName(status: WorkerCourseRow["stato"]) {
   const base =
     "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-[3px] text-[9px] font-bold uppercase tracking-[0.06em] leading-none";
   if (status === "escluso")
-    return `${base} border-slate-200 bg-slate-100 text-slate-700`;
+    return `${base} border-slate-700/40 bg-slate-600/25 text-white`;
   if (status === "perso")
-    return `${base} border-slate-200 bg-slate-200 text-slate-800`;
+    return `${base} border-slate-700/40 bg-slate-600/25 text-white`;
   if (status === "da fare")
-    return `${base} border-rose-700 bg-rose-600 text-white`;
+    return `${base} border-rose-700/40 bg-rose-600/25 text-white`;
   if (status === "scaduto")
-    return `${base} border-red-700 bg-red-600 text-white`;
+    return `${base} border-red-700/40 bg-red-600/25 text-white`;
   if (status === "in scadenza")
-    return `${base} border-amber-600 bg-amber-500 text-white`;
+    return `${base} border-amber-600/40 bg-amber-400/25 text-slate-950`;
   if (status === "idoneo")
-    return `${base} border-emerald-700 bg-emerald-600 text-white`;
+    return `${base} border-emerald-700/40 bg-emerald-600/25 text-slate-950`;
   if (status === "sospeso")
-    return `${base} border-slate-600 bg-slate-500 text-white`;
+    return `${base} border-slate-700/40 bg-slate-600/25 text-white`;
   if (status === "programmato")
-    return `${base} border-sky-700 bg-sky-600 text-white`;
+    return `${base} border-sky-700/40 bg-sky-600/25 text-white`;
   if (status === "upgrade")
-    return `${base} border-fuchsia-700 bg-fuchsia-600 text-white`;
+    return `${base} border-violet-700/40 bg-violet-600/25 text-white`;
   return `${base} border-slate-300 bg-slate-100 text-slate-700`;
 }
 
@@ -2850,17 +2848,6 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
   };
 
   return { total: totalActiveEmployees, counts: finalCounts, percentages };
-}
-
-function countUniqueWorkersByStates(
-  rows: WorkerCourseRow[],
-  states: readonly WorkerCourseRow["stato"][],
-) {
-  const set = new Set<number>();
-  rows.forEach((row) => {
-    if (states.includes(row.stato)) set.add(row.workerId);
-  });
-  return set.size;
 }
 
 function percentage(count: number, total: number) {
