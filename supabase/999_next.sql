@@ -151,9 +151,10 @@ order by rows_without_expiry desc, c.code;
 update public.training_employee_courses tec
 set expiry_date = (tec.completion_date + make_interval(years => c.validity_years))::date,
     updated_at = timezone('utc', now())
-from public.training_courses c
-join public.employees e on e.id = tec.employee_id
+from public.training_courses c,
+     public.employees e
 where tec.course_id = c.id
+  and e.id = tec.employee_id
   and e.status = 'attivo'
   and tec.completion_date is not null
   and tec.expiry_date is null
