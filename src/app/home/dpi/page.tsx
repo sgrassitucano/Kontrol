@@ -209,7 +209,23 @@ export default function HomeDpiPage() {
   }
 
   const dashboard = useMemo(() => {
-    const byState: Record<string, Set<number>> = {
+    const stateRank = (s: WorkerDpiRow["stato"]) => {
+      if (s === "scaduto") return 1;
+      if (s === "da consegnare") return 2;
+      if (s === "da verificare") return 3;
+      if (s === "programmato") return 4;
+      if (s === "consegnato") return 5;
+      if (s === "idoneo") return 6;
+      return 7;
+    };
+
+    const preferredByWorker = new Map<number, WorkerDpiRow["stato"]>();
+    for (const row of filteredRows) {
+      const prev = preferredByWorker.get(row.workerId);
+      if (!prev || stateRank(row.stato) < stateRank(prev)) preferredByWorker.set(row.workerId, row.stato);
+    }
+
+    const byState: Record<WorkerDpiRow["stato"], Set<number>> = {
       scaduto: new Set(),
       "da verificare": new Set(),
       "da consegnare": new Set(),
@@ -217,10 +233,13 @@ export default function HomeDpiPage() {
       idoneo: new Set(),
       consegnato: new Set(),
     };
-    for (const row of filteredRows) {
-      (byState[row.stato] ??= new Set()).add(row.workerId);
-    }
+
+    preferredByWorker.forEach((state, workerId) => {
+      byState[state].add(workerId);
+    });
+
     return {
+      total: preferredByWorker.size,
       scaduto: byState.scaduto.size,
       daVerificare: byState["da verificare"].size,
       daConsegnare: byState["da consegnare"].size,
@@ -309,32 +328,41 @@ export default function HomeDpiPage() {
           </>
         }
       >
-        <KpiGrid className="sm:grid-cols-2 md:grid-cols-4">
+        <KpiGrid className="sm:grid-cols-2 md:grid-cols-5">
+          <KpiCard
+            label="Totale"
+            value={dashboard.total}
+            subValue="100%"
+          />
           <KpiCard
             label="Scaduto"
             value={dashboard.scaduto}
-            subValue={pct(dashboard.scaduto, totalActiveEmployees)}
+            subValue={pct(dashboard.scaduto, dashboard.total)}
             tone="danger"
           />
           <KpiCard
             label="Da verificare"
             value={dashboard.daVerificare}
-            subValue={pct(dashboard.daVerificare, totalActiveEmployees)}
+            subValue={pct(dashboard.daVerificare, dashboard.total)}
             tone="warning"
           />
           <KpiCard
             label="Da consegnare"
             value={dashboard.daConsegnare}
-            subValue={pct(dashboard.daConsegnare, totalActiveEmployees)}
+            subValue={pct(dashboard.daConsegnare, dashboard.total)}
             tone="danger"
           />
           <KpiCard
             label="Programmato"
             value={dashboard.programmato}
-            subValue={pct(dashboard.programmato, totalActiveEmployees)}
+            subValue={pct(dashboard.programmato, dashboard.total)}
             tone="info"
           />
         </KpiGrid>
+
+        <p className="mt-2 text-xs text-slate-500">
+          Totale lavoratori attivi: {totalActiveEmployees} · In tabella: {dashboard.total}
+        </p>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
