@@ -451,35 +451,6 @@ export default function HomeFormazionePage() {
     [],
   );
 
-  const saveInlineState = useCallback(
-    async (row: WorkerCourseRow, next: "programmato" | "da fare") => {
-      const key = `${row.workerId}-${row.corsoCode}`;
-      setInlineSaveError("");
-      setInlineSaving(key, true);
-      try {
-        const courseCodes = row.corsoCode.startsWith("FORM_BASE+")
-          ? ["FORM_BASE", row.corsoCode.slice("FORM_BASE+".length)]
-          : [row.corsoCode];
-        await Promise.all(
-          courseCodes.map((courseCode) =>
-            updateInline({
-              employeeId: row.workerId,
-              courseCode,
-              type: next === "programmato" ? "PROGRAMMATO" : "DA_FARE",
-            }),
-          ),
-        );
-        await loadRows();
-        if (isWorkerDetailOpen && workerDetailEmployeeId === row.workerId) await loadWorkerDetail(row.workerId);
-      } catch (err) {
-        setInlineSaveError(err instanceof Error ? err.message : "Errore salvataggio.");
-      } finally {
-        setInlineSaving(key, false);
-      }
-    },
-    [isWorkerDetailOpen, loadRows, loadWorkerDetail, setInlineSaving, updateInline, workerDetailEmployeeId],
-  );
-
   const saveInlineNote = useCallback(
     async (row: WorkerCourseRow, note: string) => {
       const key = `${row.workerId}-${row.corsoCode}`;

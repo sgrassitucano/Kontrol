@@ -45,6 +45,15 @@ type CourseStatusRow = {
   note: string | null;
 };
 
+type CourseRow = {
+  id: number;
+  code: string;
+  title: string;
+  is_active: boolean;
+  validity_years: number | null;
+  is_unlimited: boolean;
+};
+
 type FreezeRow = {
   employee_id: number;
   freeze_status: string;
@@ -165,7 +174,7 @@ export async function GET(request: Request) {
       courseExclusions,
     ] = await Promise.all([
       fetchAllEmployees(dataSupabase),
-      dataSupabase.from("training_courses").select("id,code,title,is_active"),
+      dataSupabase.from("training_courses").select("id,code,title,is_active,validity_years,is_unlimited"),
       fetchAllRules(dataSupabase),
       fetchAllCourseRows(dataSupabase),
       fetchAllFreezes(dataSupabase),
@@ -211,7 +220,7 @@ export async function GET(request: Request) {
     };
 
     const activeFreeze = buildActiveFreezeMap((freezes ?? []) as FreezeRow[], todayIso);
-    const courseMap = new Map((courses ?? []).map((course) => [course.id, course]));
+    const courseMap = new Map(((courses ?? []) as CourseRow[]).map((course) => [course.id, course]));
     const statusRows = (courseRows ?? []) as CourseStatusRow[];
     const statusMap = new Map(statusRows.map((row) => [`${row.employee_id}:${row.course_id}`, row]));
     const statusByEmployee = buildStatusByEmployeeMap(statusRows);
@@ -231,7 +240,7 @@ export async function GET(request: Request) {
     for (const employee of employees.filter((row) => !shouldExcludeEmployee(row))) {
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
-      const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, todayIso);
+      const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso);
       let requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap);
       applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
       expandPrerequisites(requiredCourseIds, prerequisitesByFromCourseId);
@@ -244,7 +253,7 @@ export async function GET(request: Request) {
       const skipRequiredCourseIds = new Set<number>();
 
       for (const statusRow of employeeStatusRows) {
-        if (!isValidForSubstitution(statusRow, todayIso)) continue;
+        if (!isValidForSubstitution(statusRow, courseMap, todayIso)) continue;
         const targets = substitutionTargetsByFromCourseId.get(statusRow.course_id);
         if (!targets) continue;
         targets.forEach((targetCourseId) => suppressedAdditionalCourseIds.add(targetCourseId));
@@ -332,7 +341,7 @@ export async function GET(request: Request) {
                 suppressedAdditionalCourseIds.add(bestHigher.courseId);
               }
 
-              const state = resolveCourseState(higherStatus, freeze, todayIso, expiringDaysSafe, false);
+              const state = resolveCourseState(higherStatus, higherCourse, freeze, todayIso, expiringDaysSafe, false);
 
               const outputRow: WorkerCourseRow = {
                 workerId: employee.id,
@@ -366,19 +375,20 @@ export async function GET(request: Request) {
           statusEntry,
           employeeStatusRows,
           substitutersByToCourseId,
+          courseMap,
           todayIso,
         });
         if (courseExcluded || !substitute) {
           const lost =
             !courseExcluded &&
             Boolean(statusEntry?.expiry_date) &&
-            resolveCourseState(statusEntry, undefined, todayIso, expiringDaysSafe, false) === "perso";
+            resolveCourseState(statusEntry, course, undefined, todayIso, expiringDaysSafe, false) === "perso";
 
           const state = courseExcluded
             ? "escluso"
             : lost
-              ? resolveCourseState(undefined, freeze, todayIso, expiringDaysSafe, false)
-              : resolveCourseState(statusEntry, freeze, todayIso, expiringDaysSafe, false);
+              ? resolveCourseState(undefined, undefined, freeze, todayIso, expiringDaysSafe, false)
+              : resolveCourseState(statusEntry, course, freeze, todayIso, expiringDaysSafe, false);
 
           const outputRow: WorkerCourseRow = {
             workerId: employee.id,
@@ -433,7 +443,7 @@ export async function GET(request: Request) {
           suppressedAdditionalCourseIds.add(substitute.substituteCourseId);
         }
 
-        const state = resolveCourseState(substitute.statusEntry, freeze, todayIso, expiringDaysSafe, false);
+        const state = resolveCourseState(substitute.statusEntry, substituteCourse, freeze, todayIso, expiringDaysSafe, false);
 
         const outputRow: WorkerCourseRow = {
           workerId: employee.id,
@@ -472,14 +482,14 @@ export async function GET(request: Request) {
         const isUpgrade = upgradeCourseIds.has(statusEntry.course_id);
         const courseExcluded =
           excludedCourseIdsByEmployee.get(employee.id)?.has(statusEntry.course_id) ?? false;
-        const lost = resolveCourseState(statusEntry, undefined, todayIso, expiringDaysSafe) === "perso";
+        const lost = resolveCourseState(statusEntry, course, undefined, todayIso, expiringDaysSafe) === "perso";
         const baseState = lost
           ? "perso"
           : freeze
             ? "sospeso"
             : isUpgrade
               ? "upgrade"
-              : resolveCourseState(statusEntry, freeze, todayIso, expiringDaysSafe);
+              : resolveCourseState(statusEntry, course, freeze, todayIso, expiringDaysSafe);
         const state = courseExcluded ? "escluso" : baseState;
 
         const outputRow: WorkerCourseRow = {
@@ -900,17 +910,25 @@ function buildPrerequisitesByFromCourseId(links: RuleLinkRow[]) {
   return map;
 }
 
-function isValidForSubstitution(row: CourseStatusRow, todayIso: string) {
+function isValidForSubstitution(row: CourseStatusRow, courseMap: Map<number, CourseRow>, todayIso: string) {
   if (row.manual_state === "escluso") return false;
   if (row.manual_state === "programmato") return false;
   if (row.planned_date && !row.completion_date) return false;
-  return isValidCourseStatus(row, todayIso);
+  const course = courseMap.get(row.course_id);
+  if (!course) return false;
+  return isValidCourseStatus(row, course, todayIso);
 }
 
-function buildValidCompletedCourseIdSet(statusRows: CourseStatusRow[], todayIso: string) {
+function buildValidCompletedCourseIdSet(
+  statusRows: CourseStatusRow[],
+  courseMap: Map<number, CourseRow>,
+  todayIso: string,
+) {
   const set = new Set<number>();
   statusRows.forEach((row) => {
-    if (isValidCourseStatus(row, todayIso)) set.add(row.course_id);
+    const course = courseMap.get(row.course_id);
+    if (!course) return;
+    if (isValidCourseStatus(row, course, todayIso)) set.add(row.course_id);
   });
   return set;
 }
@@ -953,16 +971,17 @@ function pickBestSubstituteStatus(args: {
   statusEntry: CourseStatusRow | undefined;
   employeeStatusRows: CourseStatusRow[];
   substitutersByToCourseId: Map<number, Set<number>>;
+  courseMap: Map<number, CourseRow>;
   todayIso: string;
 }) {
-  const { requiredCourseId, statusEntry, employeeStatusRows, substitutersByToCourseId, todayIso } = args;
+  const { requiredCourseId, statusEntry, employeeStatusRows, substitutersByToCourseId, courseMap, todayIso } = args;
   if (statusEntry?.manual_state === "escluso") return null;
 
   const substituters = substitutersByToCourseId.get(requiredCourseId);
   if (!substituters || substituters.size === 0) return null;
 
   const candidates = employeeStatusRows.filter(
-    (row) => substituters.has(row.course_id) && isValidForSubstitution(row, todayIso),
+    (row) => substituters.has(row.course_id) && isValidForSubstitution(row, courseMap, todayIso),
   );
   if (candidates.length === 0) return null;
 
@@ -1056,7 +1075,7 @@ function resolveRequiredCourseIds(employee: EmployeeRow, grouped: ReturnType<typ
 
 function collapseLeveledCourseRequirements(
   requiredIds: Set<number>,
-  courseMap: Map<number, { code: string; title: string; is_active: boolean }>,
+  courseMap: Map<number, CourseRow>,
 ) {
   const result = new Set(requiredIds);
   const requiredCodes = new Set<string>();
@@ -1087,7 +1106,7 @@ function collapseLeveledCourseRequirements(
 
 function findCourseIdByCode(
   code: string,
-  courseMap: Map<number, { code: string; title: string; is_active: boolean }>,
+  courseMap: Map<number, CourseRow>,
 ) {
   for (const [courseId, course] of courseMap.entries()) {
     if (course.code === code) return courseId;
@@ -1097,7 +1116,7 @@ function findCourseIdByCode(
 
 function findRequiredFormSpecCourse(
   requiredCourseIds: Set<number>,
-  courseMap: Map<number, { code: string; title: string; is_active: boolean }>,
+  courseMap: Map<number, CourseRow>,
 ) {
   for (const courseId of requiredCourseIds) {
     const code = courseMap.get(courseId)?.code ?? "";
@@ -1123,7 +1142,7 @@ function buildBaseAggregateRow({
   employee: EmployeeRow;
   formBaseCourseId: number;
   formSpecRequired: { courseId: number; code: string };
-  courseMap: Map<number, { id: number; code: string; title: string; is_active: boolean }>;
+  courseMap: Map<number, CourseRow>;
   statusMap: Map<string, CourseStatusRow>;
   employeeStatusRows: CourseStatusRow[];
   substitutersByToCourseId: Map<number, Set<number>>;
@@ -1193,12 +1212,15 @@ function buildBaseAggregateRow({
     statusEntry: effectiveSpecStatus,
     employeeStatusRows,
     substitutersByToCourseId,
+    courseMap,
     todayIso,
   });
   if (substituteForSpec) return null;
 
-  const formBaseState = resolveCourseState(formBaseStatus, freeze, todayIso, expiringDays, false);
-  const rawSpecState = resolveCourseState(effectiveSpecStatus, freeze, todayIso, expiringDays, false);
+  const baseCourse = courseMap.get(formBaseCourseId);
+  const specCourse = courseMap.get(effectiveSpecCourseId);
+  const formBaseState = resolveCourseState(formBaseStatus, baseCourse, freeze, todayIso, expiringDays, false);
+  const rawSpecState = resolveCourseState(effectiveSpecStatus, specCourse, freeze, todayIso, expiringDays, false);
   const specState =
     shouldUpgrade && (rawSpecState === "idoneo" || rawSpecState === "in scadenza")
       ? "upgrade"
@@ -1380,7 +1402,7 @@ function findBestLowerValidCourse({
   statusRows: CourseStatusRow[];
   family: readonly string[];
   requiredIndex: number;
-  courseMap: Map<number, { code: string; title: string; is_active: boolean }>;
+  courseMap: Map<number, CourseRow>;
   todayIso: string;
 }) {
   const candidates: Array<{ courseId: number; courseCode: string; familyIndex: number }> = [];
@@ -1391,7 +1413,7 @@ function findBestLowerValidCourse({
     if (!family.includes(course.code)) continue;
     const idx = family.indexOf(course.code);
     if (idx <= requiredIndex) continue;
-    if (!isValidCourseStatus(sr, todayIso)) continue;
+    if (!isValidCourseStatus(sr, course, todayIso)) continue;
     candidates.push({ courseId: sr.course_id, courseCode: course.code, familyIndex: idx });
   }
 
@@ -1409,7 +1431,7 @@ function findBestHigherValidCourse({
   statusRows: CourseStatusRow[];
   family: readonly string[];
   requiredIndex: number;
-  courseMap: Map<number, { code: string; title: string; is_active: boolean }>;
+  courseMap: Map<number, CourseRow>;
   todayIso: string;
 }) {
   const candidates: Array<{ courseId: number; courseCode: string; familyIndex: number }> = [];
@@ -1421,7 +1443,7 @@ function findBestHigherValidCourse({
     const idx = family.indexOf(course.code);
     if (idx < 0) continue;
     if (idx >= requiredIndex) continue;
-    if (!isValidCourseStatus(sr, todayIso)) continue;
+    if (!isValidCourseStatus(sr, course, todayIso)) continue;
     candidates.push({ courseId: sr.course_id, courseCode: course.code, familyIndex: idx });
   }
 
@@ -1429,17 +1451,42 @@ function findBestHigherValidCourse({
   return candidates[0] ?? null;
 }
 
-function isValidCourseStatus(row: CourseStatusRow, todayIso: string) {
+function computeTheoreticalExpiryIso(completionDateIso: string, validityYears: number) {
+  const baseKey = parseDateOnlyKey(completionDateIso);
+  if (!baseKey) return null;
+  const y = Math.floor(baseKey / 10000);
+  const m = Math.floor((baseKey % 10000) / 100);
+  const d = baseKey % 100;
+  const base = new Date(Date.UTC(y, m - 1, d));
+  if (!Number.isFinite(base.getTime())) return null;
+  const next = new Date(Date.UTC(base.getUTCFullYear() + validityYears, base.getUTCMonth(), base.getUTCDate()));
+  return next.toISOString().slice(0, 10);
+}
+
+function isValidCourseStatus(row: CourseStatusRow, course: CourseRow, todayIso: string) {
   if (row.manual_state === "escluso") return false;
   if (row.manual_state === "programmato") return false;
   if (!row.completion_date) return false;
-  if (!row.expiry_date) return true;
-  const expiryKey = parseDateOnlyKey(row.expiry_date);
-  if (!expiryKey) return true;
-  const expiryIso = normalizeDateOnlyIso(String(row.expiry_date));
-  if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return true;
+  if (course.is_unlimited) return true;
+
   const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
-  if (!todayKey) return true;
+  if (!todayKey) return false;
+
+  const expiryIso = row.expiry_date ? normalizeDateOnlyIso(String(row.expiry_date)) : null;
+  if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return true;
+
+  if (!expiryIso) {
+    const years = course.validity_years;
+    if (!years || !Number.isFinite(years) || years <= 0) return false;
+    const computed = computeTheoreticalExpiryIso(row.completion_date, years);
+    if (!computed) return false;
+    const computedKey = parseDateOnlyKey(computed);
+    if (!computedKey) return false;
+    return computedKey >= todayKey;
+  }
+
+  const expiryKey = parseDateOnlyKey(expiryIso);
+  if (!expiryKey) return false;
   return expiryKey >= todayKey;
 }
 
@@ -1464,6 +1511,7 @@ function buildActiveFreezeMap(rows: FreezeRow[], todayIso: string) {
 
 function resolveCourseState(
   row: CourseStatusRow | undefined,
+  course: CourseRow | undefined,
   freeze: FreezeRow | undefined,
   todayIso: string,
   expiringDays: number,
@@ -1486,17 +1534,25 @@ function resolveCourseState(
     return isUpgrade ? "upgrade" : "da fare";
   }
 
-  if (!row.expiry_date) {
-    return "idoneo";
-  }
-  const expiryKey = parseDateOnlyKey(row.expiry_date);
-  if (!expiryKey) return "idoneo";
-  const expiryIso = normalizeDateOnlyIso(String(row.expiry_date));
+  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
+  if (!todayKey) return isUpgrade ? "upgrade" : "da fare";
+  const thresholdKey = addDaysKey(todayKey, expiringDays);
+
+  if (course?.is_unlimited) return "idoneo";
+
+  let expiryIso = row.expiry_date ? normalizeDateOnlyIso(String(row.expiry_date)) : null;
   if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return "idoneo";
 
-  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
-  if (!todayKey) return "idoneo";
-  const thresholdKey = addDaysKey(todayKey, expiringDays);
+  if (!expiryIso) {
+    const years = course?.validity_years;
+    if (!years || !Number.isFinite(years) || years <= 0) return isUpgrade ? "upgrade" : "da fare";
+    const computed = computeTheoreticalExpiryIso(row.completion_date, years);
+    if (!computed) return isUpgrade ? "upgrade" : "da fare";
+    expiryIso = computed;
+  }
+
+  const expiryKey = parseDateOnlyKey(expiryIso);
+  if (!expiryKey) return isUpgrade ? "upgrade" : "da fare";
 
   if (expiryKey < todayKey) {
     const lostKey = addMonthsKey(expiryKey, 6);
