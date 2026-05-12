@@ -1340,28 +1340,34 @@ function buildTrainingBaseSectionRows({
   };
 
   if (!baseCompletionKey) {
-    const state = resolveCourseState(undefined, undefined, freeze, todayIso, expiringDays, false);
-    const specRow: WorkerCourseRow = {
-        workerId: employee.id,
-        matricola: employee.matricola,
-        cognome: employee.last_name,
-        nome: employee.first_name,
-        mansione: formatJobLabel(employee.job_title ?? ""),
-        cantiere: extractDisplayName(employee.sites),
-        sottocantiere: extractDisplayName(employee.sub_sites),
-        courseId: formSpecRequired.courseId,
-        corsoCode: requiredSpecCourse?.code ?? formSpecRequired.code,
-        corso: requiredSpecCourse?.title ?? "Formazione specifica",
-        dataConclusione: null,
-        dataScadenza: null,
-        stato: state as WorkerCourseRow["stato"],
-        upgradeInfo: null,
-        responsabile: employee.responsible_code,
-        referente: employee.referral ?? "",
-        note: "",
-        origine: "obbligatorio",
-      };
-    return [generalRow, specRow];
+    const requiredRisk = formSpecRequired.code.slice("FORM_SPEC_".length).toLowerCase();
+    const courseCode = `FORM_BASE+${formSpecRequired.code}`;
+    const courseTitle = `Formazione generale + specifica rischio ${requiredRisk}`;
+    const state = mergeBaseStates(
+      formBaseState,
+      resolveCourseState(undefined, undefined, freeze, todayIso, expiringDays, false),
+    );
+
+    const row: WorkerCourseRow = {
+      workerId: employee.id,
+      matricola: employee.matricola,
+      cognome: employee.last_name,
+      nome: employee.first_name,
+      mansione: formatJobLabel(employee.job_title ?? ""),
+      cantiere: extractDisplayName(employee.sites),
+      sottocantiere: extractDisplayName(employee.sub_sites),
+      corsoCode: courseCode,
+      corso: courseTitle,
+      dataConclusione: null,
+      dataScadenza: null,
+      stato: state as WorkerCourseRow["stato"],
+      upgradeInfo: null,
+      responsabile: employee.responsible_code,
+      referente: employee.referral ?? "",
+      note: formBaseStatus?.note ?? "",
+      origine: "obbligatorio",
+    };
+    return [row];
   }
 
   if (ownedSpecStatus && baseOk && specOk && ownedRank < requiredRank && ownedSpecCourseId) {
