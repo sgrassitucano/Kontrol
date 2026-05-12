@@ -146,6 +146,7 @@ export default function HomeSorveglianzaPage() {
   const [detailExcluded, setDetailExcluded] = useState(false);
   const [detailExclusionNote, setDetailExclusionNote] = useState("");
   const [detailPlanned, setDetailPlanned] = useState(false);
+  const [detailProvider, setDetailProvider] = useState("");
   const [detailSaving, setDetailSaving] = useState(false);
 
   const loadRows = useCallback(async () => {
@@ -329,6 +330,7 @@ export default function HomeSorveglianzaPage() {
 
       const record = (typed?.record ?? null) as { is_planned?: boolean } | null;
       setDetailPlanned(Boolean(record?.is_planned));
+      setDetailProvider(String((typed?.record ?? null)?.provider ?? "").trim());
     } catch (err) {
       setWorkerDetailError(err instanceof Error ? err.message : "Errore caricamento lavoratore.");
     } finally {
@@ -360,6 +362,7 @@ export default function HomeSorveglianzaPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           employeeId: workerDetailId,
+          provider: detailProvider.trim() || null,
           planned: detailPlanned,
           exclusionEnabled: detailExcluded,
           exclusionNote: detailExclusionNote.trim() || null,
@@ -383,6 +386,7 @@ export default function HomeSorveglianzaPage() {
     detailOverrideMode,
     detailOverrideNote,
     detailPlanned,
+    detailProvider,
     loadRows,
     loadWorkerDetail,
     workerDetailId,
@@ -843,6 +847,19 @@ export default function HomeSorveglianzaPage() {
                         />
                         Segna come programmato
                       </label>
+                    </div>
+
+                    <div className="space-y-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
+                      <p className="text-sm font-semibold text-slate-900">Provider (Medico/Ente)</p>
+                      <input
+                        value={detailProvider}
+                        onChange={(event) => setDetailProvider(event.target.value)}
+                        placeholder="Es. Morelli Fabri / Moriste / …"
+                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                      />
+                      <p className="text-xs text-slate-600">
+                        Usato in tabella/export quando la matrice risulta “MISTO” o vuota.
+                      </p>
                     </div>
 
                     <div className="space-y-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">

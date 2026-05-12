@@ -18,6 +18,13 @@ type EmployeeRow = {
   sub_sites: unknown;
 };
 
+function normalizeProvider(value: string | null | undefined) {
+  const v = String(value ?? "").trim();
+  if (!v) return null;
+  if (v.toUpperCase() === "MISTO") return null;
+  return v;
+}
+
 type SurveillanceRow = {
   employee_id: number;
   provider: string | null;
@@ -263,8 +270,9 @@ export async function GET(request: Request) {
 
       const providerFromAssignment =
         typeof employee.sub_site_id === "number" && employee.sub_site_id
-          ? providerBySubSiteId.get(employee.sub_site_id)?.provider ?? null
-          : providerBySiteId.get(employee.site_id)?.provider ?? null;
+          ? normalizeProvider(providerBySubSiteId.get(employee.sub_site_id)?.provider ?? null)
+          : normalizeProvider(providerBySiteId.get(employee.site_id)?.provider ?? null);
+      const providerFromRecord = normalizeProvider(record?.provider ?? null);
 
       const row: WorkerSurveillanceRow = {
         workerId: employee.id,
@@ -279,7 +287,7 @@ export async function GET(request: Request) {
         visitaRichiesta: requiresVisit ? "SI" : "NO",
         scadenzaVisita: record?.next_due_date ?? null,
         stato: state,
-        medico: (providerFromAssignment ?? "").trim() || (record?.provider ?? "").trim() || "-",
+        medico: providerFromAssignment || providerFromRecord || "-",
         limitazioni: (record?.limitations ?? "").trim(),
         note: (record?.notes ?? "").trim(),
       };

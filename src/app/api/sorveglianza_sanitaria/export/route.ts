@@ -24,6 +24,13 @@ type EmployeeRow = {
   sub_sites: unknown;
 };
 
+function normalizeProvider(value: string | null | undefined) {
+  const v = String(value ?? "").trim();
+  if (!v) return null;
+  if (v.toUpperCase() === "MISTO") return null;
+  return v;
+}
+
 type SurveillanceRow = {
   employee_id: number;
   provider: string | null;
@@ -380,16 +387,17 @@ export async function GET(request: Request) {
 
       const providerFromAssignment =
         typeof employee.sub_site_id === "number" && employee.sub_site_id
-          ? providerBySubSiteId.get(employee.sub_site_id)?.provider ?? null
-          : providerBySiteId.get(employee.site_id)?.provider ?? null;
-      const provider = (providerFromAssignment ?? "").trim() || (record?.provider ?? "").trim() || "-";
+          ? normalizeProvider(providerBySubSiteId.get(employee.sub_site_id)?.provider ?? null)
+          : normalizeProvider(providerBySiteId.get(employee.site_id)?.provider ?? null);
+      const providerFromRecord = normalizeProvider(record?.provider ?? null);
+      const provider = providerFromAssignment || providerFromRecord || "-";
 
       const limitations = String(record?.limitations ?? "").trim();
       const nextDueDate = record?.next_due_date ?? null;
 
       if (status) {
         if (status === "critico") {
-          if (!(state === "scaduto" || state === "da fare" || state === "programmato")) continue;
+          if (!(state === "scaduto" || state === "da fare")) continue;
         } else if (state !== (status as RowState)) {
           continue;
         }

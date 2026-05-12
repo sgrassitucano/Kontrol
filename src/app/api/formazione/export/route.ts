@@ -660,7 +660,7 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow) {
 }
 
 function buildEsitoLabel(row: WorkerCourseRow) {
-  if (row.stato === "idoneo") return "IDONEO";
+  if (row.stato === "idoneo" || row.stato === "in scadenza") return "IDONEO";
   if (row.stato === "escluso") return "ESENTE";
   if (row.stato === "perso") return "PERSO";
   if (row.stato === "sospeso") return "SOSPESO";
@@ -1465,7 +1465,6 @@ function computeTheoreticalExpiryIso(completionDateIso: string, validityYears: n
 
 function isValidCourseStatus(row: CourseStatusRow, course: CourseRow, todayIso: string) {
   if (row.manual_state === "escluso") return false;
-  if (row.manual_state === "programmato") return false;
   if (!row.completion_date) return false;
   if (course.is_unlimited) return true;
 
@@ -1524,7 +1523,7 @@ function resolveCourseState(
   }
 
   if (row.manual_state === "escluso") return "escluso";
-  if (row.manual_state === "programmato") return "programmato";
+  if (row.manual_state === "programmato" && !row.completion_date) return "programmato";
 
   if (row.planned_date && !row.completion_date) {
     return "programmato";

@@ -121,6 +121,7 @@ export async function PATCH(request: Request) {
   try {
     const body = (await request.json()) as Partial<{
       employeeId: number;
+      provider: string | null;
       planned: boolean;
       exclusionEnabled: boolean;
       exclusionNote: string | null;
@@ -135,6 +136,21 @@ export async function PATCH(request: Request) {
     }
 
     const updates: Array<PromiseLike<unknown>> = [];
+
+    if ("provider" in body) {
+      updates.push(
+        auth.supabase
+          .from("medical_surveillance_records")
+          .upsert(
+            {
+              employee_id: employeeId,
+              provider: typeof body.provider === "string" ? body.provider.trim() || null : null,
+              created_by: auth.userId,
+            },
+            { onConflict: "employee_id" },
+          ),
+      );
+    }
 
     if (typeof body.planned === "boolean") {
       updates.push(
