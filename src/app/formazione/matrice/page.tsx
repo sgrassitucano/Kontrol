@@ -53,7 +53,6 @@ export default function FormazioneMatricePage() {
   }, [scopeType]);
 
   const flagSet = useMemo(() => new Set(payload?.flags ?? []), [payload]);
-  const sourceMap = useMemo(() => payload?.cellSources ?? {}, [payload]);
   const excludedScopeSet = useMemo(() => new Set(excludedScopeKeys), [excludedScopeKeys]);
 
   const filteredEntities = useMemo(() => {
@@ -393,7 +392,6 @@ export default function FormazioneMatricePage() {
                     const cellKey = `${entity.key}:${course.id}`;
                     const active = flagSet.has(cellKey);
                     const saving = isSavingCell === cellKey;
-                    const source = sourceMap[cellKey] ?? "baseline";
 
                     return (
                       <td key={cellKey} className="px-2 py-1.5">
@@ -406,8 +404,7 @@ export default function FormazioneMatricePage() {
                           disabled={saving}
                           data-matrix-toggle="true"
                           data-on={active ? "true" : "false"}
-                          data-source={active ? source : undefined}
-                          title={active ? `Attivo (${source})` : "Disattivo"}
+                          title={active ? "Attivo" : "Disattivo"}
                         >
                           {saving ? "..." : active ? "ON" : "OFF"}
                         </button>

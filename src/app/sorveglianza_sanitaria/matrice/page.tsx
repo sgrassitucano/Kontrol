@@ -395,7 +395,7 @@ export default function SorveglianzaMatricePage() {
         <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="border-b border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-3">
             <h2 className="text-sm font-bold text-[var(--brand-ink)]">Matrice cantieri</h2>
-            <p className="mt-1 text-xs text-slate-500">Imposta visita SI/NO per cantiere o sottocantiere. Default = segue le altre regole.</p>
+            <p className="mt-1 text-xs text-slate-500">Imposta visita SI/NO per cantiere o sottocantiere.</p>
           </div>
           <div className="max-h-[75vh] overflow-auto">
             <table className="w-full table-fixed text-left text-xs">
@@ -420,21 +420,38 @@ export default function SorveglianzaMatricePage() {
                         <span className="font-semibold text-slate-800">{site.display_name}</span>
                       </td>
                       <td className="px-4 py-2.5">
-                        <select
-                          value={draft?.mode ?? "default"}
-                          onChange={(event) =>
-                            setCantieriDrafts((prev) => ({
-                              ...prev,
-                              [key]: { ...(prev[key] ?? { note: "" }), mode: event.target.value as "default" | "SI" | "NO" },
-                            }))
-                          }
-                          className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs"
-                          disabled={!cantieriPayload?.supportsRules}
-                        >
-                          <option value="default">Default</option>
-                          <option value="SI">SI</option>
-                          <option value="NO">NO</option>
-                        </select>
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            data-matrix-toggle="true"
+                            data-on={draft?.mode === "SI" ? "true" : "false"}
+                            disabled={!cantieriPayload?.supportsRules}
+                            onClick={() =>
+                              setCantieriDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...(prev[key] ?? { note: "" }), mode: prev[key]?.mode === "SI" ? "default" : "SI" },
+                              }))
+                            }
+                            className="rounded-xl px-3 py-2 text-xs"
+                          >
+                            SI
+                          </button>
+                          <button
+                            type="button"
+                            data-matrix-toggle="true"
+                            data-on={draft?.mode === "NO" ? "true" : "false"}
+                            disabled={!cantieriPayload?.supportsRules}
+                            onClick={() =>
+                              setCantieriDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...(prev[key] ?? { note: "" }), mode: prev[key]?.mode === "NO" ? "default" : "NO" },
+                              }))
+                            }
+                            className="rounded-xl px-3 py-2 text-xs"
+                          >
+                            NO
+                          </button>
+                        </div>
                       </td>
                       <td className="px-4 py-2.5">
                         <input
@@ -477,21 +494,38 @@ export default function SorveglianzaMatricePage() {
                         <span className="ml-2 font-semibold text-slate-800">↳ {subSite.display_name}</span>
                       </td>
                       <td className="px-4 py-2.5">
-                        <select
-                          value={draft?.mode ?? "default"}
-                          onChange={(event) =>
-                            setCantieriDrafts((prev) => ({
-                              ...prev,
-                              [key]: { ...(prev[key] ?? { note: "" }), mode: event.target.value as "default" | "SI" | "NO" },
-                            }))
-                          }
-                          className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs"
-                          disabled={!cantieriPayload?.supportsRules}
-                        >
-                          <option value="default">Default</option>
-                          <option value="SI">SI</option>
-                          <option value="NO">NO</option>
-                        </select>
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            data-matrix-toggle="true"
+                            data-on={draft?.mode === "SI" ? "true" : "false"}
+                            disabled={!cantieriPayload?.supportsRules}
+                            onClick={() =>
+                              setCantieriDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...(prev[key] ?? { note: "" }), mode: prev[key]?.mode === "SI" ? "default" : "SI" },
+                              }))
+                            }
+                            className="rounded-xl px-3 py-2 text-xs"
+                          >
+                            SI
+                          </button>
+                          <button
+                            type="button"
+                            data-matrix-toggle="true"
+                            data-on={draft?.mode === "NO" ? "true" : "false"}
+                            disabled={!cantieriPayload?.supportsRules}
+                            onClick={() =>
+                              setCantieriDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...(prev[key] ?? { note: "" }), mode: prev[key]?.mode === "NO" ? "default" : "NO" },
+                              }))
+                            }
+                            className="rounded-xl px-3 py-2 text-xs"
+                          >
+                            NO
+                          </button>
+                        </div>
                       </td>
                       <td className="px-4 py-2.5">
                         <input
@@ -566,11 +600,6 @@ export default function SorveglianzaMatricePage() {
                       <td className="w-[38%] px-4 py-2.5 text-slate-700">
                         <span className="font-semibold text-slate-800">{job.code}</span>
                         <span className="ml-2 text-slate-500">{job.label}</span>
-                        {isDefaultExempt ? (
-                          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                            default
-                          </span>
-                        ) : null}
                       </td>
                       <td className="w-[14%] px-4 py-2.5">
                         <input
