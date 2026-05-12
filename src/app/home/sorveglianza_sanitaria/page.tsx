@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, StatusPill } from "@/components/module-ui";
+import { DashboardCard, KpiCard, KpiGrid, ModuleHeader } from "@/components/module-ui";
 import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
 
 type WorkerSurveillanceRow = {
@@ -286,12 +286,14 @@ export default function HomeSorveglianzaPage() {
     return <span className="text-[10px] text-slate-700">{sort.dir === "asc" ? "↑" : "↓"}</span>;
   };
 
-  function statusTone(state: WorkerSurveillanceRow["stato"]) {
-    if (state === "scaduto" || state === "da fare") return "danger" as const;
-    if (state === "in scadenza") return "warning" as const;
-    if (state === "programmato") return "info" as const;
-    if (state === "sospeso" || state === "escluso") return "muted" as const;
-    return "success" as const;
+  function statusPillClassName(state: WorkerSurveillanceRow["stato"]) {
+    const base = "inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-bold leading-none";
+    if (state === "idoneo") return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
+    if (state === "in scadenza") return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
+    if (state === "programmato") return `${base} border-sky-900/40 bg-sky-700/55 text-white`;
+    if (state === "scaduto" || state === "da fare") return `${base} border-red-900/40 bg-red-700/55 text-white`;
+    if (state === "sospeso" || state === "escluso") return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
+    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   }
 
   const criticoCount = meta.counts.scaduto + meta.counts.daFare;
@@ -733,7 +735,7 @@ export default function HomeSorveglianzaPage() {
                   <td className="w-[8%] px-4 py-2.5 text-slate-700">{row.visitaRichiesta}</td>
                   <td className="w-[10%] px-4 py-2.5 text-slate-700">{row.scadenzaVisita ?? "-"}</td>
                   <td className="w-[10%] px-4 py-2.5">
-                    <StatusPill tone={statusTone(row.stato)}>{row.stato}</StatusPill>
+                    <span className={statusPillClassName(row.stato)}>{row.stato}</span>
                   </td>
                   <td className="w-[18%] px-4 py-2.5 text-slate-600">
                     <span className="block line-clamp-2" title={row.medico}>

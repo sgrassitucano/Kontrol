@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { KpiCard, KpiGrid, ModuleHeader, StatusPill } from "@/components/module-ui";
+import { KpiCard, KpiGrid, ModuleHeader } from "@/components/module-ui";
 import { ItDateInput } from "@/components/it-date-input";
 
 type WorkerDpiRow = {
@@ -200,12 +200,14 @@ export default function HomeDpiPage() {
     return `${Number(((count / total) * 100).toFixed(1))}%`;
   }
 
-  function statusTone(status: WorkerDpiRow["stato"]) {
-    if (status === "scaduto" || status === "da consegnare") return "danger" as const;
-    if (status === "da verificare") return "warning" as const;
-    if (status === "programmato") return "info" as const;
-    if (status === "idoneo" || status === "consegnato") return "success" as const;
-    return "neutral" as const;
+  function statusPillClassName(status: WorkerDpiRow["stato"]) {
+    const base =
+      "inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-bold leading-none";
+    if (status === "idoneo" || status === "consegnato") return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
+    if (status === "da verificare") return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
+    if (status === "programmato") return `${base} border-sky-900/40 bg-sky-700/55 text-white`;
+    if (status === "scaduto" || status === "da consegnare") return `${base} border-red-900/40 bg-red-700/55 text-white`;
+    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   }
 
   const dashboard = useMemo(() => {
@@ -488,7 +490,7 @@ export default function HomeDpiPage() {
                       {formatDateIt(row.dataProssimoControllo)}
                     </td>
                     <td className="px-4 py-2.5">
-                      <StatusPill tone={statusTone(row.stato)}>{row.stato}</StatusPill>
+                      <span className={statusPillClassName(row.stato)}>{row.stato}</span>
                     </td>
                   </tr>
                 ))}

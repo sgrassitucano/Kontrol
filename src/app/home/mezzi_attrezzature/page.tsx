@@ -122,10 +122,10 @@ function assetLabel(row: Pick<AssetRow, "assetType" | "plate" | "internalCode" |
 function badgeClass(status: ObligationStatus) {
   const base =
     "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] leading-none";
-  if (status === "scaduto") return `${base} border-red-200 bg-red-50 text-red-700`;
-  if (status === "in scadenza") return `${base} border-amber-200 bg-amber-50 text-amber-800`;
-  if (status === "ok") return `${base} border-emerald-200 bg-emerald-50 text-emerald-800`;
-  return `${base} border-slate-200 bg-slate-50 text-slate-700`;
+  if (status === "scaduto") return `${base} border-red-900/40 bg-red-700/55 text-white`;
+  if (status === "in scadenza") return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
+  if (status === "ok") return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
+  return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
 }
 
 export default function HomeMezziPage() {

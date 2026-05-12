@@ -2691,35 +2691,35 @@ export default function HomeFormazionePage() {
 
 function statusClassName(status: WorkerCourseRow["stato"]) {
   const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-[3px] text-[9px] font-bold uppercase tracking-[0.06em] leading-none";
+    "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.05em] leading-none";
   if (status === "escluso")
-    return `${base} border-slate-700/40 bg-slate-600/25 text-white`;
+    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   if (status === "perso")
-    return `${base} border-slate-700/40 bg-slate-600/25 text-white`;
+    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   if (status === "da fare")
-    return `${base} border-rose-700/40 bg-rose-600/25 text-white`;
+    return `${base} border-rose-900/40 bg-rose-700/55 text-white`;
   if (status === "scaduto")
-    return `${base} border-red-700/40 bg-red-600/25 text-white`;
+    return `${base} border-red-900/40 bg-red-700/55 text-white`;
   if (status === "in scadenza")
-    return `${base} border-amber-600/40 bg-amber-400/25 text-slate-950`;
+    return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
   if (status === "idoneo")
-    return `${base} border-emerald-700/40 bg-emerald-600/25 text-slate-950`;
+    return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
   if (status === "sospeso")
-    return `${base} border-slate-700/40 bg-slate-600/25 text-white`;
+    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   if (status === "programmato")
-    return `${base} border-sky-700/40 bg-sky-600/25 text-white`;
+    return `${base} border-sky-900/40 bg-sky-700/55 text-white`;
   if (status === "upgrade")
-    return `${base} border-violet-700/40 bg-violet-600/25 text-white`;
+    return `${base} border-violet-900/40 bg-violet-700/55 text-white`;
   return `${base} border-slate-300 bg-slate-100 text-slate-700`;
 }
 
 function originClassName(origine: WorkerCourseRow["origine"]) {
   const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-[2px] text-[9px] font-medium uppercase tracking-[0.04em] leading-none";
+    "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-[0.05em] leading-none";
   if (origine === "aggiuntivo") {
-    return `${base} border-purple-200 bg-purple-50 text-purple-800`;
+    return `${base} border-violet-900/25 bg-violet-200/60 text-slate-950`;
   }
-  return `${base} border-slate-200 bg-slate-100 text-slate-700`;
+  return `${base} border-slate-400/60 bg-slate-200/70 text-slate-900`;
 }
 
 function matchText(value: string, filter: string) {

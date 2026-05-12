@@ -676,14 +676,15 @@ function statusSortKey(status: WorkerCourseRow["stato"]) {
 
 function trainingStatusClassName(status: WorkerCourseRow["stato"]) {
   const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-[2px] text-[9px] font-medium uppercase tracking-[0.04em] leading-none";
-  if (status === "scaduto") return `${base} border-red-200 bg-red-50 text-red-700`;
-  if (status === "in scadenza") return `${base} border-amber-200 bg-amber-50 text-amber-700`;
-  if (status === "idoneo") return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
-  if (status === "programmato") return `${base} border-sky-200 bg-sky-50 text-sky-700`;
-  if (status === "sospeso") return `${base} border-slate-300 bg-slate-100 text-slate-700`;
-  if (status === "upgrade") return `${base} border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800`;
-  return `${base} border-red-200 bg-red-50 text-red-700`;
+    "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-[0.05em] leading-none";
+  if (status === "scaduto") return `${base} border-red-900/40 bg-red-700/55 text-white`;
+  if (status === "da fare") return `${base} border-rose-900/40 bg-rose-700/55 text-white`;
+  if (status === "upgrade") return `${base} border-violet-900/40 bg-violet-700/55 text-white`;
+  if (status === "in scadenza") return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
+  if (status === "programmato") return `${base} border-sky-900/40 bg-sky-700/55 text-white`;
+  if (status === "idoneo") return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
+  if (status === "sospeso" || status === "escluso") return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
+  return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
 }
 
 function trainingExpiryClassName(status: WorkerCourseRow["stato"]) {
@@ -696,13 +697,13 @@ function trainingExpiryClassName(status: WorkerCourseRow["stato"]) {
 
 function dpiStatusClassName(status: WorkerDpiRow["stato"]) {
   const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-[2px] text-[9px] font-medium uppercase tracking-[0.04em] leading-none";
-  if (status === "scaduto") return `${base} border-red-200 bg-red-50 text-red-700`;
-  if (status === "da verificare") return `${base} border-amber-200 bg-amber-50 text-amber-800`;
-  if (status === "da consegnare") return `${base} border-red-200 bg-red-50 text-red-700`;
-  if (status === "programmato") return `${base} border-sky-200 bg-sky-50 text-sky-700`;
-  if (status === "idoneo") return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
-  return `${base} border-indigo-200 bg-indigo-50 text-indigo-700`;
+    "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-[0.05em] leading-none";
+  if (status === "scaduto") return `${base} border-red-900/40 bg-red-700/55 text-white`;
+  if (status === "da consegnare") return `${base} border-rose-900/40 bg-rose-700/55 text-white`;
+  if (status === "da verificare") return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
+  if (status === "programmato") return `${base} border-sky-900/40 bg-sky-700/55 text-white`;
+  if (status === "idoneo") return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
+  return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
 }
 
 function equipmentAssetLabel(asset: {
