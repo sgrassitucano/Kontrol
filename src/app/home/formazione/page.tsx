@@ -2773,21 +2773,21 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
     (row) => row.corsoCode === "FORM_BASE" || row.corsoCode.startsWith("FORM_BASE+") || row.corsoCode.startsWith("FORM_SPEC_"),
   );
 
+  const stateRank = (s: WorkerCourseRow["stato"]) => {
+    if (s === "scaduto") return 1;
+    if (s === "da fare") return 2;
+    if (s === "upgrade") return 3;
+    if (s === "programmato") return 4;
+    if (s === "in scadenza") return 5;
+    if (s === "escluso") return 6;
+    if (s === "sospeso") return 6;
+    return 7;
+  };
+
   if (looksLikeBase) {
     const aggregateByWorker = new Map<number, WorkerCourseRow>();
     const specByWorker = new Map<number, WorkerCourseRow>();
     const generalByWorker = new Map<number, WorkerCourseRow>();
-
-    const stateRank = (s: WorkerCourseRow["stato"]) => {
-      if (s === "escluso") return 0;
-      if (s === "sospeso") return 0;
-      if (s === "scaduto") return 1;
-      if (s === "da fare") return 2;
-      if (s === "programmato") return 3;
-      if (s === "upgrade") return 4;
-      if (s === "in scadenza") return 5;
-      return 7;
-    };
 
     rows.forEach((row) => {
       if (row.corsoCode.startsWith("FORM_BASE+")) {
@@ -2822,10 +2822,16 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
       if (DASHBOARD_STATES.includes(state)) counts[state].add(workerId);
     });
   } else {
+    const preferredStateByWorker = new Map<number, DashboardStateKey>();
     rows.forEach((row) => {
-      if (DASHBOARD_STATES.includes(row.stato as DashboardStateKey)) {
-        counts[row.stato as DashboardStateKey].add(row.workerId);
-      }
+      const state = row.stato as DashboardStateKey;
+      if (!DASHBOARD_STATES.includes(state)) return;
+      const prev = preferredStateByWorker.get(row.workerId);
+      if (!prev || stateRank(state) < stateRank(prev)) preferredStateByWorker.set(row.workerId, state);
+    });
+
+    preferredStateByWorker.forEach((state, workerId) => {
+      counts[state].add(workerId);
     });
   }
 
