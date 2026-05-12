@@ -681,19 +681,24 @@ export default function HomeFormazionePage() {
           row.matricola,
           row.cognome,
           row.nome,
-          row.mansione,
           row.cantiere,
           row.sottocantiere,
           row.responsabile,
           row.referente,
-          `${row.corsoCode} ${row.corso}`,
         ]
           .join(" ")
           .toLowerCase();
         if (!searchable.includes(q)) return false;
       }
       if (columnFilters.matricola && !matchText(row.matricola, columnFilters.matricola)) return false;
-      if (columnFilters.cognome && !matchText(row.cognome, columnFilters.cognome)) return false;
+      if (columnFilters.cognome) {
+        const filter = columnFilters.cognome.trim();
+        if (filter.includes(" ") && !columnFilters.nome.trim()) {
+          if (!matchTextTokens(`${row.cognome} ${row.nome}`, filter)) return false;
+        } else if (!matchText(row.cognome, filter)) {
+          return false;
+        }
+      }
       if (columnFilters.nome && !matchText(row.nome, columnFilters.nome)) return false;
       if (columnFilters.mansione && !matchText(row.mansione, columnFilters.mansione)) return false;
       if (columnFilters.cantiere && !matchText(row.cantiere, columnFilters.cantiere)) return false;
@@ -1718,6 +1723,7 @@ export default function HomeFormazionePage() {
                         type="button"
                         disabled={isInlineSaving}
                         onClick={() => openRowEvent(row)}
+                        data-unstyled="true"
                         className={[
                           statusClassName(row.stato),
                           "transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60",
@@ -2742,9 +2748,9 @@ function originClassName(origine: WorkerCourseRow["origine"]) {
   const base =
     "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-[2px] text-[9px] font-medium uppercase tracking-[0.04em] leading-none";
   if (origine === "aggiuntivo") {
-    return `${base} border-cyan-200 bg-cyan-50 text-cyan-700`;
+    return `${base} border-purple-200 bg-purple-50 text-purple-800`;
   }
-  return `${base} border-indigo-200 bg-indigo-50 text-indigo-700`;
+  return `${base} border-slate-200 bg-slate-100 text-slate-700`;
 }
 
 function matchText(value: string, filter: string) {
@@ -2755,6 +2761,18 @@ function matchText(value: string, filter: string) {
   const formattedValue = isoToItDate(value).toLowerCase();
   if (formattedValue !== normalizedValue && formattedValue.includes(normalizedFilter)) return true;
   return false;
+}
+
+function matchTextTokens(value: string, filter: string) {
+  const tokens = filter
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+  const hay = String(value ?? "").toLowerCase();
+  return tokens.every((t) => hay.includes(t));
 }
 
 function isDashboardBaseCode(code: string) {
@@ -2782,11 +2800,65 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
     escluso: new Set(),
   };
 
-  rows.forEach((row) => {
-    if (DASHBOARD_STATES.includes(row.stato as DashboardStateKey)) {
-      counts[row.stato as DashboardStateKey].add(row.workerId);
-    }
-  });
+  const looksLikeBase = rows.some(
+    (row) => row.corsoCode === "FORM_BASE" || row.corsoCode.startsWith("FORM_BASE+") || row.corsoCode.startsWith("FORM_SPEC_"),
+  );
+
+  if (looksLikeBase) {
+    const aggregateByWorker = new Map<number, WorkerCourseRow>();
+    const specByWorker = new Map<number, WorkerCourseRow>();
+    const generalByWorker = new Map<number, WorkerCourseRow>();
+
+    const stateRank = (s: WorkerCourseRow["stato"]) => {
+      if (s === "escluso") return 0;
+      if (s === "sospeso") return 0;
+      if (s === "scaduto") return 1;
+      if (s === "da fare") return 2;
+      if (s === "programmato") return 3;
+      if (s === "upgrade") return 4;
+      if (s === "in scadenza") return 5;
+      return 7;
+    };
+
+    rows.forEach((row) => {
+      if (row.corsoCode.startsWith("FORM_BASE+")) {
+        aggregateByWorker.set(row.workerId, row);
+        return;
+      }
+      if (row.corsoCode.startsWith("FORM_SPEC_")) {
+        const prev = specByWorker.get(row.workerId);
+        if (!prev || stateRank(row.stato) < stateRank(prev.stato)) specByWorker.set(row.workerId, row);
+        return;
+      }
+      if (row.corsoCode === "FORM_BASE") {
+        const prev = generalByWorker.get(row.workerId);
+        if (!prev || stateRank(row.stato) < stateRank(prev.stato)) generalByWorker.set(row.workerId, row);
+      }
+    });
+
+    const allWorkerIds = new Set<number>([
+      ...aggregateByWorker.keys(),
+      ...specByWorker.keys(),
+      ...generalByWorker.keys(),
+    ]);
+
+    allWorkerIds.forEach((workerId) => {
+      const preferred =
+        aggregateByWorker.get(workerId) ??
+        specByWorker.get(workerId) ??
+        generalByWorker.get(workerId) ??
+        null;
+      if (!preferred) return;
+      const state = preferred.stato as DashboardStateKey;
+      if (DASHBOARD_STATES.includes(state)) counts[state].add(workerId);
+    });
+  } else {
+    rows.forEach((row) => {
+      if (DASHBOARD_STATES.includes(row.stato as DashboardStateKey)) {
+        counts[row.stato as DashboardStateKey].add(row.workerId);
+      }
+    });
+  }
 
   const finalCounts = {
     "scaduto": counts.scaduto.size,

@@ -187,8 +187,9 @@ export async function GET(request: Request) {
     const shouldExcludeEmployee = (employee: EmployeeRow) => {
       if (!applyFormazioneExclusions) return false;
       if (!includeExcluded && typeof employeeId !== "number" && excludedEmployeeIds.has(employee.id)) return true;
-      if (typeof employee.sub_site_id === "number" && excludedSubSiteIds.has(employee.sub_site_id)) return true;
-      if (typeof employee.site_id === "number" && excludedSiteIds.has(employee.site_id)) return true;
+      if (!includeExcluded && typeof employee.sub_site_id === "number" && excludedSubSiteIds.has(employee.sub_site_id))
+        return true;
+      if (!includeExcluded && typeof employee.site_id === "number" && excludedSiteIds.has(employee.site_id)) return true;
       return false;
     };
 
@@ -277,30 +278,26 @@ export async function GET(request: Request) {
         const excludedSet = applyFormazioneExclusions ? excludedCourseIdsByEmployee.get(employee.id) ?? null : null;
         const baseCourseExcluded = excludedSet?.has(formBaseCourseId) ?? false;
         const specCourseExcluded = excludedSet?.has(formSpecRequired.courseId) ?? false;
-        const shouldBuildAggregate = !baseCourseExcluded && !specCourseExcluded;
+        const shouldBuildBaseSection = !baseCourseExcluded && !specCourseExcluded;
 
-        if (shouldBuildAggregate) {
-        const baseAggregate = buildBaseAggregateRow({
-          employee,
-          formBaseCourseId,
-          formSpecRequired,
-          courseMap,
-          statusMap,
-          employeeStatusRows,
-          substitutersByToCourseId,
-          freeze,
-          todayIso,
-          expiringDays: expiringDaysSafe,
-        });
+        if (shouldBuildBaseSection) {
+          const baseSection = buildTrainingBaseSectionRows({
+            employee,
+            formBaseCourseId,
+            formSpecRequired,
+            courseMap,
+            statusMap,
+            employeeStatusRows,
+            freeze,
+            todayIso,
+            expiringDays: expiringDaysSafe,
+          });
 
-        if (baseAggregate) {
-          skipRequiredCourseIds.add(formBaseCourseId);
-          skipRequiredCourseIds.add(formSpecRequired.courseId);
-          if (baseAggregate.suppressedCourseId !== null) {
-            suppressedAdditionalCourseIds.add(baseAggregate.suppressedCourseId);
+          if (baseSection) {
+            skipRequiredCourseIds.add(formBaseCourseId);
+            skipRequiredCourseIds.add(formSpecRequired.courseId);
+            rows.push(...baseSection);
           }
-          rows.push(baseAggregate.row);
-        }
         }
       }
 
@@ -760,6 +757,8 @@ async function fetchAllEmployees(
       )
       .eq("status", "attivo")
       .order("last_name")
+      .order("first_name")
+      .order("id")
       .range(from, to);
 
     if (error) {
@@ -1189,14 +1188,20 @@ function findRequiredFormSpecCourse(
   return null;
 }
 
-function buildBaseAggregateRow({
+function formSpecRank(code: string) {
+  if (code === "FORM_SPEC_ALTO") return 3;
+  if (code === "FORM_SPEC_MEDIO") return 2;
+  if (code === "FORM_SPEC_BASSO") return 1;
+  return 0;
+}
+
+function buildTrainingBaseSectionRows({
   employee,
   formBaseCourseId,
   formSpecRequired,
   courseMap,
   statusMap,
   employeeStatusRows,
-  substitutersByToCourseId,
   freeze,
   todayIso,
   expiringDays,
@@ -1207,107 +1212,84 @@ function buildBaseAggregateRow({
   courseMap: Map<number, { code: string; title: string; is_active: boolean }>;
   statusMap: Map<string, CourseStatusRow>;
   employeeStatusRows: CourseStatusRow[];
-  substitutersByToCourseId: Map<number, Set<number>>;
   freeze: FreezeRow | undefined;
   todayIso: string;
   expiringDays: number;
-}) {
-  if (freeze) return null;
-
+}): WorkerCourseRow[] | null {
   const formSpecFamily = ["FORM_SPEC_ALTO", "FORM_SPEC_MEDIO", "FORM_SPEC_BASSO"] as const;
-  const requiredIndex = formSpecFamily.indexOf(formSpecRequired.code as (typeof formSpecFamily)[number]);
 
   const formBaseStatus = statusMap.get(`${employee.id}:${formBaseCourseId}`);
-  const formSpecRequiredStatus = statusMap.get(`${employee.id}:${formSpecRequired.courseId}`);
-
-  const substituteForSpec = pickBestSubstituteStatus({
-    requiredCourseId: formSpecRequired.courseId,
-    statusEntry: formSpecRequiredStatus,
-    employeeStatusRows,
-    substitutersByToCourseId,
-    todayIso,
-  });
-  if (substituteForSpec) return null;
-
-  if (!isToDoFromScratch(formBaseStatus) || !isToDoFromScratch(formSpecRequiredStatus)) {
-    return null;
-  }
-
-  const bestLower =
-    requiredIndex >= 0
-      ? findBestLowerValidCourse({
-          statusRows: employeeStatusRows,
-          family: formSpecFamily,
-          requiredIndex,
-          courseMap,
-          todayIso,
-        })
-      : null;
-
-  const bestHigher =
-    requiredIndex >= 0
-      ? findBestHigherValidCourse({
-          statusRows: employeeStatusRows,
-          family: formSpecFamily,
-          requiredIndex,
-          courseMap,
-          todayIso,
-        })
-      : null;
-
-  const shouldUpgrade =
-    !formSpecRequiredStatus?.completion_date && bestLower !== null;
-
-  if (shouldUpgrade) {
-    return null;
-  }
-
-  const higherStatus = bestHigher
-    ? employeeStatusRows.find((row) => row.course_id === bestHigher.courseId)
-    : null;
-
-  const effectiveSpecCourseId = higherStatus
-    ? bestHigher!.courseId
-    : shouldUpgrade
-      ? bestLower!.courseId
-      : formSpecRequired.courseId;
-
-  const effectiveSpecStatus = higherStatus
-    ? higherStatus
-    : shouldUpgrade
-      ? employeeStatusRows.find((row) => row.course_id === effectiveSpecCourseId)
-      : formSpecRequiredStatus;
-
   const formBaseState = resolveCourseState(formBaseStatus, freeze, todayIso, expiringDays, false);
-  const rawSpecState = resolveCourseState(effectiveSpecStatus, freeze, todayIso, expiringDays, false);
-  const specState =
-    shouldUpgrade && (rawSpecState === "idoneo" || rawSpecState === "in scadenza")
-      ? "upgrade"
-      : rawSpecState;
+  const baseCompletionKey = formBaseStatus?.completion_date ? parseDateOnlyKey(formBaseStatus.completion_date) : null;
 
-  const state = mergeBaseStates(formBaseState, specState);
+  const requiredRank = formSpecRank(formSpecRequired.code);
 
-  const completionDate = pickLatestDate(
-    formBaseStatus?.completion_date ?? null,
-    effectiveSpecStatus?.completion_date ?? null,
-  );
+  const ownedSpecByCode = new Map<string, CourseStatusRow>();
+  for (const sr of employeeStatusRows) {
+    const code = courseMap.get(sr.course_id)?.code ?? "";
+    if (!formSpecFamily.includes(code as (typeof formSpecFamily)[number])) continue;
+    if (!sr.completion_date) continue;
+    const completionKey = parseDateOnlyKey(sr.completion_date);
+    if (!completionKey) continue;
+    if (!baseCompletionKey) continue;
+    if (completionKey <= baseCompletionKey) continue;
+    ownedSpecByCode.set(code, sr);
+  }
 
-  const expiryDate = pickEarliestDate(
-    formBaseStatus?.expiry_date ?? null,
-    effectiveSpecStatus?.expiry_date ?? null,
-  );
+  const ownedSpecCode =
+    ownedSpecByCode.has("FORM_SPEC_ALTO")
+      ? "FORM_SPEC_ALTO"
+      : ownedSpecByCode.has("FORM_SPEC_MEDIO")
+        ? "FORM_SPEC_MEDIO"
+        : ownedSpecByCode.has("FORM_SPEC_BASSO")
+          ? "FORM_SPEC_BASSO"
+          : null;
 
-  const risk = formSpecRequired.code.slice("FORM_SPEC_".length).toLowerCase();
-  const courseCode = `FORM_BASE+${formSpecRequired.code}`;
-  const courseTitle = `Formazione generale + specifica rischio ${risk}`;
+  const ownedSpecStatus = ownedSpecCode ? ownedSpecByCode.get(ownedSpecCode) ?? null : null;
+  const ownedSpecCourseId = ownedSpecStatus?.course_id ?? null;
+  const ownedSpecState = resolveCourseState(ownedSpecStatus ?? undefined, freeze, todayIso, expiringDays, false);
+  const ownedRank = ownedSpecCode ? formSpecRank(ownedSpecCode) : 0;
 
-  const upgradeInfo = shouldUpgrade && bestLower
-    ? `${levelLabel(bestLower.courseCode) ?? bestLower.courseCode} → ${levelLabel(formSpecRequired.code) ?? formSpecRequired.code}`
-    : null;
+  const baseOk = formBaseState === "idoneo" || formBaseState === "in scadenza";
+  const specOk = ownedSpecState === "idoneo" || ownedSpecState === "in scadenza";
 
-  const note = mergeNotes(formBaseStatus?.note ?? null, effectiveSpecStatus?.note ?? null);
+  const canAggregate = Boolean(baseCompletionKey) && ownedSpecStatus && baseOk && specOk && ownedRank >= requiredRank;
 
-  const row: WorkerCourseRow = {
+  if (canAggregate) {
+    const completionDate = pickLatestDate(formBaseStatus?.completion_date ?? null, ownedSpecStatus?.completion_date ?? null);
+    const expiryDate = pickEarliestDate(formBaseStatus?.expiry_date ?? null, ownedSpecStatus?.expiry_date ?? null);
+    const risk = ownedSpecCode!.slice("FORM_SPEC_".length).toLowerCase();
+    const courseCode = `FORM_BASE+${ownedSpecCode}`;
+    const courseTitle = `Formazione generale + specifica rischio ${risk}`;
+    const note = mergeNotes(formBaseStatus?.note ?? null, ownedSpecStatus?.note ?? null);
+    const state = mergeBaseStates(formBaseState, ownedSpecState);
+
+    const row: WorkerCourseRow = {
+        workerId: employee.id,
+        matricola: employee.matricola,
+        cognome: employee.last_name,
+        nome: employee.first_name,
+        mansione: formatJobLabel(employee.job_title ?? ""),
+        cantiere: extractDisplayName(employee.sites),
+        sottocantiere: extractDisplayName(employee.sub_sites),
+        corsoCode: courseCode,
+        corso: courseTitle,
+        dataConclusione: completionDate,
+        dataScadenza: expiryDate,
+        stato: state as WorkerCourseRow["stato"],
+        upgradeInfo: null,
+        responsabile: employee.responsible_code,
+        referente: employee.referral ?? "",
+        note,
+        origine: "obbligatorio",
+      };
+    return [row];
+  }
+
+  const baseCourse = courseMap.get(formBaseCourseId);
+  const requiredSpecCourse = courseMap.get(formSpecRequired.courseId);
+
+  const generalRow: WorkerCourseRow = {
     workerId: employee.id,
     matricola: employee.matricola,
     cognome: employee.last_name,
@@ -1315,22 +1297,126 @@ function buildBaseAggregateRow({
     mansione: formatJobLabel(employee.job_title ?? ""),
     cantiere: extractDisplayName(employee.sites),
     sottocantiere: extractDisplayName(employee.sub_sites),
-    corsoCode: courseCode,
-    corso: courseTitle,
-    dataConclusione: completionDate,
-    dataScadenza: expiryDate,
-    stato: state as WorkerCourseRow["stato"],
-    upgradeInfo,
+    courseId: formBaseCourseId,
+    corsoCode: baseCourse?.code ?? "FORM_BASE",
+    corso: baseCourse?.title ?? "Formazione generale",
+    dataConclusione: formBaseStatus?.completion_date ?? null,
+    dataScadenza: formBaseStatus?.expiry_date ?? null,
+    stato: formBaseState as WorkerCourseRow["stato"],
+    upgradeInfo: null,
     responsabile: employee.responsible_code,
     referente: employee.referral ?? "",
-    note,
+    note: formBaseStatus?.note ?? "",
     origine: "obbligatorio",
   };
 
-  return {
-    row,
-    suppressedCourseId: null,
-  };
+  if (!baseCompletionKey) {
+    const state = resolveCourseState(undefined, freeze, todayIso, expiringDays, false);
+    const specRow: WorkerCourseRow = {
+        workerId: employee.id,
+        matricola: employee.matricola,
+        cognome: employee.last_name,
+        nome: employee.first_name,
+        mansione: formatJobLabel(employee.job_title ?? ""),
+        cantiere: extractDisplayName(employee.sites),
+        sottocantiere: extractDisplayName(employee.sub_sites),
+        courseId: formSpecRequired.courseId,
+        corsoCode: requiredSpecCourse?.code ?? formSpecRequired.code,
+        corso: requiredSpecCourse?.title ?? "Formazione specifica",
+        dataConclusione: null,
+        dataScadenza: null,
+        stato: state as WorkerCourseRow["stato"],
+        upgradeInfo: null,
+        responsabile: employee.responsible_code,
+        referente: employee.referral ?? "",
+        note: "",
+        origine: "obbligatorio",
+      };
+    return [generalRow, specRow];
+  }
+
+  if (ownedSpecStatus && baseOk && specOk && ownedRank < requiredRank && ownedSpecCourseId) {
+    const from = levelLabel(ownedSpecCode!) ?? ownedSpecCode!;
+    const to = levelLabel(formSpecRequired.code) ?? formSpecRequired.code;
+    const course = courseMap.get(ownedSpecCourseId);
+
+    const specRow: WorkerCourseRow = {
+        workerId: employee.id,
+        matricola: employee.matricola,
+        cognome: employee.last_name,
+        nome: employee.first_name,
+        mansione: formatJobLabel(employee.job_title ?? ""),
+        cantiere: extractDisplayName(employee.sites),
+        sottocantiere: extractDisplayName(employee.sub_sites),
+        courseId: ownedSpecCourseId,
+        corsoCode: course?.code ?? ownedSpecCode!,
+        corso: course?.title ?? "Formazione specifica",
+        dataConclusione: ownedSpecStatus.completion_date ?? null,
+        dataScadenza: ownedSpecStatus.expiry_date ?? null,
+        stato: "upgrade",
+        upgradeInfo: `${from} → ${to}`,
+        responsabile: employee.responsible_code,
+        referente: employee.referral ?? "",
+        note: ownedSpecStatus.note ?? "",
+        origine: "obbligatorio",
+      };
+    return [generalRow, specRow];
+  }
+
+  const requiredSpecStatus = statusMap.get(`${employee.id}:${formSpecRequired.courseId}`);
+  const requiredSpecState = resolveCourseState(requiredSpecStatus, freeze, todayIso, expiringDays, false);
+
+  if (!ownedSpecStatus) {
+    const specRow: WorkerCourseRow = {
+        workerId: employee.id,
+        matricola: employee.matricola,
+        cognome: employee.last_name,
+        nome: employee.first_name,
+        mansione: formatJobLabel(employee.job_title ?? ""),
+        cantiere: extractDisplayName(employee.sites),
+        sottocantiere: extractDisplayName(employee.sub_sites),
+        courseId: formSpecRequired.courseId,
+        corsoCode: requiredSpecCourse?.code ?? formSpecRequired.code,
+        corso: requiredSpecCourse?.title ?? "Formazione specifica",
+        dataConclusione: requiredSpecStatus?.completion_date ?? null,
+        dataScadenza: requiredSpecStatus?.expiry_date ?? null,
+        stato: requiredSpecState as WorkerCourseRow["stato"],
+        upgradeInfo: null,
+        responsabile: employee.responsible_code,
+        referente: employee.referral ?? "",
+        note: requiredSpecStatus?.note ?? "",
+        origine: "obbligatorio",
+      };
+    return [generalRow, specRow];
+  }
+
+  const ownedCourse = ownedSpecCourseId ? courseMap.get(ownedSpecCourseId) : null;
+  const upgradeInfo =
+    ownedRank > 0 && ownedRank < requiredRank
+      ? `${levelLabel(ownedSpecCode!) ?? ownedSpecCode!} → ${levelLabel(formSpecRequired.code) ?? formSpecRequired.code}`
+      : null;
+
+  const specRow: WorkerCourseRow = {
+      workerId: employee.id,
+      matricola: employee.matricola,
+      cognome: employee.last_name,
+      nome: employee.first_name,
+      mansione: formatJobLabel(employee.job_title ?? ""),
+      cantiere: extractDisplayName(employee.sites),
+      sottocantiere: extractDisplayName(employee.sub_sites),
+      courseId: ownedSpecCourseId ?? formSpecRequired.courseId,
+      corsoCode: ownedCourse?.code ?? ownedSpecCode ?? (requiredSpecCourse?.code ?? formSpecRequired.code),
+      corso: ownedCourse?.title ?? requiredSpecCourse?.title ?? "Formazione specifica",
+      dataConclusione: ownedSpecStatus?.completion_date ?? null,
+      dataScadenza: ownedSpecStatus?.expiry_date ?? null,
+      stato: ownedSpecState as WorkerCourseRow["stato"],
+      upgradeInfo,
+      responsabile: employee.responsible_code,
+      referente: employee.referral ?? "",
+      note: ownedSpecStatus?.note ?? "",
+      origine: "obbligatorio",
+    };
+  return [generalRow, specRow];
 }
 
 function isToDoFromScratch(row: CourseStatusRow | undefined) {
