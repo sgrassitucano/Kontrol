@@ -13,6 +13,17 @@ function toneClassName(tone: Tone) {
   return "border-[var(--brand-line)] bg-[var(--brand-panel-2)] text-[var(--brand-ink)]";
 }
 
+function pillToneClassName(tone: Tone) {
+  if (tone === "danger") return "border-red-700 bg-red-600 text-white";
+  if (tone === "warning") return "border-amber-600 bg-amber-500 text-white";
+  if (tone === "info") return "border-sky-700 bg-sky-600 text-white";
+  if (tone === "success") return "border-emerald-700 bg-emerald-600 text-white";
+  if (tone === "purple") return "border-purple-700 bg-purple-600 text-white";
+  if (tone === "muted") return "border-slate-600 bg-slate-500 text-white";
+  if (tone === "primary") return "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white";
+  return "border-slate-300 bg-slate-100 text-slate-700";
+}
+
 export function ModuleHeader(props: {
   title: string;
   description?: string;
@@ -106,7 +117,7 @@ export function KpiCard(props: {
 
 export function StatusPill(props: { tone: Tone; children: ReactNode }) {
   return (
-    <span className={["inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", toneClassName(props.tone)].join(" ")}>
+    <span className={["inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", pillToneClassName(props.tone)].join(" ")}>
       {props.children}
     </span>
   );

@@ -99,10 +99,46 @@ thead button:hover:not(:disabled) {
 
 .module-actions :is(button, a):not([data-kpi="true"]):not([data-cal="true"]) {
   background: #ffffff !important;
-  color: var(--brand-soft) !important;
+  color: var(--brand-ink) !important;
   font-weight: 700 !important;
   border: 1px solid var(--brand-line) !important;
   filter: none !important;
+}
+
+.module-actions :is(button, a)[data-tone="danger"] {
+  color: #b91c1c !important;
+  border-color: #fecaca !important;
+  background: #fff5f5 !important;
+}
+
+.module-actions :is(button, a)[data-tone="warning"] {
+  color: #b45309 !important;
+  border-color: #fde68a !important;
+  background: #fffbeb !important;
+}
+
+.module-actions :is(button, a)[data-tone="info"] {
+  color: #0369a1 !important;
+  border-color: #bae6fd !important;
+  background: #f0f9ff !important;
+}
+
+.module-actions :is(button, a)[data-tone="success"] {
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+  background: #ecfdf5 !important;
+}
+
+.module-actions :is(button, a)[data-tone="purple"] {
+  color: #6d28d9 !important;
+  border-color: #ddd6fe !important;
+  background: #f5f3ff !important;
+}
+
+.module-actions :is(button, a)[data-tone="muted"] {
+  color: #475569 !important;
+  border-color: var(--brand-line) !important;
+  background: var(--brand-panel-2) !important;
 }
 
 .module-actions :is(button, a):not([data-kpi="true"]):not([data-cal="true"]) * {
@@ -167,22 +203,22 @@ button[data-matrix-toggle="true"][data-on="true"]:hover:not(:disabled) {
   filter: none !important;
 }
 
-button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]) {
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]):not([data-soft="true"]):not([data-unstyled="true"]):not([data-tone]) {
   background: var(--brand-primary);
   color: #ffffff;
   font-weight: 700;
 }
 
-button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]) * {
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]):not([data-soft="true"]):not([data-unstyled="true"]):not([data-tone]) * {
   color: inherit !important;
   font-weight: inherit !important;
 }
 
-button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]):hover:not(:disabled) {
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]):not([data-soft="true"]):not([data-unstyled="true"]):not([data-tone]):hover:not(:disabled) {
   filter: brightness(0.96);
 }
 
-button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]):disabled {
+button:not([data-kpi="true"]):not([data-cal="true"]):not([data-chip="true"]):not([data-matrix-toggle="true"]):not([data-soft="true"]):not([data-unstyled="true"]):not([data-tone]):disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -207,10 +243,46 @@ button[data-chip="true"]:hover:not(:disabled) {
 
 :is(button, a)[data-soft="true"] {
   background: #ffffff !important;
-  color: var(--brand-soft) !important;
+  color: var(--brand-ink) !important;
   font-weight: 700 !important;
   border: 1px solid var(--brand-line) !important;
   filter: none !important;
+}
+
+:is(button, a)[data-soft="true"][data-tone="danger"] {
+  color: #b91c1c !important;
+  border-color: #fecaca !important;
+  background: #fff5f5 !important;
+}
+
+:is(button, a)[data-soft="true"][data-tone="warning"] {
+  color: #b45309 !important;
+  border-color: #fde68a !important;
+  background: #fffbeb !important;
+}
+
+:is(button, a)[data-soft="true"][data-tone="info"] {
+  color: #0369a1 !important;
+  border-color: #bae6fd !important;
+  background: #f0f9ff !important;
+}
+
+:is(button, a)[data-soft="true"][data-tone="success"] {
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+  background: #ecfdf5 !important;
+}
+
+:is(button, a)[data-soft="true"][data-tone="purple"] {
+  color: #6d28d9 !important;
+  border-color: #ddd6fe !important;
+  background: #f5f3ff !important;
+}
+
+:is(button, a)[data-soft="true"][data-tone="muted"] {
+  color: #475569 !important;
+  border-color: var(--brand-line) !important;
+  background: var(--brand-panel-2) !important;
 }
 
 :is(button, a)[data-soft="true"] * {
