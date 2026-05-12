@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { ModuleHeader } from "@/components/module-ui";
+import { ItDateInput } from "@/components/it-date-input";
 
 type TabKey = "scadenze" | "asset" | "assegnazioni";
 
@@ -870,10 +871,9 @@ export default function HomeMezziPage() {
               />
             </Field>
                 <Field label={assetForm.assetType === "mezzo" ? "Data immatricolazione" : "Data acquisto / entrata"}>
-              <input
-                type="date"
-                value={assetForm.registrationDate}
-                onChange={(e) => setAssetForm((v) => ({ ...v, registrationDate: e.target.value }))}
+              <ItDateInput
+                valueIso={assetForm.registrationDate}
+                onChangeIso={(valueIso) => setAssetForm((v) => ({ ...v, registrationDate: valueIso }))}
                 className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
               />
             </Field>
@@ -941,10 +941,9 @@ export default function HomeMezziPage() {
               />
             </Field>
                 <Field label="Inizio contratto">
-              <input
-                type="date"
-                value={assetForm.rentalStartDate}
-                onChange={(e) => setAssetForm((v) => ({ ...v, rentalStartDate: e.target.value }))}
+              <ItDateInput
+                valueIso={assetForm.rentalStartDate}
+                onChangeIso={(valueIso) => setAssetForm((v) => ({ ...v, rentalStartDate: valueIso }))}
                 className={[
                   "w-full rounded-xl border px-3 py-2 text-sm",
                   assetForm.ownershipType === "noleggio"
@@ -955,10 +954,9 @@ export default function HomeMezziPage() {
               />
             </Field>
                 <Field label="Fine contratto">
-              <input
-                type="date"
-                value={assetForm.rentalEndDate}
-                onChange={(e) => setAssetForm((v) => ({ ...v, rentalEndDate: e.target.value }))}
+              <ItDateInput
+                valueIso={assetForm.rentalEndDate}
+                onChangeIso={(valueIso) => setAssetForm((v) => ({ ...v, rentalEndDate: valueIso }))}
                 className={[
                   "w-full rounded-xl border px-3 py-2 text-sm",
                   assetForm.ownershipType === "noleggio"
@@ -1039,10 +1037,9 @@ export default function HomeMezziPage() {
               </select>
             </Field>
             <Field label="Data inizio">
-              <input
-                type="date"
-                value={assignForm.startDate}
-                onChange={(e) => setAssignForm((v) => ({ ...v, startDate: e.target.value }))}
+              <ItDateInput
+                valueIso={assignForm.startDate}
+                onChangeIso={(valueIso) => setAssignForm((v) => ({ ...v, startDate: valueIso }))}
                 className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
               />
             </Field>
@@ -1095,10 +1092,9 @@ export default function HomeMezziPage() {
 
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Prossima scadenza">
-                <input
-                  type="date"
-                  value={obligationForm.nextDueDate}
-                  onChange={(e) => setObligationForm((v) => ({ ...v, nextDueDate: e.target.value }))}
+                <ItDateInput
+                  valueIso={obligationForm.nextDueDate}
+                  onChangeIso={(valueIso) => setObligationForm((v) => ({ ...v, nextDueDate: valueIso }))}
                   className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 />
               </Field>
@@ -1133,18 +1129,16 @@ export default function HomeMezziPage() {
               <div className="text-sm font-bold text-[var(--brand-ink)]">Registra eseguito</div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <Field label="Data esecuzione">
-                  <input
-                    type="date"
-                    value={obligationForm.doneDate}
-                    onChange={(e) => setObligationForm((v) => ({ ...v, doneDate: e.target.value }))}
+                  <ItDateInput
+                    valueIso={obligationForm.doneDate}
+                    onChangeIso={(valueIso) => setObligationForm((v) => ({ ...v, doneDate: valueIso }))}
                     className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                   />
                 </Field>
                 <Field label="Prossima scadenza (post eseguito)">
-                  <input
-                    type="date"
-                    value={obligationForm.nextDueAfterDone}
-                    onChange={(e) => setObligationForm((v) => ({ ...v, nextDueAfterDone: e.target.value }))}
+                  <ItDateInput
+                    valueIso={obligationForm.nextDueAfterDone}
+                    onChangeIso={(valueIso) => setObligationForm((v) => ({ ...v, nextDueAfterDone: valueIso }))}
                     className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                   />
                 </Field>

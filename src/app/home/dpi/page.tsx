@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { KpiCard, KpiGrid, ModuleHeader, StatusPill } from "@/components/module-ui";
+import { ItDateInput } from "@/components/it-date-input";
 
 type WorkerDpiRow = {
   workerId: number;
@@ -575,30 +576,27 @@ export default function HomeDpiPage() {
             </Field>
 
             <Field label="Data consegna">
-              <input
-                type="date"
-                value={assignForm.deliveredDate}
-                onChange={(e) => setAssignForm((v) => ({ ...v, deliveredDate: e.target.value }))}
+              <ItDateInput
+                valueIso={assignForm.deliveredDate}
+                onChangeIso={(valueIso) => setAssignForm((v) => ({ ...v, deliveredDate: valueIso }))}
                 className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 disabled={assignForm.mode !== "deliver"}
               />
             </Field>
 
             <Field label="Data programmata">
-              <input
-                type="date"
-                value={assignForm.plannedDate}
-                onChange={(e) => setAssignForm((v) => ({ ...v, plannedDate: e.target.value }))}
+              <ItDateInput
+                valueIso={assignForm.plannedDate}
+                onChangeIso={(valueIso) => setAssignForm((v) => ({ ...v, plannedDate: valueIso }))}
                 className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 disabled={assignForm.mode !== "plan"}
               />
             </Field>
 
             <Field label="Prossimo controllo">
-              <input
-                type="date"
-                value={assignForm.nextCheckDate}
-                onChange={(e) => setAssignForm((v) => ({ ...v, nextCheckDate: e.target.value }))}
+              <ItDateInput
+                valueIso={assignForm.nextCheckDate}
+                onChangeIso={(valueIso) => setAssignForm((v) => ({ ...v, nextCheckDate: valueIso }))}
                 className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
                 disabled={assignForm.mode !== "deliver" && assignForm.mode !== "plan"}
               />

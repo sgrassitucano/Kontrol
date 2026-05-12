@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardCard, ModuleHeader, PanelCard } from "@/components/module-ui";
+import { ItDateInput } from "@/components/it-date-input";
 
 type ExportEmployeeOption = {
   id: number;
@@ -534,10 +535,9 @@ export default function HomeTurniPage() {
                 {imageMode === "week" ? (
                   <div className="mt-2">
                     <label className="text-xs font-bold text-[var(--brand-ink)]">Settimana (lunedì)</label>
-                    <input
-                      type="date"
-                      value={weekStart}
-                      onChange={(e) => setWeekStart(mondayOf(e.target.value))}
+                    <ItDateInput
+                      valueIso={weekStart}
+                      onChangeIso={(valueIso) => setWeekStart(mondayOf(valueIso))}
                       className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
                     />
                     <p className="mt-1 text-xs text-slate-500">Se scegli un giorno qualsiasi, viene allineato automaticamente al lunedì.</p>

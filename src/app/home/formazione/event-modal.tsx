@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ItDateInput } from "@/components/it-date-input";
 
 type CourseOption = { code: string; title: string };
 type WorkerOption = { workerId: number; matricola: string; fullName: string; cantiere: string; sottocantiere: string };
@@ -349,10 +350,9 @@ export function EventModal(props: {
                 <option value="ANNULLA">ANNULLA</option>
                 <option value="NOTE">NOTE</option>
               </select>
-              <input
-                type="date"
-                value={eventDate}
-                onChange={(event) => setEventDate(event.target.value)}
+              <ItDateInput
+                valueIso={eventDate}
+                onChangeIso={setEventDate}
                 disabled={!(eventType === "SVOLTO" || eventType === "MODIFICA_DATA" || eventType === "PROGRAMMATO")}
                 className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm disabled:bg-slate-100"
               />
