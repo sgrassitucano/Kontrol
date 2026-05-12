@@ -5,6 +5,15 @@ export const runtime = "nodejs";
 
 type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 
+function chunkArray<T>(items: T[], chunkSize: number) {
+  const size = Math.max(1, Math.floor(chunkSize));
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 function parseDateIso(value: unknown) {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
@@ -43,12 +52,16 @@ export async function POST(request: Request) {
 
     const employeeIdsRaw = Array.isArray(body.employeeIds) ? body.employeeIds : [];
     const fallbackEmployeeId = Number(body.employeeId);
-    const employeeIds =
-      employeeIdsRaw.length > 0
-        ? employeeIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
-        : Number.isFinite(fallbackEmployeeId) && fallbackEmployeeId > 0
-          ? [fallbackEmployeeId]
-          : [];
+    const employeeIdsDeduped = Array.from(
+      new Set(
+        (employeeIdsRaw.length > 0
+          ? employeeIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+          : Number.isFinite(fallbackEmployeeId) && fallbackEmployeeId > 0
+            ? [fallbackEmployeeId]
+            : []) as number[],
+      ),
+    );
+    const employeeIds = employeeIdsDeduped;
     const courseCode = String(body.courseCode ?? "").trim();
     const type = String(body.type ?? "").trim() as EventType;
     const dateIso = parseDateIso(body.date);
@@ -87,26 +100,37 @@ export async function POST(request: Request) {
 
     if (type === "NOTE") {
       if (dryRun) return NextResponse.json({ ok: true, upserts: employeeIds.length });
-      const { error: noteError } = await auth.supabase.from("training_employee_courses").upsert(
-        employeeIds.map((employeeId) => ({
-          employee_id: employeeId,
-          course_id: courseId,
-          updated_by: auth.userId,
-          note,
-        })),
-        { onConflict: "employee_id,course_id" },
-      );
-      if (noteError) return NextResponse.json({ error: noteError.message }, { status: 500 });
+      for (const chunk of chunkArray(employeeIds, 500)) {
+        const { error: noteError } = await auth.supabase.from("training_employee_courses").upsert(
+          chunk.map((employeeId) => ({
+            employee_id: employeeId,
+            course_id: courseId,
+            updated_by: auth.userId,
+            note,
+          })),
+          { onConflict: "employee_id,course_id" },
+        );
+        if (noteError) return NextResponse.json({ error: noteError.message }, { status: 500 });
+      }
       return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
     }
 
     if (type === "ANNULLA") {
-      const { data: existing, error: existingError } = await auth.supabase
-        .from("training_employee_courses")
-        .select("employee_id,completion_date,planned_date,manual_state")
-        .eq("course_id", courseId)
-        .in("employee_id", employeeIds);
-      if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+      const existing: Array<{
+        employee_id: number;
+        completion_date: string | null;
+        planned_date: string | null;
+        manual_state: string | null;
+      }> = [];
+      for (const chunk of chunkArray(employeeIds, 500)) {
+        const { data, error: existingError } = await auth.supabase
+          .from("training_employee_courses")
+          .select("employee_id,completion_date,planned_date,manual_state")
+          .eq("course_id", courseId)
+          .in("employee_id", chunk);
+        if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+        existing.push(...((data ?? []) as typeof existing));
+      }
 
       const completedIds = new Set<number>();
       const plannedIds = new Set<number>();
@@ -147,26 +171,30 @@ export async function POST(request: Request) {
         };
         if (note !== null) payload.note = note;
 
-        const { error: updateError } = await auth.supabase
-          .from("training_employee_courses")
-          .update(payload)
-          .in("employee_id", toClearPlanned)
-          .eq("course_id", courseId);
-        if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+        for (const chunk of chunkArray(toClearPlanned, 500)) {
+          const { error: updateError } = await auth.supabase
+            .from("training_employee_courses")
+            .update(payload)
+            .in("employee_id", chunk)
+            .eq("course_id", courseId);
+          if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+        }
       }
 
       if (toExclude.length > 0) {
-        const { error: exclusionError } = await auth.supabase.from("training_employee_course_exclusions").upsert(
-          toExclude.map((employeeId) => ({
-            employee_id: employeeId,
-            course_id: courseId,
-            is_active: true,
-            note,
-            created_by: auth.userId,
-          })),
-          { onConflict: "employee_id,course_id" },
-        );
-        if (exclusionError) return NextResponse.json({ error: exclusionError.message }, { status: 500 });
+        for (const chunk of chunkArray(toExclude, 500)) {
+          const { error: exclusionError } = await auth.supabase.from("training_employee_course_exclusions").upsert(
+            chunk.map((employeeId) => ({
+              employee_id: employeeId,
+              course_id: courseId,
+              is_active: true,
+              note,
+              created_by: auth.userId,
+            })),
+            { onConflict: "employee_id,course_id" },
+          );
+          if (exclusionError) return NextResponse.json({ error: exclusionError.message }, { status: 500 });
+        }
       }
 
       return NextResponse.json({
@@ -179,32 +207,43 @@ export async function POST(request: Request) {
 
     if (type === "PROGRAMMATO") {
       const plannedDate = dateIso;
-      const { error: updateError } = await auth.supabase
-        .from("training_employee_courses")
-        .upsert(
-          employeeIds.map((employeeId) => ({
-            employee_id: employeeId,
-            course_id: courseId,
-            planned_date: plannedDate,
-            completion_date: null,
-            expiry_date: null,
-            manual_state: "programmato" as const,
-            updated_by: auth.userId,
-            note,
-          })),
-          { onConflict: "employee_id,course_id" },
-        );
-      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+      for (const chunk of chunkArray(employeeIds, 500)) {
+        const { error: updateError } = await auth.supabase
+          .from("training_employee_courses")
+          .upsert(
+            chunk.map((employeeId) => ({
+              employee_id: employeeId,
+              course_id: courseId,
+              planned_date: plannedDate,
+              completion_date: null,
+              expiry_date: null,
+              manual_state: "programmato" as const,
+              updated_by: auth.userId,
+              note,
+            })),
+            { onConflict: "employee_id,course_id" },
+          );
+        if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
       return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
     }
 
     if (type === "DA_FARE") {
-      const { data: existing, error: existingError } = await auth.supabase
-        .from("training_employee_courses")
-        .select("employee_id,completion_date,planned_date,manual_state")
-        .eq("course_id", courseId)
-        .in("employee_id", employeeIds);
-      if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+      const existing: Array<{
+        employee_id: number;
+        completion_date: string | null;
+        planned_date: string | null;
+        manual_state: string | null;
+      }> = [];
+      for (const chunk of chunkArray(employeeIds, 500)) {
+        const { data, error: existingError } = await auth.supabase
+          .from("training_employee_courses")
+          .select("employee_id,completion_date,planned_date,manual_state")
+          .eq("course_id", courseId)
+          .in("employee_id", chunk);
+        if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+        existing.push(...((data ?? []) as typeof existing));
+      }
 
       const completedIds = new Set<number>();
       (existing ?? []).forEach((row) => {
@@ -226,41 +265,45 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, processed: 0, skipped: employeeIds.length });
       }
 
-      const { error: writeError } = await auth.supabase.from("training_employee_courses").upsert(
-        toWrite.map((employeeId) => ({
-          employee_id: employeeId,
-          course_id: courseId,
-          completion_date: null,
-          expiry_date: null,
-          planned_date: null,
-          manual_state: null,
-          updated_by: auth.userId,
-          note,
-        })),
-        { onConflict: "employee_id,course_id" },
-      );
-      if (writeError) return NextResponse.json({ error: writeError.message }, { status: 500 });
+      for (const chunk of chunkArray(toWrite, 500)) {
+        const { error: chunkError } = await auth.supabase.from("training_employee_courses").upsert(
+          chunk.map((employeeId) => ({
+            employee_id: employeeId,
+            course_id: courseId,
+            completion_date: null,
+            expiry_date: null,
+            planned_date: null,
+            manual_state: null,
+            updated_by: auth.userId,
+            note,
+          })),
+          { onConflict: "employee_id,course_id" },
+        );
+        if (chunkError) return NextResponse.json({ error: chunkError.message }, { status: 500 });
+      }
 
       return NextResponse.json({ ok: true, processed: toWrite.length, skipped: completedIds.size });
     }
 
     const expiryDate = dateIso ? computeExpiryFromCompletion(dateIso, course as { validity_years: number | null; is_unlimited: boolean }) : null;
-    const { error: writeError } = await auth.supabase
-      .from("training_employee_courses")
-      .upsert(
-        employeeIds.map((employeeId) => ({
-          employee_id: employeeId,
-          course_id: courseId,
-          completion_date: dateIso,
-          expiry_date: expiryDate,
-          planned_date: null,
-          manual_state: null,
-          updated_by: auth.userId,
-          note,
-        })),
-        { onConflict: "employee_id,course_id" },
-      );
-    if (writeError) return NextResponse.json({ error: writeError.message }, { status: 500 });
+    for (const chunk of chunkArray(employeeIds, 500)) {
+      const { error: writeError } = await auth.supabase
+        .from("training_employee_courses")
+        .upsert(
+          chunk.map((employeeId) => ({
+            employee_id: employeeId,
+            course_id: courseId,
+            completion_date: dateIso,
+            expiry_date: expiryDate,
+            planned_date: null,
+            manual_state: null,
+            updated_by: auth.userId,
+            note,
+          })),
+          { onConflict: "employee_id,course_id" },
+        );
+      if (writeError) return NextResponse.json({ error: writeError.message }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
   } catch (err) {

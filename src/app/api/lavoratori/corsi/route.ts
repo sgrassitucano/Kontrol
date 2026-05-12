@@ -126,8 +126,14 @@ export async function GET(request: Request) {
 
     const dataSupabase = auth.supabase;
 
+    const employees =
+      typeof employeeId === "number" && Number.isFinite(employeeId)
+        ? await fetchEmployeeById(dataSupabase, employeeId)
+        : await fetchAllEmployees(dataSupabase);
+
+    const employeeIds = Array.from(new Set(employees.map((e) => e.id)));
+
     const [
-      employees,
       { data: courses, error: coursesError },
       rules,
       courseRows,
@@ -137,18 +143,17 @@ export async function GET(request: Request) {
       employeeExclusions,
       courseExclusions,
     ] = await Promise.all([
-      fetchAllEmployees(dataSupabase),
       dataSupabase.from("training_courses").select("id,code,title,is_active,validity_years,is_unlimited"),
       fetchAllRules(dataSupabase),
-      fetchAllCourseRows(dataSupabase),
-      fetchAllFreezes(dataSupabase),
+      fetchCourseRowsByEmployeeIds(dataSupabase, employeeIds),
+      fetchFreezesByEmployeeIds(dataSupabase, employeeIds),
       fetchAllRuleLinks(dataSupabase),
       applyFormazioneExclusions ? fetchAllScopeExclusions(dataSupabase) : Promise.resolve([] as ScopeExclusionRow[]),
       applyFormazioneExclusions
-        ? fetchAllTrainingEmployeeExclusions(dataSupabase)
+        ? fetchTrainingEmployeeExclusionsByEmployeeIds(dataSupabase, employeeIds)
         : Promise.resolve([] as TrainingEmployeeExclusionRow[]),
       applyFormazioneExclusions
-        ? fetchAllTrainingEmployeeCourseExclusions(dataSupabase)
+        ? fetchTrainingEmployeeCourseExclusionsByEmployeeIds(dataSupabase, employeeIds)
         : Promise.resolve([] as TrainingEmployeeCourseExclusionRow[]),
     ]);
 
@@ -680,50 +685,43 @@ async function fetchAllRules(supabase: SupabaseClient) {
   return allRows;
 }
 
-async function fetchAllCourseRows(supabase: SupabaseClient) {
-  const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const allRows: CourseStatusRow[] = [];
+function chunkArray<T>(items: T[], chunkSize: number) {
+  const size = Math.max(1, Math.floor(chunkSize));
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
-  while (hasMore) {
-    const to = from + pageSize - 1;
+async function fetchCourseRowsByEmployeeIds(supabase: SupabaseClient, employeeIds: number[]) {
+  const ids = employeeIds.filter((id) => Number.isFinite(id) && id > 0);
+  if (ids.length === 0) return [] as CourseStatusRow[];
+  const all: CourseStatusRow[] = [];
+  for (const chunk of chunkArray(ids, 500)) {
     const { data, error } = await supabase
       .from("training_employee_courses")
       .select("employee_id,course_id,completion_date,expiry_date,planned_date,manual_state,note")
-      .range(from, to);
-
+      .in("employee_id", chunk);
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as CourseStatusRow[];
-    allRows.push(...rows);
-
-    if (rows.length < pageSize) hasMore = false;
-    else from += pageSize;
+    all.push(...((data ?? []) as CourseStatusRow[]));
   }
-  return allRows;
+  return all;
 }
 
-async function fetchAllFreezes(supabase: SupabaseClient) {
-  const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const allRows: FreezeRow[] = [];
-
-  while (hasMore) {
-    const to = from + pageSize - 1;
+async function fetchFreezesByEmployeeIds(supabase: SupabaseClient, employeeIds: number[]) {
+  const ids = employeeIds.filter((id) => Number.isFinite(id) && id > 0);
+  if (ids.length === 0) return [] as FreezeRow[];
+  const all: FreezeRow[] = [];
+  for (const chunk of chunkArray(ids, 500)) {
     const { data, error } = await supabase
       .from("employee_freeze_periods")
       .select("employee_id,freeze_status,start_date,end_date")
-      .range(from, to);
-
+      .in("employee_id", chunk);
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as FreezeRow[];
-    allRows.push(...rows);
-
-    if (rows.length < pageSize) hasMore = false;
-    else from += pageSize;
+    all.push(...((data ?? []) as FreezeRow[]));
   }
-  return allRows;
+  return all;
 }
 
 async function fetchAllRuleLinks(supabase: SupabaseClient) {
@@ -786,6 +784,20 @@ async function fetchAllEmployees(
   }
 
   return allRows;
+}
+
+async function fetchEmployeeById(supabase: SupabaseClient, employeeId: number) {
+  const { data, error } = await supabase
+    .from("employees")
+    .select(
+      "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,job_title_notes,sites(display_name),sub_sites(display_name)",
+    )
+    .eq("status", "attivo")
+    .eq("id", employeeId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return [] as EmployeeRow[];
+  return [data as EmployeeRow];
 }
 
 function buildSubstitutersByToCourseId(links: RuleLinkRow[]) {
@@ -937,34 +949,36 @@ async function fetchAllScopeExclusions(
   return (data ?? []) as ScopeExclusionRow[];
 }
 
-async function fetchAllTrainingEmployeeExclusions(
-  supabase: SupabaseClient,
-) {
-  const { data, error } = await supabase
-    .from("training_employee_exclusions")
-    .select("employee_id,is_active")
-    .eq("is_active", true);
-
-  if (error) {
-    throw new Error(error.message);
+async function fetchTrainingEmployeeExclusionsByEmployeeIds(supabase: SupabaseClient, employeeIds: number[]) {
+  const ids = employeeIds.filter((id) => Number.isFinite(id) && id > 0);
+  if (ids.length === 0) return [] as TrainingEmployeeExclusionRow[];
+  const all: TrainingEmployeeExclusionRow[] = [];
+  for (const chunk of chunkArray(ids, 500)) {
+    const { data, error } = await supabase
+      .from("training_employee_exclusions")
+      .select("employee_id,is_active")
+      .eq("is_active", true)
+      .in("employee_id", chunk);
+    if (error) throw new Error(error.message);
+    all.push(...((data ?? []) as TrainingEmployeeExclusionRow[]));
   }
-
-  return (data ?? []) as TrainingEmployeeExclusionRow[];
+  return all;
 }
 
-async function fetchAllTrainingEmployeeCourseExclusions(
-  supabase: SupabaseClient,
-) {
-  const { data, error } = await supabase
-    .from("training_employee_course_exclusions")
-    .select("employee_id,course_id,is_active")
-    .eq("is_active", true);
-
-  if (error) {
-    throw new Error(error.message);
+async function fetchTrainingEmployeeCourseExclusionsByEmployeeIds(supabase: SupabaseClient, employeeIds: number[]) {
+  const ids = employeeIds.filter((id) => Number.isFinite(id) && id > 0);
+  if (ids.length === 0) return [] as TrainingEmployeeCourseExclusionRow[];
+  const all: TrainingEmployeeCourseExclusionRow[] = [];
+  for (const chunk of chunkArray(ids, 500)) {
+    const { data, error } = await supabase
+      .from("training_employee_course_exclusions")
+      .select("employee_id,course_id,is_active")
+      .eq("is_active", true)
+      .in("employee_id", chunk);
+    if (error) throw new Error(error.message);
+    all.push(...((data ?? []) as TrainingEmployeeCourseExclusionRow[]));
   }
-
-  return (data ?? []) as TrainingEmployeeCourseExclusionRow[];
+  return all;
 }
 
 function groupRulesByScope(rules: MatrixRule[]) {

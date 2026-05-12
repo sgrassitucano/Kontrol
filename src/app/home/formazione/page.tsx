@@ -603,35 +603,9 @@ export default function HomeFormazionePage() {
     setDashboardRows([]);
     setDashboardTotalByAnagrafica(0);
 
-    try {
-      const params = new URLSearchParams();
-      params.set("date", simulationDate);
-      params.set("expiringDays", String(expiringDays));
-
-      params.set("panel", "formazione");
-      if (showExcludedEmployees) params.set("includeExcluded", "1");
-      const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`);
-      const body = (await response.json()) as {
-        rows?: WorkerCourseRow[];
-        error?: string;
-        totalActiveEmployees?: number;
-      };
-      if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore caricamento dashboard formazione.");
-      }
-
-      const allRows = body.rows ?? [];
-      const totalActiveEmployees = body.totalActiveEmployees ?? 0;
-
-      setDashboardRows(allRows);
-      setDashboardTotalByAnagrafica(totalActiveEmployees);
-    } catch (err) {
-      setDashboardError(
-        err instanceof Error ? err.message : "Errore caricamento dashboard formazione.",
-      );
-    } finally {
-      setDashboardLoading(false);
-    }
+    setDashboardRows(rows);
+    setDashboardTotalByAnagrafica(totalActiveEmployees);
+    setDashboardLoading(false);
   }
 
   const filteredRows = useMemo(() => {
