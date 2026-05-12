@@ -371,10 +371,14 @@ export async function commitLegacyTrainingImport({
     }
 
     if (interpretation === "svolto_illimitato") {
+      if (!row.startDate) {
+        skippedDaFareRows += 1;
+        continue;
+      }
       payload.push({
         employee_id: employeeId,
         course_id: course.id,
-        completion_date: row.startDate ?? todayIso,
+        completion_date: row.startDate,
         expiry_date: null,
       });
       continue;

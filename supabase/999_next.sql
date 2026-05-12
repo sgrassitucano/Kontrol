@@ -128,6 +128,39 @@ where tec.course_id = c.id
   and tec.completion_date is not null
   and (tec.manual_state is null or tec.manual_state not in ('programmato', 'escluso'));
 
+-- Audit/Formazione: record con completion_date ma expiry_date NULL (potenziale "idoneo" troppo ottimistico)
+-- Nota: esclude corsi illimitati e stati manuali programmato/escluso.
+select
+  c.code,
+  c.title,
+  count(*) as rows_without_expiry
+from public.training_employee_courses tec
+join public.training_courses c on c.id = tec.course_id
+join public.employees e on e.id = tec.employee_id
+where e.status = 'attivo'
+  and tec.completion_date is not null
+  and tec.expiry_date is null
+  and coalesce(c.is_unlimited, false) = false
+  and coalesce(c.validity_years, 0) > 0
+  and (tec.manual_state is null or tec.manual_state not in ('programmato', 'escluso'))
+group by c.code, c.title
+order by rows_without_expiry desc, c.code;
+
+-- Fix/Formazione: ricalcolo expiry_date mancante da completion_date + validity_years
+-- Nota: non tocca corsi illimitati né quelli senza validity_years.
+update public.training_employee_courses tec
+set expiry_date = (tec.completion_date + make_interval(years => c.validity_years))::date,
+    updated_at = timezone('utc', now())
+from public.training_courses c
+join public.employees e on e.id = tec.employee_id
+where tec.course_id = c.id
+  and e.status = 'attivo'
+  and tec.completion_date is not null
+  and tec.expiry_date is null
+  and coalesce(c.is_unlimited, false) = false
+  and coalesce(c.validity_years, 0) > 0
+  and (tec.manual_state is null or tec.manual_state not in ('programmato', 'escluso'));
+
 drop policy if exists "import_runs_read_management_only" on public.import_runs;
 drop policy if exists "import_runs_read_by_module" on public.import_runs;
 create policy "import_runs_read_by_module"
