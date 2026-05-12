@@ -190,7 +190,7 @@ export default function HomeSorveglianzaPage() {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (statusFilter === "critico") {
-        if (!(row.stato === "scaduto" || row.stato === "da fare" || row.stato === "programmato")) return false;
+        if (!(row.stato === "scaduto" || row.stato === "da fare")) return false;
       } else if (statusFilter && row.stato !== statusFilter) {
         return false;
       }
@@ -294,7 +294,7 @@ export default function HomeSorveglianzaPage() {
     return "success" as const;
   }
 
-  const criticoCount = meta.counts.scaduto + meta.counts.daFare + meta.counts.programmato;
+  const criticoCount = meta.counts.scaduto + meta.counts.daFare;
   const inScopeTotal = Math.max(0, meta.totalActiveEmployees - meta.excludedByRule);
 
   function pct(count: number, total: number) {
