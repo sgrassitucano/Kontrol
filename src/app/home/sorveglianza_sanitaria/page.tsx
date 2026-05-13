@@ -299,7 +299,7 @@ export default function HomeSorveglianzaPage() {
 
   const criticoCount = meta.counts.scaduto + meta.counts.daFare + meta.counts.programmato;
   const excludedCount = meta.excludedByRule;
-  const totalWorkers = criticoCount + meta.counts.inScadenza + excludedCount;
+  const totalWorkers = meta.totalActiveEmployees;
 
   function pct(count: number, total: number) {
     if (!total) return "0%";

@@ -185,8 +185,6 @@ export default function HomeFormazionePage() {
   const [totalActiveEmployees, setTotalActiveEmployees] = useState(0);
   const [excludedByScopeEmployees, setExcludedByScopeEmployees] = useState(0);
   const [frozenEmployees, setFrozenEmployees] = useState(0);
-  const [eligibleEmployees, setEligibleEmployees] = useState(0);
-  const [eligibleOperativiEmployees, setEligibleOperativiEmployees] = useState(0);
   const [search, setSearch] = useState("");
   const [showExcludedEmployees, setShowExcludedEmployees] = useState(false);
   const [simulationDate, setSimulationDate] = useState(() => getDefaultSimulationDate());
@@ -338,8 +336,6 @@ export default function HomeFormazionePage() {
         totalActiveEmployees?: number;
         excludedByScopeEmployees?: number;
         frozenEmployees?: number;
-        eligibleEmployees?: number;
-        eligibleOperativiEmployees?: number;
       };
       if (!response.ok || body.error) {
         throw new Error(body.error ?? "Errore caricamento formazione lavoratori.");
@@ -359,8 +355,6 @@ export default function HomeFormazionePage() {
       setTotalActiveEmployees(body.totalActiveEmployees ?? 0);
       setExcludedByScopeEmployees(body.excludedByScopeEmployees ?? 0);
       setFrozenEmployees(body.frozenEmployees ?? 0);
-      setEligibleEmployees(body.eligibleEmployees ?? 0);
-      setEligibleOperativiEmployees(body.eligibleOperativiEmployees ?? 0);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Errore caricamento formazione lavoratori.",
@@ -1208,10 +1202,10 @@ export default function HomeFormazionePage() {
     const baseRows = rows.filter((row) => isDashboardBaseCode(row.corsoCode));
     const operativiRows = rows.filter((row) => !isDashboardBaseCode(row.corsoCode));
     return {
-      base: { rows: baseRows, summary: buildDashboardSummary(baseRows, eligibleEmployees) },
-      operativi: { rows: operativiRows, summary: buildDashboardSummary(operativiRows, eligibleOperativiEmployees) },
+      base: { rows: baseRows, summary: buildDashboardSummary(baseRows, totalActiveEmployees) },
+      operativi: { rows: operativiRows, summary: buildDashboardSummary(operativiRows, totalActiveEmployees) },
     };
-  }, [eligibleEmployees, eligibleOperativiEmployees, rows]);
+  }, [rows, totalActiveEmployees]);
 
   const dashboardDetailByJob = useMemo(() => {
     const entityByKey = new Map(jobEntities.map((entity) => [entity.key, entity]));
@@ -1400,7 +1394,7 @@ export default function HomeFormazionePage() {
               const excludedCount = excludedByScopeEmployees;
               const criticoCount =
                 summary.counts.scaduto + summary.counts["da fare"] + summary.counts.programmato + summary.counts.upgrade;
-              const totalWorkers = criticoCount + summary.counts["in scadenza"] + excludedCount;
+              const totalWorkers = totalActiveEmployees;
               const criticoPct = percentage(criticoCount, totalWorkers);
 
               return (
