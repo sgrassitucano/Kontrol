@@ -51,7 +51,7 @@ type LastImportRun = {
   importedByName: string | null;
 };
 
-const MAX_PDF_UPLOAD_BYTES = 4_000_000;
+const MAX_PDF_UPLOAD_BYTES = 6_000_000;
 
 function formatDateTimeIt(value: string) {
   const d = new Date(value);
@@ -94,7 +94,7 @@ async function readJsonOrThrow(response: Response) {
   }
 
   if (response.status === 413 || text.toLowerCase().includes("request entity too large")) {
-    throw new Error("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~4MB) e riprova.");
+    throw new Error("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~6MB) e riprova.");
   }
 
   const snippet = text.trim().slice(0, 180);
@@ -176,7 +176,7 @@ export default function SorveglianzaPdfImportPage() {
   async function runPreview() {
     if (!selectedFile) return;
     if (selectedFile.size > MAX_PDF_UPLOAD_BYTES) {
-      setServerError("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~4MB) e riprova.");
+      setServerError("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~6MB) e riprova.");
       return;
     }
 
@@ -352,7 +352,7 @@ export default function SorveglianzaPdfImportPage() {
               setSelectedFile(nextFile);
               resetRunState();
               if (nextFile && nextFile.size > MAX_PDF_UPLOAD_BYTES) {
-                setServerError("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~4MB) e riprova.");
+                setServerError("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~6MB) e riprova.");
               }
             }}
             className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"

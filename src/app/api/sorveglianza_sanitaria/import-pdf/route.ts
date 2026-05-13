@@ -266,6 +266,7 @@ export async function POST(request: Request) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
+    const MAX_PDF_UPLOAD_BYTES = 6_000_000;
     const formData = await request.formData();
     const mode = String(formData.get("mode") ?? "").trim() as ImportMode;
     const file = formData.get("file");
@@ -409,6 +410,9 @@ export async function POST(request: Request) {
     }
     if (!String(file.name ?? "").toLowerCase().endsWith(".pdf")) {
       return NextResponse.json({ error: "Formato non valido (atteso PDF)." }, { status: 400 });
+    }
+    if (file.size > MAX_PDF_UPLOAD_BYTES) {
+      return NextResponse.json({ error: "PDF troppo grande (max ~6MB)." }, { status: 413 });
     }
 
     const buffer = await file.arrayBuffer();
