@@ -1344,15 +1344,11 @@ function buildTrainingBaseSectionRows({
       return bc - ac;
     })[0];
 
-  if (combinedBest) {
+  if (combinedBest && combinedBest.ok && combinedBest.meets) {
     const risk = combinedBest.specCode.slice("FORM_SPEC_".length).toLowerCase();
     const courseCode = `FORM_BASE+${combinedBest.specCode}`;
     const courseTitle = `Formazione generale + specifica rischio ${risk}`;
-    const shouldUpgrade =
-      combinedBest.ok && combinedBest.rank < requiredRank && combinedBest.state !== "sospeso" && combinedBest.state !== "escluso";
-    const from = levelLabel(combinedBest.specCode) ?? combinedBest.specCode;
-    const to = levelLabel(formSpecRequired.code) ?? formSpecRequired.code;
-    const state = (shouldUpgrade ? "upgrade" : combinedBest.state) as WorkerCourseRow["stato"];
+    const state = combinedBest.state as WorkerCourseRow["stato"];
     const row: WorkerCourseRow = {
       workerId: employee.id,
       matricola: employee.matricola,
@@ -1367,7 +1363,7 @@ function buildTrainingBaseSectionRows({
       dataConclusione: combinedBest.statusRow.completion_date ?? null,
       dataScadenza: combinedBest.expiryIso,
       stato: state,
-      upgradeInfo: shouldUpgrade ? `${from} → ${to}` : null,
+      upgradeInfo: null,
       responsabile: employee.responsible_code,
       referente: employee.referral ?? "",
       note: combinedBest.statusRow.note ?? "",
@@ -1466,37 +1462,6 @@ function buildTrainingBaseSectionRows({
     note: formBaseStatus?.note ?? "",
     origine: "obbligatorio",
   };
-
-  if (!baseCompletionKey) {
-    const requiredRisk = formSpecRequired.code.slice("FORM_SPEC_".length).toLowerCase();
-    const courseCode = `FORM_BASE+${formSpecRequired.code}`;
-    const courseTitle = `Formazione generale + specifica rischio ${requiredRisk}`;
-    const state = mergeBaseStates(
-      formBaseState,
-      resolveCourseState(undefined, undefined, freeze, todayIso, expiringDays, false),
-    );
-
-    const row: WorkerCourseRow = {
-      workerId: employee.id,
-      matricola: employee.matricola,
-      cognome: employee.last_name,
-      nome: employee.first_name,
-      mansione: formatJobLabel(employee.job_title ?? ""),
-      cantiere: extractDisplayName(employee.sites),
-      sottocantiere: extractDisplayName(employee.sub_sites),
-      corsoCode: courseCode,
-      corso: courseTitle,
-      dataConclusione: null,
-      dataScadenza: null,
-      stato: state as WorkerCourseRow["stato"],
-      upgradeInfo: null,
-      responsabile: employee.responsible_code,
-      referente: employee.referral ?? "",
-      note: formBaseStatus?.note ?? "",
-      origine: "obbligatorio",
-    };
-    return [row];
-  }
 
   if (ownedSpecStatus && baseOk && specOk && ownedRank < requiredRank && ownedSpecCourseId) {
     const from = levelLabel(ownedSpecCode!) ?? ownedSpecCode!;
