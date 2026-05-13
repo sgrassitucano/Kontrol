@@ -6,6 +6,14 @@ export const runtime = "nodejs";
 
 type ImportMode = "preview" | "commit";
 
+class PdfImportHttpError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 type PdfImportPreviewRow = {
   page: number;
   employeeId: number | null;
@@ -191,10 +199,31 @@ async function extractPdfPagesText(fileBuffer: ArrayBuffer) {
   const data = new Uint8Array(fileBuffer);
   const loadingTask = pdfjs.getDocument({ data, disableWorker: true } as never);
   const pdf = await loadingTask.promise;
+  const MAX_PDF_PAGES = 250;
+  const MAX_PAGE_PARSE_MS = 12_000;
+  const totalPages = Number(pdf.numPages ?? 0);
+  if (!Number.isFinite(totalPages) || totalPages <= 0) {
+    throw new PdfImportHttpError(422, "PDF non valido o non leggibile (pagine non rilevate).");
+  }
+  if (totalPages > MAX_PDF_PAGES) {
+    throw new PdfImportHttpError(
+      413,
+      `PDF troppo grande: ${totalPages} pagine (max ${MAX_PDF_PAGES}). Dividi il file e riprova.`,
+    );
+  }
   const out: Array<{ page: number; text: string }> = [];
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
+  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new PdfImportHttpError(422, `Parsing PDF troppo lento (pagina ${pageNumber}).`)),
+        MAX_PAGE_PARSE_MS,
+      );
+    });
+    const page = await Promise.race([pdf.getPage(pageNumber), timeout]);
+    const content = await Promise.race([
+      (page as { getTextContent: () => Promise<{ items: unknown[] }> }).getTextContent(),
+      timeout,
+    ]);
     const parts = (content.items as Array<{ str?: string }>).map((i) => String(i.str ?? "")).filter(Boolean);
     const text = cleanSpaces(parts.join(" ")) ? parts.join("\n") : "";
     out.push({ page: pageNumber, text });
@@ -568,9 +597,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(response);
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Errore import PDF." },
-      { status: 500 },
-    );
+    const status = err instanceof PdfImportHttpError ? err.status : 500;
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Errore import PDF." }, { status });
   }
 }
