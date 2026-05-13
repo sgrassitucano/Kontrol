@@ -55,7 +55,152 @@ const MAX_PDF_UPLOAD_BYTES = 6_000_000;
 const MAX_PDF_DIRECT_UPLOAD_BYTES = 3_500_000;
 const MAX_PDF_PAGES = 250;
 
-async function extractPdfPagesTextClient(file: File, onProgress: (done: number, total: number) => void) {
+function cleanSpaces(value: string) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeTaxCode(value: string) {
+  return cleanSpaces(value).toUpperCase().replace(/\s+/g, "");
+}
+
+function parseItDateToIso(value: string) {
+  const raw = cleanSpaces(value);
+  const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (!m) return null;
+  const dd = String(Number(m[1])).padStart(2, "0");
+  const mm = String(Number(m[2])).padStart(2, "0");
+  let yyyy = Number(m[3]);
+  if (yyyy < 100) yyyy = 2000 + yyyy;
+  if (yyyy < 1900 || yyyy > 2200) return null;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function extractTaxCode(text: string) {
+  const normalized = text.toUpperCase().replace(/\s+/g, " ");
+  const match = normalized.match(/\b[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]\b/);
+  return match ? normalizeTaxCode(match[0]) : "";
+}
+
+function extractNextDueDate(text: string) {
+  const lines = text.split(/\r?\n/).map((l) => cleanSpaces(l)).filter(Boolean);
+  const joined = lines.join(" ");
+  const primaryMatch = joined.match(
+    /(?:prossim\w*\s+visita|scaden\w*\s+visita|entro\s+il)\s*(?:il\s*)?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i,
+  );
+  if (primaryMatch?.[1]) {
+    const iso = parseItDateToIso(primaryMatch[1]);
+    if (iso) return { iso, candidates: [primaryMatch[1]], chosenRaw: primaryMatch[1] };
+  }
+
+  const includeWords = ["visita", "prossim", "scaden", "entro il", "idone"];
+  const excludeWords = [
+    "nasc",
+    "nato",
+    "nata",
+    "nato il",
+    "nata il",
+    "data nasc",
+    "emission",
+    "rilasc",
+    "stamp",
+    "protocol",
+    "referto",
+  ];
+
+  const dateRegex = /\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g;
+  const allMatches: Array<{ raw: string; index: number }> = [];
+  for (let m = dateRegex.exec(joined); m; m = dateRegex.exec(joined)) {
+    allMatches.push({ raw: m[0], index: m.index });
+  }
+
+  const uniqueAll = Array.from(new Set(allMatches.map((m) => m.raw)));
+  const byRawFirstIndex = new Map<string, number>();
+  allMatches.forEach((m) => {
+    if (!byRawFirstIndex.has(m.raw)) byRawFirstIndex.set(m.raw, m.index);
+  });
+
+  const scored = uniqueAll
+    .map((raw) => {
+      const iso = parseItDateToIso(raw);
+      if (!iso) return null;
+      const year = Number(String(iso).slice(0, 4));
+      const idx = byRawFirstIndex.get(raw) ?? -1;
+      const start = Math.max(0, idx - 40);
+      const end = Math.min(joined.length, idx + raw.length + 40);
+      const ctx = joined.slice(start, end).toLowerCase();
+
+      let score = 0;
+      if (excludeWords.some((w) => ctx.includes(w))) score -= 200;
+      if (includeWords.some((w) => ctx.includes(w))) score += 40;
+      if (ctx.includes("visita") && (ctx.includes("scaden") || ctx.includes("prossim") || ctx.includes("entro"))) score += 80;
+      if (year < 2000) score -= 120;
+      if (year < 1900 || year > 2200) score -= 500;
+
+      return { raw, iso, score };
+    })
+    .filter(Boolean) as Array<{ raw: string; iso: string; score: number }>;
+
+  const filteredCandidates = scored.filter((s) => s.score > -100).map((s) => s.raw);
+  const candidates = filteredCandidates.length > 0 ? filteredCandidates : uniqueAll;
+
+  const scoredCandidates = scored.filter((s) => candidates.includes(s.raw));
+  if (scoredCandidates.length === 0) return { iso: null, candidates, chosenRaw: null };
+
+  scoredCandidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(b.iso).localeCompare(String(a.iso));
+  });
+  const chosen = scoredCandidates[0];
+  return { iso: (chosen?.iso ?? null) as string | null, candidates, chosenRaw: chosen?.raw ?? null };
+}
+
+function extractLimitationsText(text: string) {
+  const lines = text.split(/\r?\n/).map((l) => cleanSpaces(l)).filter(Boolean);
+  const lower = lines.map((l) => l.toLowerCase());
+  const hasWithLimitations = lower.some((l) => l.includes("idoneo con limitazioni") || l.includes("idoneo con limitazione"));
+  if (!hasWithLimitations) return { text: "", found: false };
+
+  let start = -1;
+  for (let i = 0; i < lower.length; i += 1) {
+    if (lower[i]?.includes("con le seguenti limitazioni")) {
+      start = i + 1;
+      break;
+    }
+  }
+
+  if (start < 0) {
+    for (let i = 0; i < lower.length; i += 1) {
+      if (lower[i]?.includes("limitazione")) {
+        start = i + 1;
+        break;
+      }
+    }
+  }
+
+  const stopWords = ["avverso", "medico competente", "trasmissione", "datore di lavoro", "art.", "art "];
+  const items: string[] = [];
+  if (start >= 0) {
+    for (let i = start; i < lines.length; i += 1) {
+      const l = lines[i] ?? "";
+      const low = lower[i] ?? "";
+      if (!l) continue;
+      if (stopWords.some((w) => low.includes(w))) break;
+      if (low.includes("limitazione") && low.includes("data scadenza")) continue;
+      if (l.length <= 2) continue;
+      items.push(l);
+    }
+  }
+
+  const cleaned = items
+    .map((l) => l.replace(/^\-+\s*/, "").trim())
+    .filter(Boolean);
+
+  const body = cleaned.length ? cleaned.map((l) => `- ${l}`).join("\n") : "";
+  const out = body ? `IDONEO CON LIMITAZIONI\n${body}` : "IDONEO CON LIMITAZIONI";
+  return { text: out, found: true };
+}
+
+async function extractPdfParsedClient(file: File, onProgress: (done: number, total: number) => void) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const buffer = await file.arrayBuffer();
   const data = new Uint8Array(buffer);
@@ -68,13 +213,31 @@ async function extractPdfPagesTextClient(file: File, onProgress: (done: number, 
   if (totalPages > MAX_PDF_PAGES) {
     throw new Error(`PDF troppo grande: ${totalPages} pagine (max ${MAX_PDF_PAGES}). Dividi il file e riprova.`);
   }
-  const out: Array<{ page: number; text: string }> = [];
+  const out: Array<{
+    page: number;
+    taxCode: string;
+    nextDueDate: string | null;
+    dueDateCandidates: string[];
+    limitations: string;
+    limitationsFound: boolean;
+  }> = [];
   for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
     onProgress(pageNumber - 1, totalPages);
     const page = await (pdf as { getPage: (n: number) => Promise<unknown> }).getPage(pageNumber);
     const content = await (page as { getTextContent: () => Promise<{ items: Array<{ str?: string }> }> }).getTextContent();
     const parts = (content.items ?? []).map((i) => String(i.str ?? "")).filter(Boolean);
-    out.push({ page: pageNumber, text: parts.join("\n") });
+    const text = parts.join("\n");
+    const taxCode = extractTaxCode(text);
+    const due = extractNextDueDate(text);
+    const lim = extractLimitationsText(text);
+    out.push({
+      page: pageNumber,
+      taxCode,
+      nextDueDate: due.iso,
+      dueDateCandidates: due.candidates,
+      limitations: lim.text,
+      limitationsFound: lim.found,
+    });
     onProgress(pageNumber, totalPages);
   }
   return out;
@@ -121,7 +284,7 @@ async function readJsonOrThrow(response: Response) {
   }
 
   if (response.status === 413 || text.toLowerCase().includes("request entity too large")) {
-    throw new Error("PDF troppo grande per l'import diretto. Dividi il file in più PDF (max ~6MB) e riprova.");
+    throw new Error("Richiesta troppo grande per l'import. Dividi il PDF in più file (o riduci le pagine) e riprova.");
   }
 
   const snippet = text.trim().slice(0, 180);
@@ -243,16 +406,17 @@ export default function SorveglianzaPdfImportPage() {
           progressTimerRef.current = null;
         }
         setProgress(0);
-        const pages = await extractPdfPagesTextClient(selectedFile, (done, total) => {
+        const parsed = await extractPdfParsedClient(selectedFile, (done, total) => {
           if (runTokenRef.current !== token) return;
           const pct = total ? Math.min(95, Math.round((done / total) * 95)) : 0;
           setProgress(pct);
         });
 
-        const formData = new FormData();
-        formData.append("mode", "preview");
-        formData.append("pages", JSON.stringify(pages));
-        response = await fetch("/api/sorveglianza_sanitaria/import-pdf", { method: "POST", body: formData });
+        response = await fetch("/api/sorveglianza_sanitaria/import-pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "preview", fileName: selectedFile.name, parsed }),
+        });
       }
 
       const payload = (await readJsonOrThrow(response)) as ImportResponse | { error: string };

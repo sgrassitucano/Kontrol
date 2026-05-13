@@ -296,12 +296,30 @@ export async function POST(request: Request) {
 
   try {
     const MAX_PDF_UPLOAD_BYTES = 6_000_000;
-    const formData = await request.formData();
-    const mode = String(formData.get("mode") ?? "").trim() as ImportMode;
-    const file = formData.get("file");
-    const pagesRaw = formData.get("pages");
-    const updatesRaw = formData.get("updates");
-    const fileName = String(formData.get("fileName") ?? "").trim();
+    const MAX_PDF_PAGES = 250;
+
+    const contentType = request.headers.get("content-type") ?? "";
+    let mode: ImportMode = "preview";
+    let file: unknown = null;
+    let pagesRaw: unknown = null;
+    let parsedRaw: unknown = null;
+    let updatesRaw: unknown = null;
+    let fileName = "";
+
+    if (contentType.includes("application/json")) {
+      const body = (await request.json()) as { mode?: unknown; parsed?: unknown; fileName?: unknown };
+      mode = String(body?.mode ?? "").trim() as ImportMode;
+      parsedRaw = body?.parsed ?? null;
+      fileName = String(body?.fileName ?? "").trim();
+    } else {
+      const formData = await request.formData();
+      mode = String(formData.get("mode") ?? "").trim() as ImportMode;
+      file = formData.get("file");
+      pagesRaw = formData.get("pages");
+      parsedRaw = formData.get("parsed");
+      updatesRaw = formData.get("updates");
+      fileName = String(formData.get("fileName") ?? "").trim();
+    }
 
     if (mode !== "preview" && mode !== "commit") {
       return NextResponse.json({ error: "Modalità import non valida." }, { status: 400 });
@@ -435,50 +453,86 @@ export async function POST(request: Request) {
       return NextResponse.json(response);
     }
 
-    const MAX_PDF_PAGES = 250;
-    let pages: Array<{ page: number; text: string }> = [];
-    if (typeof pagesRaw === "string" && pagesRaw.trim()) {
-      const input = JSON.parse(pagesRaw) as Array<{ page?: unknown; text?: unknown }>;
-      pages = (Array.isArray(input) ? input : [])
-        .map((p) => ({ page: Number(p?.page), text: typeof p?.text === "string" ? p.text : "" }))
+    type ParsedPage = {
+      page: number;
+      taxCode: string;
+      nextDueDate: string | null;
+      dueDateCandidates: string[];
+      limitations: string;
+      limitationsFound: boolean;
+    };
+
+    let parsed: ParsedPage[] = [];
+
+    if (parsedRaw) {
+      const input =
+        typeof parsedRaw === "string"
+          ? (JSON.parse(parsedRaw) as Array<Partial<ParsedPage>>)
+          : (parsedRaw as Array<Partial<ParsedPage>>);
+      parsed = (Array.isArray(input) ? input : [])
+        .map((p) => ({
+          page: Number(p?.page),
+          taxCode: normalizeTaxCode(String(p?.taxCode ?? "")),
+          nextDueDate: typeof p?.nextDueDate === "string" ? p.nextDueDate : p?.nextDueDate ?? null,
+          dueDateCandidates: Array.isArray(p?.dueDateCandidates) ? (p?.dueDateCandidates as unknown[]).map((x) => String(x)) : [],
+          limitations: typeof p?.limitations === "string" ? p.limitations : "",
+          limitationsFound: Boolean(p?.limitationsFound),
+        }))
         .filter((p) => Number.isFinite(p.page) && p.page > 0);
-      if (pages.length === 0) {
+      if (parsed.length === 0) {
         return NextResponse.json({ error: "Nessuna pagina valida da importare." }, { status: 400 });
       }
-      if (pages.length > MAX_PDF_PAGES) {
+      if (parsed.length > MAX_PDF_PAGES) {
         return NextResponse.json(
-          { error: `PDF troppo grande: ${pages.length} pagine (max ${MAX_PDF_PAGES}). Dividi il file e riprova.` },
+          { error: `PDF troppo grande: ${parsed.length} pagine (max ${MAX_PDF_PAGES}). Dividi il file e riprova.` },
           { status: 413 },
         );
       }
     } else {
-      if (!(file instanceof File)) {
-        return NextResponse.json({ error: "File mancante." }, { status: 400 });
-      }
-      if (!String(file.name ?? "").toLowerCase().endsWith(".pdf")) {
-        return NextResponse.json({ error: "Formato non valido (atteso PDF)." }, { status: 400 });
-      }
-      if (file.size > MAX_PDF_UPLOAD_BYTES) {
-        return NextResponse.json({ error: "PDF troppo grande (max ~6MB)." }, { status: 413 });
+      let pages: Array<{ page: number; text: string }> = [];
+      if (typeof pagesRaw === "string" && pagesRaw.trim()) {
+        const input = JSON.parse(pagesRaw) as Array<{ page?: unknown; text?: unknown }>;
+        pages = (Array.isArray(input) ? input : [])
+          .map((p) => ({ page: Number(p?.page), text: typeof p?.text === "string" ? p.text : "" }))
+          .filter((p) => Number.isFinite(p.page) && p.page > 0);
+        if (pages.length === 0) {
+          return NextResponse.json({ error: "Nessuna pagina valida da importare." }, { status: 400 });
+        }
+        if (pages.length > MAX_PDF_PAGES) {
+          return NextResponse.json(
+            { error: `PDF troppo grande: ${pages.length} pagine (max ${MAX_PDF_PAGES}). Dividi il file e riprova.` },
+            { status: 413 },
+          );
+        }
+      } else {
+        if (!(file instanceof File)) {
+          return NextResponse.json({ error: "File mancante." }, { status: 400 });
+        }
+        if (!String(file.name ?? "").toLowerCase().endsWith(".pdf")) {
+          return NextResponse.json({ error: "Formato non valido (atteso PDF)." }, { status: 400 });
+        }
+        if (file.size > MAX_PDF_UPLOAD_BYTES) {
+          return NextResponse.json({ error: "PDF troppo grande (max ~6MB)." }, { status: 413 });
+        }
+
+        const buffer = await file.arrayBuffer();
+        pages = await extractPdfPagesText(buffer);
       }
 
-      const buffer = await file.arrayBuffer();
-      pages = await extractPdfPagesText(buffer);
+      parsed = pages.map(({ page, text }) => {
+        const taxCode = extractTaxCode(text);
+        const due = extractNextDueDate(text);
+        const lim = extractLimitationsText(text);
+        return {
+          page,
+          taxCode,
+          nextDueDate: due.iso,
+          dueDateCandidates: due.candidates,
+          limitations: lim.text,
+          limitationsFound: lim.found,
+        };
+      });
     }
-
-    const parsed = pages.map(({ page, text }) => {
-      const taxCode = extractTaxCode(text);
-      const due = extractNextDueDate(text);
-      const lim = extractLimitationsText(text);
-      return {
-        page,
-        taxCode,
-        nextDueDate: due.iso,
-        dueDateCandidates: due.candidates,
-        limitations: lim.text,
-        limitationsFound: lim.found,
-      };
-    });
 
     const taxCodes = parsed.map((p) => p.taxCode).filter(Boolean);
     const lookup = await buildEmployeeLookupByTaxCode(auth.supabase, taxCodes);
@@ -579,7 +633,7 @@ export async function POST(request: Request) {
     }
 
     const summary: PdfImportSummary = {
-      totalPages: pages.length,
+      totalPages: parsed.length,
       parsedPages: parsed.length,
       matchedEmployees,
       missingEmployees,
