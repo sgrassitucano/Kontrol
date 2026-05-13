@@ -202,9 +202,12 @@ function extractLimitationsText(text: string) {
 
 async function extractPdfParsedClient(file: File, onProgress: (done: number, total: number) => void) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url).toString();
+  const pdfjsWithWorker = pdfjs as unknown as { GlobalWorkerOptions?: { workerSrc: string } };
+  if (pdfjsWithWorker.GlobalWorkerOptions) pdfjsWithWorker.GlobalWorkerOptions.workerSrc = workerSrc;
   const buffer = await file.arrayBuffer();
   const data = new Uint8Array(buffer);
-  const loadingTask = pdfjs.getDocument({ data, disableWorker: true } as never);
+  const loadingTask = pdfjs.getDocument({ data } as never);
   const pdf = await loadingTask.promise;
   const totalPages = Number((pdf as { numPages?: number }).numPages ?? 0);
   if (!Number.isFinite(totalPages) || totalPages <= 0) {
