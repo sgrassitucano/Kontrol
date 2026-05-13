@@ -163,170 +163,203 @@ export function SurveillanceEventModal(props: {
 
   return (
     <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-      <div className="w-full max-w-3xl rounded-2xl border border-[var(--brand-line)] bg-white p-5 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-[var(--brand-ink)]">Nuovo evento sorveglianza</h2>
+      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-white px-5 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-[var(--brand-ink)]">Nuovo evento sorveglianza</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Applica le modifiche ai lavoratori selezionati (sovrascrive i campi scelti).
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
+            title="Chiudi"
           >
             ✕
           </button>
         </div>
-        <p className="mt-1 text-xs text-slate-500">Applica le modifiche ai lavoratori selezionati (sovrascrive i campi scelti).</p>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-xs text-slate-700">
-            <span className="font-semibold text-[var(--brand-ink)]">{selectedWorkers.length}</span>
-            <span>selezionati</span>
-            <button
-              type="button"
-              onClick={clearSelection}
-              data-soft="true"
-              data-tone="muted"
-              className="ml-2 rounded-lg px-2 py-1 text-xs"
-            >
-              Svuota
-            </button>
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-xs text-slate-700">
+              <span className="font-semibold text-[var(--brand-ink)]">{selectedWorkers.length}</span>
+              <span>selezionati</span>
+              <button
+                type="button"
+                onClick={clearSelection}
+                data-soft="true"
+                data-tone="muted"
+                className="ml-2 rounded-lg px-2 py-1 text-xs"
+                disabled={selectedWorkerIds.size === 0}
+              >
+                Svuota
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
-            <h3 className="text-sm font-bold text-[var(--brand-ink)]">Selezione lavoratori</h3>
-            <input
-              value={workerSearch}
-              onChange={(e) => setWorkerSearch(e.target.value)}
-              placeholder="Cerca per matricola, nome, cantiere..."
-              className="mt-3 w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-            />
-            <div className="mt-3 space-y-2">
-              {filteredWorkers.map((w) => {
-                const checked = selectedWorkerIds.has(w.workerId);
-                return (
-                  <button
-                    key={w.workerId}
-                    type="button"
-                    onClick={() => toggleWorkerSelection(w.workerId)}
-                    className={[
-                      "flex w-full items-center justify-between rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-left text-sm",
-                      checked ? "ring-2 ring-[var(--brand-primary)]" : "",
-                    ].join(" ")}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-[var(--brand-ink)]">
-                        {w.matricola} · {w.fullName}
-                      </p>
-                      <p className="truncate text-xs text-slate-500">
-                        {w.cantiere} {w.sottocantiere ? `· ${w.sottocantiere}` : ""}
-                      </p>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="space-y-3 rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
+              <div>
+                <h3 className="text-sm font-bold text-[var(--brand-ink)]">Selezione lavoratori</h3>
+                <input
+                  value={workerSearch}
+                  onChange={(e) => setWorkerSearch(e.target.value)}
+                  placeholder="Cerca per matricola, nome, cantiere..."
+                  className="mt-3 w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="max-h-72 overflow-auto rounded-xl border border-[var(--brand-line)] bg-white p-2">
+                <div className="space-y-2">
+                  {filteredWorkers.map((w) => {
+                    const checked = selectedWorkerIds.has(w.workerId);
+                    return (
+                      <button
+                        key={w.workerId}
+                        type="button"
+                        onClick={() => toggleWorkerSelection(w.workerId)}
+                        className={[
+                          "flex w-full items-center justify-between rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-left text-sm",
+                          checked ? "ring-2 ring-[var(--brand-primary)]" : "",
+                        ].join(" ")}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-[var(--brand-ink)]">
+                            {w.matricola} · {w.fullName}
+                          </p>
+                          <p className="truncate text-xs text-slate-500">
+                            {w.cantiere} {w.sottocantiere ? `· ${w.sottocantiere}` : ""}
+                          </p>
+                        </div>
+                        <input type="checkbox" readOnly checked={checked} />
+                      </button>
+                    );
+                  })}
+                  {filteredWorkers.length === 0 ? (
+                    <p className="px-2 py-2 text-xs text-slate-500">Nessun lavoratore trovato.</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
+                <p className="text-xs text-slate-600">
+                  <span className="font-semibold text-[var(--brand-ink)]">{selectedWorkers.length}</span> selezionati.
+                </p>
+                <div className="mt-2 max-h-44 overflow-auto rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)]">
+                  {selectedWorkers.slice(0, 60).map((w) => (
+                    <div key={`sel-${w.workerId}`} className="border-b border-[var(--brand-line)] px-3 py-2 text-xs last:border-b-0">
+                      <div className="font-semibold text-slate-800">{w.fullName}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {w.matricola} - {w.cantiere} {w.sottocantiere ? `· ${w.sottocantiere}` : ""}
+                      </div>
                     </div>
-                    <input type="checkbox" readOnly checked={checked} />
-                  </button>
-                );
-              })}
+                  ))}
+                  {selectedWorkers.length === 0 ? (
+                    <p className="px-3 py-3 text-xs text-slate-500">Seleziona uno o più lavoratori dalla tabella o da questa ricerca.</p>
+                  ) : null}
+                  {selectedWorkers.length > 60 ? (
+                    <p className="px-3 py-2 text-[11px] text-slate-500">Visualizzati i primi 60 su {selectedWorkers.length}.</p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
+              <h3 className="text-sm font-bold text-[var(--brand-ink)]">Modifiche</h3>
+
+              <div className="mt-3 grid gap-3">
+                <LabeledSelect
+                  label="Programmato"
+                  value={plannedAction}
+                  options={[
+                    { value: "no_change", label: "Non modificare" },
+                    { value: "set_true", label: "Imposta programmato" },
+                    { value: "set_false", label: "Rimuovi programmato" },
+                  ]}
+                  onChange={(v) => setPlannedAction(v as PlannedAction)}
+                />
+
+                <FieldEditor
+                  label="Provider (medico/ente)"
+                  action={providerAction}
+                  value={providerValue}
+                  setAction={setProviderAction}
+                  setValue={setProviderValue}
+                  placeholder="Es. Medico competente / Ente"
+                />
+
+                <FieldEditor
+                  label="Scadenza visita"
+                  action={dueDateAction}
+                  value={dueDateValue}
+                  setAction={setDueDateAction}
+                  setValue={setDueDateValue}
+                  placeholder="YYYY-MM-DD"
+                />
+
+                <FieldEditor
+                  label="Limitazioni"
+                  action={limitationsAction}
+                  value={limitationsValue}
+                  setAction={setLimitationsAction}
+                  setValue={setLimitationsValue}
+                  placeholder="Testo limitazioni"
+                  textarea
+                />
+
+                <FieldEditor
+                  label="Note"
+                  action={notesAction}
+                  value={notesValue}
+                  setAction={setNotesAction}
+                  setValue={setNotesValue}
+                  placeholder="Testo note"
+                  textarea
+                />
+
+                <LabeledSelect
+                  label="Esclusione"
+                  value={exclusionAction}
+                  options={[
+                    { value: "no_change", label: "Non modificare" },
+                    { value: "set_true", label: "Escludi" },
+                    { value: "set_false", label: "Riattiva" },
+                  ]}
+                  onChange={(v) => setExclusionAction(v as ExclusionAction)}
+                />
+                {exclusionAction !== "no_change" ? (
+                  <LabeledInput
+                    label="Nota esclusione"
+                    value={exclusionNote}
+                    onChange={setExclusionNote}
+                    placeholder="Motivazione"
+                  />
+                ) : null}
+
+                <LabeledSelect
+                  label="Override visita richiesta"
+                  value={overrideAction}
+                  options={[
+                    { value: "no_change", label: "Non modificare" },
+                    { value: "force_si", label: "Forza SI" },
+                    { value: "force_no", label: "Forza NO" },
+                    { value: "clear", label: "Rimuovi override" },
+                  ]}
+                  onChange={(v) => setOverrideAction(v as OverrideAction)}
+                />
+                {overrideAction !== "no_change" ? (
+                  <LabeledInput label="Nota override" value={overrideNote} onChange={setOverrideNote} placeholder="Motivazione" />
+                ) : null}
+              </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
-            <h3 className="text-sm font-bold text-[var(--brand-ink)]">Modifiche</h3>
-
-            <div className="mt-3 grid gap-3">
-              <LabeledSelect
-                label="Programmato"
-                value={plannedAction}
-                options={[
-                  { value: "no_change", label: "Non modificare" },
-                  { value: "set_true", label: "Imposta programmato" },
-                  { value: "set_false", label: "Rimuovi programmato" },
-                ]}
-                onChange={(v) => setPlannedAction(v as PlannedAction)}
-              />
-
-              <FieldEditor
-                label="Provider (medico/ente)"
-                action={providerAction}
-                value={providerValue}
-                setAction={setProviderAction}
-                setValue={setProviderValue}
-                placeholder="Es. Medico competente / Ente"
-              />
-
-              <FieldEditor
-                label="Scadenza visita"
-                action={dueDateAction}
-                value={dueDateValue}
-                setAction={setDueDateAction}
-                setValue={setDueDateValue}
-                placeholder="YYYY-MM-DD"
-              />
-
-              <FieldEditor
-                label="Limitazioni"
-                action={limitationsAction}
-                value={limitationsValue}
-                setAction={setLimitationsAction}
-                setValue={setLimitationsValue}
-                placeholder="Testo limitazioni"
-                textarea
-              />
-
-              <FieldEditor
-                label="Note"
-                action={notesAction}
-                value={notesValue}
-                setAction={setNotesAction}
-                setValue={setNotesValue}
-                placeholder="Testo note"
-                textarea
-              />
-
-              <LabeledSelect
-                label="Esclusione"
-                value={exclusionAction}
-                options={[
-                  { value: "no_change", label: "Non modificare" },
-                  { value: "set_true", label: "Escludi" },
-                  { value: "set_false", label: "Riattiva" },
-                ]}
-                onChange={(v) => setExclusionAction(v as ExclusionAction)}
-              />
-              {exclusionAction !== "no_change" ? (
-                <LabeledInput
-                  label="Nota esclusione"
-                  value={exclusionNote}
-                  onChange={setExclusionNote}
-                  placeholder="Motivazione"
-                />
-              ) : null}
-
-              <LabeledSelect
-                label="Override visita richiesta"
-                value={overrideAction}
-                options={[
-                  { value: "no_change", label: "Non modificare" },
-                  { value: "force_si", label: "Forza SI" },
-                  { value: "force_no", label: "Forza NO" },
-                  { value: "clear", label: "Rimuovi override" },
-                ]}
-                onChange={(v) => setOverrideAction(v as OverrideAction)}
-              />
-              {overrideAction !== "no_change" ? (
-                <LabeledInput
-                  label="Nota override"
-                  value={overrideNote}
-                  onChange={setOverrideNote}
-                  placeholder="Motivazione"
-                />
-              ) : null}
-            </div>
-          </div>
+          {saveError ? <p className="mt-3 text-xs font-medium text-red-600">{saveError}</p> : null}
         </div>
 
-        {saveError ? <p className="mt-3 text-xs font-medium text-red-600">{saveError}</p> : null}
-
-        <div className="mt-4 flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--brand-line)] bg-[var(--brand-panel)] px-5 py-4">
           <button
             type="button"
             onClick={onClose}

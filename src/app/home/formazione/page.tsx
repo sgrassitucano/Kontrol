@@ -290,7 +290,7 @@ export default function HomeFormazionePage() {
       }
     }
     void loadCourseCatalog();
-  }, []);
+  }, [setShowExcludedEmployees]);
 
   useEffect(() => {
     return () => {
@@ -771,6 +771,7 @@ export default function HomeFormazionePage() {
       setDashboardStateFilter(null);
       return;
     }
+    if (next.states && next.states.includes("escluso")) setShowExcludedEmployees(true);
     setDashboardCategoryFilter(next.category);
     setDashboardStateFilter(next.states);
   }, []);
@@ -1257,8 +1258,13 @@ export default function HomeFormazionePage() {
         total,
         base: baseSummary,
         operativi: operativiSummary,
-        baseCritico: baseSummary.counts.scaduto + baseSummary.counts["da fare"] + baseSummary.counts.upgrade,
-        operativiCritico: operativiSummary.counts.scaduto + operativiSummary.counts["da fare"] + operativiSummary.counts.upgrade,
+        baseCritico:
+          baseSummary.counts.scaduto + baseSummary.counts["da fare"] + baseSummary.counts.programmato + baseSummary.counts.upgrade,
+        operativiCritico:
+          operativiSummary.counts.scaduto +
+          operativiSummary.counts["da fare"] +
+          operativiSummary.counts.programmato +
+          operativiSummary.counts.upgrade,
       };
     });
   }, [dashboardRows, jobEntities]);
@@ -1391,8 +1397,11 @@ export default function HomeFormazionePage() {
               ] as const
             ).map((panel) => {
               const summary = panel.summary;
-              const criticoCount = summary.counts.scaduto + summary.counts["da fare"] + summary.counts.upgrade;
-              const criticoPct = percentage(criticoCount, summary.total);
+              const excludedCount = excludedByScopeEmployees;
+              const criticoCount =
+                summary.counts.scaduto + summary.counts["da fare"] + summary.counts.programmato + summary.counts.upgrade;
+              const totalWorkers = criticoCount + summary.counts["in scadenza"] + excludedCount;
+              const criticoPct = percentage(criticoCount, totalWorkers);
 
               return (
                 <div key={panel.category} className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
@@ -1404,7 +1413,7 @@ export default function HomeFormazionePage() {
                       className="rounded-lg bg-[var(--brand-primary)] px-2.5 py-1 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                       title="Applica filtro alla tabella"
                     >
-                      Totale {summary.total}
+                      Totale {totalWorkers}
                     </button>
                   </div>
 
@@ -1412,7 +1421,7 @@ export default function HomeFormazionePage() {
                     <KpiGrid className="grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
                       <KpiCard
                         label="Totale"
-                        value={summary.total}
+                        value={totalWorkers}
                         subValue="100%"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
                       />
@@ -1422,48 +1431,48 @@ export default function HomeFormazionePage() {
                         subValue={`${criticoPct}%`}
                         tone="danger"
                         onClick={() =>
-                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "upgrade"] })
+                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "programmato", "upgrade"] })
                         }
                       />
                       <KpiCard
                         label="In scadenza"
                         value={summary.counts["in scadenza"]}
-                        subValue={`${summary.percentages["in scadenza"]}%`}
+                        subValue={`${percentage(summary.counts["in scadenza"], totalWorkers)}%`}
                         tone="warning"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["in scadenza"] })}
                       />
                       <KpiCard
                         label="Da fare"
                         value={summary.counts["da fare"]}
-                        subValue={`${summary.percentages["da fare"]}%`}
+                        subValue={`${percentage(summary.counts["da fare"], totalWorkers)}%`}
                         tone="danger"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["da fare"] })}
                       />
                       <KpiCard
                         label="Scaduto"
                         value={summary.counts.scaduto}
-                        subValue={`${summary.percentages.scaduto}%`}
+                        subValue={`${percentage(summary.counts.scaduto, totalWorkers)}%`}
                         tone="danger"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["scaduto"] })}
                       />
                       <KpiCard
                         label="Programmato"
                         value={summary.counts.programmato}
-                        subValue={`${summary.percentages.programmato}%`}
+                        subValue={`${percentage(summary.counts.programmato, totalWorkers)}%`}
                         tone="info"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["programmato"] })}
                       />
                       <KpiCard
                         label="Upgrade"
                         value={summary.counts.upgrade}
-                        subValue={`${summary.percentages.upgrade}%`}
+                        subValue={`${percentage(summary.counts.upgrade, totalWorkers)}%`}
                         tone="purple"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["upgrade"] })}
                       />
                       <KpiCard
                         label="Esclusi"
-                        value={summary.counts.escluso}
-                        subValue={`${summary.percentages.escluso}%`}
+                        value={excludedCount}
+                        subValue={`${percentage(excludedCount, totalWorkers)}%`}
                         tone="muted"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["escluso"] })}
                       />

@@ -297,8 +297,9 @@ export default function HomeSorveglianzaPage() {
     return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   }
 
-  const criticoCount = meta.counts.scaduto + meta.counts.daFare;
-  const inScopeTotal = Math.max(0, meta.totalActiveEmployees - meta.excludedByRule);
+  const criticoCount = meta.counts.scaduto + meta.counts.daFare + meta.counts.programmato;
+  const excludedCount = meta.excludedByRule;
+  const totalWorkers = criticoCount + meta.counts.inScadenza + excludedCount;
 
   function pct(count: number, total: number) {
     if (!total) return "0%";
@@ -474,46 +475,46 @@ export default function HomeSorveglianzaPage() {
       >
         <DashboardCard className="border-0 p-3">
           <KpiGrid className="sm:grid-cols-2 md:grid-cols-7">
-            <KpiCard label="Totale attivi" value={meta.totalActiveEmployees} subValue="100%" />
+            <KpiCard label="Totale lavoratori" value={totalWorkers} subValue="100%" />
             <KpiCard
               label="Critico"
               value={criticoCount}
-              subValue={pct(criticoCount, inScopeTotal)}
+              subValue={pct(criticoCount, totalWorkers)}
               tone="danger"
               onClick={() => setStatusFilter("critico")}
             />
             <KpiCard
               label="In scadenza"
               value={meta.counts.inScadenza}
-              subValue={pct(meta.counts.inScadenza, inScopeTotal)}
+              subValue={pct(meta.counts.inScadenza, totalWorkers)}
               tone="warning"
               onClick={() => setStatusFilter("in scadenza")}
             />
             <KpiCard
               label="Da fare (prima visita)"
               value={meta.counts.daFare}
-              subValue={pct(meta.counts.daFare, inScopeTotal)}
+              subValue={pct(meta.counts.daFare, totalWorkers)}
               tone="danger"
               onClick={() => setStatusFilter("da fare")}
             />
             <KpiCard
               label="Scaduto"
               value={meta.counts.scaduto}
-              subValue={pct(meta.counts.scaduto, inScopeTotal)}
+              subValue={pct(meta.counts.scaduto, totalWorkers)}
               tone="danger"
               onClick={() => setStatusFilter("scaduto")}
             />
             <KpiCard
               label="Programmato"
               value={meta.counts.programmato}
-              subValue={pct(meta.counts.programmato, inScopeTotal)}
+              subValue={pct(meta.counts.programmato, totalWorkers)}
               tone="info"
               onClick={() => setStatusFilter("programmato")}
             />
             <KpiCard
               label="Esclusi"
-              value={meta.excludedByRule}
-              subValue={pct(meta.excludedByRule, meta.totalActiveEmployees)}
+              value={excludedCount}
+              subValue={pct(excludedCount, totalWorkers)}
               tone="muted"
               onClick={() => {
                 setIncludeExcluded(true);
