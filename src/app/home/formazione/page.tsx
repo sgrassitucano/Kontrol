@@ -1415,6 +1415,10 @@ export default function HomeFormazionePage() {
         <p className="mt-2 text-xs text-slate-500">
           Simulazione su data selezionata (in scadenza: {expiringDays}gg).
         </p>
+        <p className="mt-2 text-xs text-slate-500">
+          Visibili: <span className="font-semibold text-slate-700">{selectionStats.visibleCount}</span> lavoratori ·{" "}
+          <span className="font-semibold text-slate-700">{sortedRows.length}</span> righe
+        </p>
         {filterError ? <p className="mt-2 text-xs font-medium text-red-600">{filterError}</p> : null}
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
         {inlineSaveError ? <p className="mt-2 text-xs font-medium text-red-600">{inlineSaveError}</p> : null}
