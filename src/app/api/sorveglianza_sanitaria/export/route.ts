@@ -226,45 +226,120 @@ async function fetchAllFreezes(supabase: SupabaseClient) {
 }
 
 async function fetchAllJobRules(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from("medical_surveillance_job_rules")
-    .select("job_code_norm,always_exempt,exempt_below_weekly_minutes");
-  if (error) return [] as JobRuleRow[];
-  return (data ?? []) as JobRuleRow[];
+  const pageSize = 1000;
+  let from = 0;
+  let hasMore = true;
+  const allRows: JobRuleRow[] = [];
+
+  while (hasMore) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("medical_surveillance_job_rules")
+      .select("job_code_norm,always_exempt,exempt_below_weekly_minutes")
+      .order("job_code_norm")
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as JobRuleRow[];
+    allRows.push(...rows);
+    if (rows.length < pageSize) hasMore = false;
+    else from += pageSize;
+  }
+
+  return allRows;
 }
 
 async function fetchAllScopeRules(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from("medical_surveillance_scope_rules")
-    .select("scope_type,site_id,sub_site_id,requires_visit");
-  if (error) return [] as ScopeRuleRow[];
-  return (data ?? []) as ScopeRuleRow[];
+  const pageSize = 1000;
+  let from = 0;
+  let hasMore = true;
+  const allRows: ScopeRuleRow[] = [];
+
+  while (hasMore) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("medical_surveillance_scope_rules")
+      .select("scope_type,site_id,sub_site_id,requires_visit")
+      .order("id")
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as ScopeRuleRow[];
+    allRows.push(...rows);
+    if (rows.length < pageSize) hasMore = false;
+    else from += pageSize;
+  }
+
+  return allRows;
 }
 
 async function fetchAllProviderAssignments(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from("medical_surveillance_provider_assignments")
-    .select("scope_type,site_id,sub_site_id,provider,is_active");
-  if (error) return [] as ProviderAssignmentRow[];
-  return (data ?? []) as ProviderAssignmentRow[];
+  const pageSize = 1000;
+  let from = 0;
+  let hasMore = true;
+  const allRows: ProviderAssignmentRow[] = [];
+
+  while (hasMore) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("medical_surveillance_provider_assignments")
+      .select("scope_type,site_id,sub_site_id,provider,is_active")
+      .order("id")
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as ProviderAssignmentRow[];
+    allRows.push(...rows);
+    if (rows.length < pageSize) hasMore = false;
+    else from += pageSize;
+  }
+
+  return allRows;
 }
 
 async function fetchAllEmployeeExclusions(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from("medical_surveillance_employee_exclusions")
-    .select("employee_id,is_active")
-    .eq("is_active", true);
-  if (error) return [] as EmployeeExclusionRow[];
-  return (data ?? []) as EmployeeExclusionRow[];
+  const pageSize = 1000;
+  let from = 0;
+  let hasMore = true;
+  const allRows: EmployeeExclusionRow[] = [];
+
+  while (hasMore) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("medical_surveillance_employee_exclusions")
+      .select("employee_id,is_active")
+      .eq("is_active", true)
+      .order("id")
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as EmployeeExclusionRow[];
+    allRows.push(...rows);
+    if (rows.length < pageSize) hasMore = false;
+    else from += pageSize;
+  }
+
+  return allRows;
 }
 
 async function fetchAllEmployeeOverrides(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from("medical_surveillance_employee_overrides")
-    .select("employee_id,requires_visit,is_active")
-    .eq("is_active", true);
-  if (error) return [] as EmployeeOverrideRow[];
-  return (data ?? []) as EmployeeOverrideRow[];
+  const pageSize = 1000;
+  let from = 0;
+  let hasMore = true;
+  const allRows: EmployeeOverrideRow[] = [];
+
+  while (hasMore) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("medical_surveillance_employee_overrides")
+      .select("employee_id,requires_visit,is_active")
+      .eq("is_active", true)
+      .order("id")
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as EmployeeOverrideRow[];
+    allRows.push(...rows);
+    if (rows.length < pageSize) hasMore = false;
+    else from += pageSize;
+  }
+
+  return allRows;
 }
 
 export async function GET(request: Request) {
@@ -415,6 +490,7 @@ export async function GET(request: Request) {
           extractDisplayName(employee.sub_sites),
           provider,
           limitations,
+          record?.notes ?? "",
         ]
           .join(" ")
           .toLowerCase();

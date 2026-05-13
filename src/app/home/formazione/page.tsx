@@ -111,11 +111,11 @@ type ColumnFilters = {
   sottocantiere: string;
   responsabile: string;
   referente: string;
-  corso: string;
-  dataConclusione: string;
-  dataScadenza: string;
-  stato: "" | WorkerCourseRow["stato"];
-  origine: "" | WorkerCourseRow["origine"];
+  corso: string[];
+  dataConclusione: string[];
+  dataScadenza: string[];
+  stato: WorkerCourseRow["stato"][];
+  origine: WorkerCourseRow["origine"][];
   note: string;
 };
 
@@ -145,11 +145,11 @@ const INITIAL_COLUMN_FILTERS: ColumnFilters = {
   sottocantiere: "",
   responsabile: "",
   referente: "",
-  corso: "",
-  dataConclusione: "",
-  dataScadenza: "",
-  stato: "",
-  origine: "",
+  corso: [],
+  dataConclusione: [],
+  dataScadenza: [],
+  stato: [],
+  origine: [],
   note: "",
 };
 
@@ -608,7 +608,7 @@ export default function HomeFormazionePage() {
     setDashboardLoading(false);
   }
 
-  const filteredRows = useMemo(() => {
+  const rowsForFacets = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (dashboardCategoryFilter) {
@@ -648,18 +648,55 @@ export default function HomeFormazionePage() {
       if (columnFilters.sottocantiere && !matchText(row.sottocantiere, columnFilters.sottocantiere)) return false;
       if (columnFilters.responsabile && !matchText(row.responsabile, columnFilters.responsabile)) return false;
       if (columnFilters.referente && !matchText(row.referente, columnFilters.referente)) return false;
-      if (columnFilters.corso && !matchText(`${row.corsoCode} ${row.corso}`, columnFilters.corso)) return false;
-      if (columnFilters.dataConclusione && !matchText(row.dataConclusione ?? "", columnFilters.dataConclusione))
-        return false;
-      if (columnFilters.dataScadenza && !matchText(row.dataScadenza ?? "", columnFilters.dataScadenza))
-        return false;
-      if ((!dashboardStateFilter || dashboardStateFilter.length === 0) && columnFilters.stato && row.stato !== columnFilters.stato)
-        return false;
-      if (columnFilters.origine && row.origine !== columnFilters.origine) return false;
       if (columnFilters.note && !matchText(row.note ?? "", columnFilters.note)) return false;
       return true;
     });
-  }, [columnFilters, dashboardCategoryFilter, dashboardStateFilter, rows, search]);
+  }, [
+    columnFilters.cantiere,
+    columnFilters.cognome,
+    columnFilters.mansione,
+    columnFilters.matricola,
+    columnFilters.nome,
+    columnFilters.note,
+    columnFilters.referente,
+    columnFilters.responsabile,
+    columnFilters.sottocantiere,
+    dashboardCategoryFilter,
+    dashboardStateFilter,
+    rows,
+    search,
+  ]);
+
+  const filteredRows = useMemo(() => {
+    const corsoFilter = columnFilters.corso.length > 0 ? new Set(columnFilters.corso) : null;
+    const statoFilter = columnFilters.stato.length > 0 ? new Set(columnFilters.stato) : null;
+    const origineFilter = columnFilters.origine.length > 0 ? new Set(columnFilters.origine) : null;
+    const conclusioneFilter =
+      columnFilters.dataConclusione.length > 0 ? new Set(columnFilters.dataConclusione) : null;
+    const scadenzaFilter = columnFilters.dataScadenza.length > 0 ? new Set(columnFilters.dataScadenza) : null;
+
+    return rowsForFacets.filter((row) => {
+      if (corsoFilter && !corsoFilter.has(row.corsoCode)) return false;
+      if (statoFilter && !statoFilter.has(row.stato)) return false;
+      if (origineFilter && !origineFilter.has(row.origine)) return false;
+      if (conclusioneFilter) {
+        const key = isoToMonthYear(row.dataConclusione);
+        if (!conclusioneFilter.has(key)) return false;
+      }
+      if (scadenzaFilter) {
+        const key = isoToMonthYear(row.dataScadenza);
+        if (!scadenzaFilter.has(key)) return false;
+      }
+      return true;
+    });
+  }, [
+    columnFilters.corso,
+    columnFilters.dataConclusione,
+    columnFilters.dataScadenza,
+    columnFilters.origine,
+    columnFilters.stato,
+    rowsForFacets,
+  ]);
 
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "cognome", dir: "asc" });
 
@@ -759,6 +796,74 @@ export default function HomeFormazionePage() {
       someVisibleSelected: selectedVisible > 0 && selectedVisible < visibleIds.length,
     };
   }, [filteredRows, selectedWorkerIds]);
+
+  const getFacetRows = useCallback(
+    (exclude: "corso" | "stato" | "origine" | "dataConclusione" | "dataScadenza") => {
+      const corsoFilter = exclude === "corso" || columnFilters.corso.length === 0 ? null : new Set(columnFilters.corso);
+      const statoFilter = exclude === "stato" || columnFilters.stato.length === 0 ? null : new Set(columnFilters.stato);
+      const origineFilter =
+        exclude === "origine" || columnFilters.origine.length === 0 ? null : new Set(columnFilters.origine);
+      const conclusioneFilter =
+        exclude === "dataConclusione" || columnFilters.dataConclusione.length === 0
+          ? null
+          : new Set(columnFilters.dataConclusione);
+      const scadenzaFilter =
+        exclude === "dataScadenza" || columnFilters.dataScadenza.length === 0
+          ? null
+          : new Set(columnFilters.dataScadenza);
+
+      return rowsForFacets.filter((row) => {
+        if (corsoFilter && !corsoFilter.has(row.corsoCode)) return false;
+        if (statoFilter && !statoFilter.has(row.stato)) return false;
+        if (origineFilter && !origineFilter.has(row.origine)) return false;
+        if (conclusioneFilter && !conclusioneFilter.has(isoToMonthYear(row.dataConclusione))) return false;
+        if (scadenzaFilter && !scadenzaFilter.has(isoToMonthYear(row.dataScadenza))) return false;
+        return true;
+      });
+    },
+    [
+      columnFilters.corso,
+      columnFilters.dataConclusione,
+      columnFilters.dataScadenza,
+      columnFilters.origine,
+      columnFilters.stato,
+      rowsForFacets,
+    ],
+  );
+
+  const corsoFilterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    getFacetRows("corso").forEach((row) => {
+      if (!map.has(row.corsoCode)) map.set(row.corsoCode, `${row.corsoCode} ${row.corso}`.trim());
+    });
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "it", { sensitivity: "base", numeric: true }));
+  }, [getFacetRows]);
+
+  const origineFilterOptions = useMemo(() => {
+    const set = new Set<WorkerCourseRow["origine"]>();
+    getFacetRows("origine").forEach((row) => set.add(row.origine));
+    return Array.from(set.values())
+      .map((value) => ({ value, label: capitalizeFirst(value) }))
+      .sort((a, b) => a.label.localeCompare(b.label, "it", { sensitivity: "base" }));
+  }, [getFacetRows]);
+
+  const statoFilterOptions = useMemo(() => {
+    const set = new Set<WorkerCourseRow["stato"]>();
+    getFacetRows("stato").forEach((row) => set.add(row.stato));
+    return Array.from(set.values())
+      .map((value) => ({ value, label: formatStatoLabel(value) }))
+      .sort((a, b) => a.label.localeCompare(b.label, "it", { sensitivity: "base" }));
+  }, [getFacetRows]);
+
+  const dataConclusioneFilterOptions = useMemo(() => {
+    return buildMonthYearFilterOptions(getFacetRows("dataConclusione"), (row) => row.dataConclusione);
+  }, [getFacetRows]);
+
+  const dataScadenzaFilterOptions = useMemo(() => {
+    return buildMonthYearFilterOptions(getFacetRows("dataScadenza"), (row) => row.dataScadenza);
+  }, [getFacetRows]);
 
   const selectAllVisibleRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
@@ -1007,13 +1112,20 @@ export default function HomeFormazionePage() {
 
       if (dashboardCategoryFilter) params.set("category", dashboardCategoryFilter);
 
-      if (dashboardStateFilter && dashboardStateFilter.length > 0) {
-        params.set("states", dashboardStateFilter.join(","));
-      } else if (columnFilters.stato) {
-        params.set("states", columnFilters.stato);
+      {
+        let exportStates: WorkerCourseRow["stato"][] = [];
+        if (dashboardStateFilter && dashboardStateFilter.length > 0) {
+          exportStates =
+            columnFilters.stato.length > 0
+              ? dashboardStateFilter.filter((s) => columnFilters.stato.includes(s))
+              : dashboardStateFilter;
+        } else if (columnFilters.stato.length > 0) {
+          exportStates = columnFilters.stato;
+        }
+        if (exportStates.length > 0) params.set("states", exportStates.join(","));
       }
 
-      if (columnFilters.origine) params.set("origine", columnFilters.origine);
+      if (columnFilters.origine.length > 0) params.set("origini", columnFilters.origine.join(","));
 
       if (columnFilters.matricola) params.set("matricola", columnFilters.matricola);
       if (columnFilters.cognome) params.set("cognome", columnFilters.cognome);
@@ -1023,9 +1135,10 @@ export default function HomeFormazionePage() {
       if (columnFilters.sottocantiere) params.set("sottocantiere", columnFilters.sottocantiere);
       if (columnFilters.responsabile) params.set("responsabile", columnFilters.responsabile);
       if (columnFilters.referente) params.set("referente", columnFilters.referente);
-      if (columnFilters.corso) params.set("corso", columnFilters.corso);
-      if (columnFilters.dataConclusione) params.set("dataConclusione", columnFilters.dataConclusione);
-      if (columnFilters.dataScadenza) params.set("dataScadenza", columnFilters.dataScadenza);
+      if (columnFilters.corso.length > 0) params.set("courseCodes", columnFilters.corso.join(","));
+      if (columnFilters.dataConclusione.length > 0)
+        params.set("completionMonths", columnFilters.dataConclusione.join(","));
+      if (columnFilters.dataScadenza.length > 0) params.set("expiryMonths", columnFilters.dataScadenza.join(","));
       if (columnFilters.note) params.set("note", columnFilters.note);
 
       const response = await fetch(`/api/formazione/export?${params.toString()}`);
@@ -1586,34 +1699,46 @@ export default function HomeFormazionePage() {
                   <input value={columnFilters.referente} onChange={(event) => setColumnFilters((v) => ({ ...v, referente: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.corso} onChange={(event) => setColumnFilters((v) => ({ ...v, corso: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Codice/Titolo" />
+                  <MultiSelectDropdown
+                    selected={columnFilters.corso}
+                    options={corsoFilterOptions}
+                    onChange={(selected) => setColumnFilters((v) => ({ ...v, corso: selected }))}
+                    placeholder="Tutti"
+                    searchable
+                    searchPlaceholder="Cerca corso"
+                  />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.dataConclusione} onChange={(event) => setColumnFilters((v) => ({ ...v, dataConclusione: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="gg/mm/aaaa" />
+                  <MultiSelectDropdown
+                    selected={columnFilters.dataConclusione}
+                    options={dataConclusioneFilterOptions}
+                    onChange={(selected) => setColumnFilters((v) => ({ ...v, dataConclusione: selected }))}
+                    placeholder="mm/aaaa"
+                  />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <input value={columnFilters.dataScadenza} onChange={(event) => setColumnFilters((v) => ({ ...v, dataScadenza: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="gg/mm/aaaa" />
+                  <MultiSelectDropdown
+                    selected={columnFilters.dataScadenza}
+                    options={dataScadenzaFilterOptions}
+                    onChange={(selected) => setColumnFilters((v) => ({ ...v, dataScadenza: selected }))}
+                    placeholder="mm/aaaa"
+                  />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <select value={columnFilters.origine} onChange={(event) => setColumnFilters((v) => ({ ...v, origine: event.target.value as ColumnFilters["origine"] }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case">
-                    <option value="">Tutte</option>
-                    <option value="obbligatorio">Obbligatorio</option>
-                    <option value="aggiuntivo">Aggiuntivo</option>
-                  </select>
+                  <MultiSelectDropdown
+                    selected={columnFilters.origine}
+                    options={origineFilterOptions}
+                    onChange={(selected) => setColumnFilters((v) => ({ ...v, origine: selected }))}
+                    placeholder="Tutte"
+                  />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <select value={columnFilters.stato} onChange={(event) => setColumnFilters((v) => ({ ...v, stato: event.target.value as ColumnFilters["stato"] }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case">
-                    <option value="">Tutti</option>
-                    <option value="idoneo">Idoneo</option>
-                    <option value="in scadenza">In scadenza</option>
-                    <option value="scaduto">Scaduto</option>
-                    <option value="perso">Perso</option>
-                    <option value="da fare">Da fare</option>
-                    <option value="sospeso">Sospeso</option>
-                    <option value="programmato">Programmato</option>
-                    <option value="upgrade">Upgrade</option>
-                    <option value="escluso">Escluso</option>
-                  </select>
+                  <MultiSelectDropdown
+                    selected={columnFilters.stato}
+                    options={statoFilterOptions}
+                    onChange={(selected) => setColumnFilters((v) => ({ ...v, stato: selected }))}
+                    placeholder="Tutti"
+                  />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2" />
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
@@ -2730,6 +2855,125 @@ function isoToItDate(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return value;
   return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function isoToMonthYear(value: string | null) {
+  if (!value) return "(vuoto)";
+  const match = value.match(/^(\d{4})-(\d{2})/);
+  if (!match) return "(vuoto)";
+  return `${match[2]}/${match[1]}`;
+}
+
+function monthYearSortKey(value: string) {
+  const match = value.match(/^(\d{2})\/(\d{4})$/);
+  if (!match) return -1;
+  const month = Number(match[1]);
+  const year = Number(match[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(year)) return -1;
+  return year * 12 + month;
+}
+
+function buildMonthYearFilterOptions(
+  rows: WorkerCourseRow[],
+  getter: (row: WorkerCourseRow) => string | null,
+) {
+  const set = new Set<string>();
+  rows.forEach((row) => set.add(isoToMonthYear(getter(row))));
+  const list = Array.from(set.values()).map((value) => ({ value, label: value }));
+  list.sort((a, b) => monthYearSortKey(b.value) - monthYearSortKey(a.value) || a.label.localeCompare(b.label));
+  return list;
+}
+
+function capitalizeFirst(value: string) {
+  const v = String(value ?? "").trim();
+  if (!v) return v;
+  return v.charAt(0).toUpperCase() + v.slice(1);
+}
+
+function formatStatoLabel(value: WorkerCourseRow["stato"]) {
+  if (value === "da fare") return "Da fare";
+  if (value === "in scadenza") return "In scadenza";
+  return capitalizeFirst(value);
+}
+
+function toggleMultiSelect<T extends string>(list: T[], value: T) {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+}
+
+function MultiSelectDropdown<T extends string>({
+  selected,
+  options,
+  onChange,
+  placeholder,
+  searchable,
+  searchPlaceholder,
+}: {
+  selected: T[];
+  options: Array<{ value: T; label: string }>;
+  onChange: (next: T[]) => void;
+  placeholder: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query]);
+
+  const label = useMemo(() => {
+    if (selected.length === 0) return placeholder;
+    if (selected.length === 1) {
+      const found = options.find((o) => o.value === selected[0]);
+      return found?.label ?? selected[0];
+    }
+    return `${selected.length} selezionati`;
+  }, [options, placeholder, selected]);
+
+  return (
+    <details className="relative">
+      <summary className="w-full list-none rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case text-slate-700">
+        <span className="block truncate">{label}</span>
+      </summary>
+      <div className="absolute z-30 mt-1 w-[260px] rounded-xl border border-[var(--brand-line)] bg-white p-2 shadow-lg">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-[11px] font-bold text-white"
+            disabled={selected.length === 0}
+          >
+            Pulisci
+          </button>
+          {searchable ? (
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchPlaceholder ?? "Cerca"}
+              className="w-full rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px]"
+            />
+          ) : null}
+        </div>
+        <div className="max-h-56 overflow-auto rounded-lg border border-[var(--brand-line)] bg-white">
+          {filteredOptions.map((opt) => (
+            <label key={opt.value} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-[11px]">
+              <input
+                type="checkbox"
+                checked={selected.includes(opt.value)}
+                onChange={() => onChange(toggleMultiSelect(selected, opt.value))}
+                className="h-4 w-4"
+              />
+              <span className="min-w-0 flex-1 truncate">{opt.label}</span>
+            </label>
+          ))}
+          {filteredOptions.length === 0 ? (
+            <div className="px-2 py-2 text-[11px] text-slate-500">Nessun valore</div>
+          ) : null}
+        </div>
+      </div>
+    </details>
+  );
 }
 
 function formatDateIt(value: string | null) {

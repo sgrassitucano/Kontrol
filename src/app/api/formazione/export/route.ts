@@ -129,6 +129,7 @@ export async function GET(request: Request) {
     const category = (url.searchParams.get("category") ?? "").trim();
     const statesParam = (url.searchParams.get("states") ?? "").trim();
     const origineParam = (url.searchParams.get("origine") ?? "").trim();
+    const originiParam = (url.searchParams.get("origini") ?? "").trim();
     const filterMatricola = (url.searchParams.get("matricola") ?? "").trim();
     const filterCognome = (url.searchParams.get("cognome") ?? "").trim();
     const filterNome = (url.searchParams.get("nome") ?? "").trim();
@@ -137,6 +138,9 @@ export async function GET(request: Request) {
     const filterSottocantiere = (url.searchParams.get("sottocantiere") ?? "").trim();
     const filterResponsabile = (url.searchParams.get("responsabile") ?? "").trim();
     const filterReferente = (url.searchParams.get("referente") ?? "").trim();
+    const courseCodesParam = (url.searchParams.get("courseCodes") ?? "").trim();
+    const completionMonthsParam = (url.searchParams.get("completionMonths") ?? "").trim();
+    const expiryMonthsParam = (url.searchParams.get("expiryMonths") ?? "").trim();
     const filterCorso = (url.searchParams.get("corso") ?? "").trim();
     const filterDataConclusione = (url.searchParams.get("dataConclusione") ?? "").trim();
     const filterDataScadenza = (url.searchParams.get("dataScadenza") ?? "").trim();
@@ -164,7 +168,7 @@ export async function GET(request: Request) {
 
     const [
       employees,
-      { data: courses, error: coursesError },
+      courses,
       rules,
       courseRows,
       freezes,
@@ -174,7 +178,7 @@ export async function GET(request: Request) {
       courseExclusions,
     ] = await Promise.all([
       fetchAllEmployees(dataSupabase),
-      dataSupabase.from("training_courses").select("id,code,title,is_active,validity_years,is_unlimited"),
+      fetchAllCourses(dataSupabase),
       fetchAllRules(dataSupabase),
       fetchAllCourseRows(dataSupabase),
       fetchAllFreezes(dataSupabase),
@@ -183,10 +187,6 @@ export async function GET(request: Request) {
       fetchAllTrainingEmployeeExclusions(dataSupabase),
       fetchAllTrainingEmployeeCourseExclusions(dataSupabase),
     ]);
-
-    if (coursesError) {
-      throw new Error(coursesError.message);
-    }
 
     const excludedSiteIds = new Set<number>();
     const excludedSubSiteIds = new Set<number>();
@@ -213,7 +213,8 @@ export async function GET(request: Request) {
     });
 
     const shouldExcludeEmployee = (employee: EmployeeRow) => {
-      if (!includeExcluded && excludedEmployeeIds.has(employee.id)) return true;
+      if (includeExcluded) return false;
+      if (excludedEmployeeIds.has(employee.id)) return true;
       if (typeof employee.sub_site_id === "number" && excludedSubSiteIds.has(employee.sub_site_id)) return true;
       if (typeof employee.site_id === "number" && excludedSiteIds.has(employee.site_id)) return true;
       return false;
@@ -529,6 +530,42 @@ export async function GET(request: Request) {
           )
         : null;
 
+    const originiFilter = originiParam
+      ? new Set(
+          originiParam
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        )
+      : null;
+
+    const courseCodesFilter = courseCodesParam
+      ? new Set(
+          courseCodesParam
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        )
+      : null;
+
+    const completionMonthsFilter = completionMonthsParam
+      ? new Set(
+          completionMonthsParam
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        )
+      : null;
+
+    const expiryMonthsFilter = expiryMonthsParam
+      ? new Set(
+          expiryMonthsParam
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        )
+      : null;
+
     const shouldIncludeRow = (row: WorkerCourseRow) => {
       if (category) {
         const isBase = isBaseCode(row.corsoCode);
@@ -537,17 +574,19 @@ export async function GET(request: Request) {
       }
       if (statesFilter && !statesFilter.has(row.stato)) return false;
       if (origineParam && row.origine !== origineParam) return false;
+      if (originiFilter && !originiFilter.has(row.origine)) return false;
+      if (courseCodesFilter && !courseCodesFilter.has(row.corsoCode)) return false;
+      if (completionMonthsFilter && !completionMonthsFilter.has(isoToMonthYear(row.dataConclusione))) return false;
+      if (expiryMonthsFilter && !expiryMonthsFilter.has(isoToMonthYear(row.dataScadenza))) return false;
       if (q) {
         const searchable = [
           row.matricola,
           row.cognome,
           row.nome,
-          row.mansione,
           row.cantiere,
           row.sottocantiere,
           row.responsabile,
           row.referente,
-          `${row.corsoCode} ${row.corso}`,
         ]
           .join(" ")
           .toLowerCase();
@@ -719,6 +758,13 @@ function isoToItDate(value: string) {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
+function isoToMonthYear(value: string | null) {
+  if (!value) return "(vuoto)";
+  const match = value.match(/^(\d{4})-(\d{2})/);
+  if (!match) return "(vuoto)";
+  return `${match[2]}/${match[1]}`;
+}
+
 function formatFilenameDate(date: Date) {
   const yyyy = String(date.getFullYear());
   const mm = String(date.getMonth() + 1).padStart(2, "0");
@@ -750,6 +796,7 @@ async function fetchAllRules(supabase: SupabaseClient) {
     const { data, error } = await supabase
       .from("training_matrix_rules")
       .select("scope_type,course_id,job_code_norm,site_id,sub_site_id,employee_id")
+      .eq("is_required", true)
       .range(from, to);
 
     if (error) throw new Error(error.message);
@@ -759,6 +806,29 @@ async function fetchAllRules(supabase: SupabaseClient) {
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
+  return allRows;
+}
+
+async function fetchAllCourses(supabase: SupabaseClient) {
+  const pageSize = 1000;
+  let from = 0;
+  let hasMore = true;
+  const allRows: CourseRow[] = [];
+
+  while (hasMore) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("training_courses")
+      .select("id,code,title,is_active,validity_years,is_unlimited")
+      .order("id")
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as CourseRow[];
+    allRows.push(...rows);
+    if (rows.length < pageSize) hasMore = false;
+    else from += pageSize;
+  }
+
   return allRows;
 }
 
