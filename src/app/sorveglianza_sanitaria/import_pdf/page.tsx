@@ -52,6 +52,33 @@ type LastImportRun = {
 };
 
 const MAX_PDF_UPLOAD_BYTES = 6_000_000;
+const MAX_PDF_DIRECT_UPLOAD_BYTES = 3_500_000;
+const MAX_PDF_PAGES = 250;
+
+async function extractPdfPagesTextClient(file: File, onProgress: (done: number, total: number) => void) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const buffer = await file.arrayBuffer();
+  const data = new Uint8Array(buffer);
+  const loadingTask = pdfjs.getDocument({ data, disableWorker: true } as never);
+  const pdf = await loadingTask.promise;
+  const totalPages = Number((pdf as { numPages?: number }).numPages ?? 0);
+  if (!Number.isFinite(totalPages) || totalPages <= 0) {
+    throw new Error("PDF non valido o non leggibile.");
+  }
+  if (totalPages > MAX_PDF_PAGES) {
+    throw new Error(`PDF troppo grande: ${totalPages} pagine (max ${MAX_PDF_PAGES}). Dividi il file e riprova.`);
+  }
+  const out: Array<{ page: number; text: string }> = [];
+  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+    onProgress(pageNumber - 1, totalPages);
+    const page = await (pdf as { getPage: (n: number) => Promise<unknown> }).getPage(pageNumber);
+    const content = await (page as { getTextContent: () => Promise<{ items: Array<{ str?: string }> }> }).getTextContent();
+    const parts = (content.items ?? []).map((i) => String(i.str ?? "")).filter(Boolean);
+    out.push({ page: pageNumber, text: parts.join("\n") });
+    onProgress(pageNumber, totalPages);
+  }
+  return out;
+}
 
 function formatDateTimeIt(value: string) {
   const d = new Date(value);
@@ -200,14 +227,33 @@ export default function SorveglianzaPdfImportPage() {
     }, 350);
 
     try {
-      const formData = new FormData();
-      formData.append("mode", "preview");
-      formData.append("file", selectedFile);
+      const shouldUseClientParse = selectedFile.size > MAX_PDF_DIRECT_UPLOAD_BYTES;
 
-      const response = await fetch("/api/sorveglianza_sanitaria/import-pdf", {
-        method: "POST",
-        body: formData,
-      });
+      let response: Response | null = null;
+      if (!shouldUseClientParse) {
+        const formData = new FormData();
+        formData.append("mode", "preview");
+        formData.append("file", selectedFile);
+        response = await fetch("/api/sorveglianza_sanitaria/import-pdf", { method: "POST", body: formData });
+      }
+
+      if (!response || response.status === 413) {
+        if (progressTimerRef.current !== null) {
+          window.clearInterval(progressTimerRef.current);
+          progressTimerRef.current = null;
+        }
+        setProgress(0);
+        const pages = await extractPdfPagesTextClient(selectedFile, (done, total) => {
+          if (runTokenRef.current !== token) return;
+          const pct = total ? Math.min(95, Math.round((done / total) * 95)) : 0;
+          setProgress(pct);
+        });
+
+        const formData = new FormData();
+        formData.append("mode", "preview");
+        formData.append("pages", JSON.stringify(pages));
+        response = await fetch("/api/sorveglianza_sanitaria/import-pdf", { method: "POST", body: formData });
+      }
 
       const payload = (await readJsonOrThrow(response)) as ImportResponse | { error: string };
       if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "Errore in fase di import.");

@@ -299,6 +299,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const mode = String(formData.get("mode") ?? "").trim() as ImportMode;
     const file = formData.get("file");
+    const pagesRaw = formData.get("pages");
     const updatesRaw = formData.get("updates");
     const fileName = String(formData.get("fileName") ?? "").trim();
 
@@ -434,18 +435,36 @@ export async function POST(request: Request) {
       return NextResponse.json(response);
     }
 
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "File mancante." }, { status: 400 });
-    }
-    if (!String(file.name ?? "").toLowerCase().endsWith(".pdf")) {
-      return NextResponse.json({ error: "Formato non valido (atteso PDF)." }, { status: 400 });
-    }
-    if (file.size > MAX_PDF_UPLOAD_BYTES) {
-      return NextResponse.json({ error: "PDF troppo grande (max ~6MB)." }, { status: 413 });
-    }
+    const MAX_PDF_PAGES = 250;
+    let pages: Array<{ page: number; text: string }> = [];
+    if (typeof pagesRaw === "string" && pagesRaw.trim()) {
+      const input = JSON.parse(pagesRaw) as Array<{ page?: unknown; text?: unknown }>;
+      pages = (Array.isArray(input) ? input : [])
+        .map((p) => ({ page: Number(p?.page), text: typeof p?.text === "string" ? p.text : "" }))
+        .filter((p) => Number.isFinite(p.page) && p.page > 0);
+      if (pages.length === 0) {
+        return NextResponse.json({ error: "Nessuna pagina valida da importare." }, { status: 400 });
+      }
+      if (pages.length > MAX_PDF_PAGES) {
+        return NextResponse.json(
+          { error: `PDF troppo grande: ${pages.length} pagine (max ${MAX_PDF_PAGES}). Dividi il file e riprova.` },
+          { status: 413 },
+        );
+      }
+    } else {
+      if (!(file instanceof File)) {
+        return NextResponse.json({ error: "File mancante." }, { status: 400 });
+      }
+      if (!String(file.name ?? "").toLowerCase().endsWith(".pdf")) {
+        return NextResponse.json({ error: "Formato non valido (atteso PDF)." }, { status: 400 });
+      }
+      if (file.size > MAX_PDF_UPLOAD_BYTES) {
+        return NextResponse.json({ error: "PDF troppo grande (max ~6MB)." }, { status: 413 });
+      }
 
-    const buffer = await file.arrayBuffer();
-    const pages = await extractPdfPagesText(buffer);
+      const buffer = await file.arrayBuffer();
+      pages = await extractPdfPagesText(buffer);
+    }
 
     const parsed = pages.map(({ page, text }) => {
       const taxCode = extractTaxCode(text);
@@ -578,7 +597,7 @@ export async function POST(request: Request) {
     if (mode === "commit") {
       await auth.supabase.from("import_runs").insert({
         source: "sorveglianza_pdf",
-        file_name: file.name,
+        file_name: file instanceof File ? file.name : fileName || "import_pdf",
         imported_by: auth.userId,
         total_rows: summary.totalPages,
         processed_rows: summary.matchedEmployees,
