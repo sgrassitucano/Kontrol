@@ -53,7 +53,7 @@ type LastImportRun = {
 
 const MAX_PDF_UPLOAD_BYTES = 6_000_000;
 const MAX_PDF_DIRECT_UPLOAD_BYTES = 3_500_000;
-const MAX_PDF_PAGES = 250;
+const MAX_PDF_PAGES = 700;
 
 function cleanSpaces(value: string) {
   return String(value ?? "").replace(/\s+/g, " ").trim();

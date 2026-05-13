@@ -199,7 +199,7 @@ async function extractPdfPagesText(fileBuffer: ArrayBuffer) {
   const data = new Uint8Array(fileBuffer);
   const loadingTask = pdfjs.getDocument({ data, disableWorker: true } as never);
   const pdf = await loadingTask.promise;
-  const MAX_PDF_PAGES = 250;
+  const MAX_PDF_PAGES = 700;
   const MAX_PAGE_PARSE_MS = 12_000;
   const totalPages = Number(pdf.numPages ?? 0);
   if (!Number.isFinite(totalPages) || totalPages <= 0) {
@@ -296,7 +296,7 @@ export async function POST(request: Request) {
 
   try {
     const MAX_PDF_UPLOAD_BYTES = 6_000_000;
-    const MAX_PDF_PAGES = 250;
+    const MAX_PDF_PAGES = 700;
 
     const contentType = request.headers.get("content-type") ?? "";
     let mode: ImportMode = "preview";
