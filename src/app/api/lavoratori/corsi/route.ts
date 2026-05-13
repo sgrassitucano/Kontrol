@@ -198,13 +198,19 @@ export async function GET(request: Request) {
       else set.add(r.course_id);
     });
 
+    const isEmployeeExcludedByScopeForList = (employee: EmployeeRow) => {
+      if (!applyFormazioneExclusions) return false;
+      if (typeof employeeId === "number") return false;
+      if (excludedEmployeeIds.has(employee.id)) return true;
+      if (typeof employee.sub_site_id === "number" && excludedSubSiteIds.has(employee.sub_site_id)) return true;
+      if (typeof employee.site_id === "number" && excludedSiteIds.has(employee.site_id)) return true;
+      return false;
+    };
+
     const shouldExcludeEmployee = (employee: EmployeeRow) => {
       if (!applyFormazioneExclusions) return false;
-      if (!includeExcluded && typeof employeeId !== "number" && excludedEmployeeIds.has(employee.id)) return true;
-      if (!includeExcluded && typeof employee.sub_site_id === "number" && excludedSubSiteIds.has(employee.sub_site_id))
-        return true;
-      if (!includeExcluded && typeof employee.site_id === "number" && excludedSiteIds.has(employee.site_id)) return true;
-      return false;
+      if (includeExcluded) return false;
+      return isEmployeeExcludedByScopeForList(employee);
     };
 
     const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
@@ -320,7 +326,7 @@ export async function GET(request: Request) {
         const course = courseMap.get(courseId);
         if (!course) continue;
         const freeze = activeFreeze.get(employee.id);
-        const employeeExcluded = applyFormazioneExclusions && excludedEmployeeIds.has(employee.id);
+        const employeeExcluded = isEmployeeExcludedByScopeForList(employee);
         const courseExcluded =
           applyFormazioneExclusions && (excludedCourseIdsByEmployee.get(employee.id)?.has(courseId) ?? false);
         const family = leveledFamilies.find((fam) => fam.includes(course.code));
@@ -565,7 +571,7 @@ export async function GET(request: Request) {
 
         const freeze = activeFreeze.get(employee.id);
         const isUpgrade = upgradeCourseIds.has(statusEntry.course_id);
-        const employeeExcluded = applyFormazioneExclusions && excludedEmployeeIds.has(employee.id);
+        const employeeExcluded = isEmployeeExcludedByScopeForList(employee);
         const courseExcluded =
           applyFormazioneExclusions &&
           (excludedCourseIdsByEmployee.get(employee.id)?.has(statusEntry.course_id) ?? false);
