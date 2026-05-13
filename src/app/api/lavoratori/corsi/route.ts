@@ -699,12 +699,23 @@ async function fetchCourseRowsByEmployeeIds(supabase: SupabaseClient, employeeId
   if (ids.length === 0) return [] as CourseStatusRow[];
   const all: CourseStatusRow[] = [];
   for (const chunk of chunkArray(ids, 500)) {
-    const { data, error } = await supabase
-      .from("training_employee_courses")
-      .select("employee_id,course_id,completion_date,expiry_date,planned_date,manual_state,note")
-      .in("employee_id", chunk);
-    if (error) throw new Error(error.message);
-    all.push(...((data ?? []) as CourseStatusRow[]));
+    const pageSize = 1000;
+    let from = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const to = from + pageSize - 1;
+      const { data, error } = await supabase
+        .from("training_employee_courses")
+        .select("employee_id,course_id,completion_date,expiry_date,planned_date,manual_state,note")
+        .in("employee_id", chunk)
+        .order("id")
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as CourseStatusRow[];
+      all.push(...rows);
+      if (rows.length < pageSize) hasMore = false;
+      else from += pageSize;
+    }
   }
   return all;
 }
