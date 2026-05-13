@@ -245,10 +245,10 @@ export async function GET(request: Request) {
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
       const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso);
-      let requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap);
+      let requiredCourseIds = expandCombinedBaseRequirements(collapseLeveledCourseRequirements(rawRequiredIds, courseMap), courseMap);
       applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
       expandPrerequisites(requiredCourseIds, prerequisitesByFromCourseId);
-      requiredCourseIds = collapseLeveledCourseRequirements(requiredCourseIds, courseMap);
+      requiredCourseIds = expandCombinedBaseRequirements(collapseLeveledCourseRequirements(requiredCourseIds, courseMap), courseMap);
       applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
 
       const freeze = activeFreeze.get(employee.id);
@@ -292,7 +292,7 @@ export async function GET(request: Request) {
         const excludedSet = applyFormazioneExclusions ? excludedCourseIdsByEmployee.get(employee.id) ?? null : null;
         const baseCourseExcluded = excludedSet?.has(formBaseCourseId) ?? false;
         const specCourseExcluded = excludedSet?.has(formSpecRequired.courseId) ?? false;
-        const shouldBuildBaseSection = !baseCourseExcluded && !specCourseExcluded;
+        const shouldBuildBaseSection = !baseCourseExcluded && !specCourseExcluded && typeof employeeId !== "number";
 
         if (shouldBuildBaseSection) {
           const baseSection = buildTrainingBaseSectionRows({
@@ -1044,6 +1044,24 @@ function collapseLeveledCourseRequirements(
   return result;
 }
 
+function expandCombinedBaseRequirements(requiredIds: Set<number>, courseMap: Map<number, CourseRow>) {
+  const formBaseCourseId = findCourseIdByCode("FORM_BASE", courseMap);
+  if (formBaseCourseId === null) return requiredIds;
+
+  const result = new Set(requiredIds);
+  for (const courseId of requiredIds) {
+    const code = courseMap.get(courseId)?.code ?? "";
+    const specCode = parseCombinedFormSpecCode(code);
+    if (!specCode) continue;
+    const specCourseId = findCourseIdByCode(specCode, courseMap);
+    if (specCourseId === null) continue;
+    result.delete(courseId);
+    result.add(formBaseCourseId);
+    result.add(specCourseId);
+  }
+  return result;
+}
+
 function findCourseIdByCode(
   code: string,
   courseMap: Map<number, CourseRow>,
@@ -1237,6 +1255,24 @@ function formSpecRank(code: string) {
   return 0;
 }
 
+function parseCombinedFormSpecCode(courseCode: string) {
+  if (!courseCode.startsWith("FORM_BASE+")) return null;
+  const suffix = courseCode.slice("FORM_BASE+".length);
+  if (!suffix.startsWith("FORM_SPEC_")) return null;
+  return suffix;
+}
+
+function computeEffectiveExpiryIso(statusRow: CourseStatusRow, course: CourseRow) {
+  if (course.is_unlimited) return null;
+  const raw = statusRow.expiry_date ? normalizeDateOnlyIso(String(statusRow.expiry_date)) : null;
+  if (raw && isSentinelUnlimitedDate(raw)) return null;
+  if (raw) return raw;
+  const years = course.validity_years;
+  if (!years || !Number.isFinite(years) || years <= 0) return null;
+  if (!statusRow.completion_date) return null;
+  return computeTheoreticalExpiryIso(statusRow.completion_date, years);
+}
+
 function buildTrainingBaseSectionRows({
   employee,
   formBaseCourseId,
@@ -1267,6 +1303,79 @@ function buildTrainingBaseSectionRows({
 
   const requiredRank = formSpecRank(formSpecRequired.code);
 
+  const combinedCandidates: Array<{
+    statusRow: CourseStatusRow;
+    course: CourseRow;
+    specCode: (typeof formSpecFamily)[number];
+    rank: number;
+    state: WorkerCourseRow["stato"];
+  }> = [];
+
+  for (const sr of employeeStatusRows) {
+    const course = courseMap.get(sr.course_id);
+    if (!course) continue;
+    const specCodeRaw = parseCombinedFormSpecCode(course.code);
+    if (!specCodeRaw) continue;
+    if (!formSpecFamily.includes(specCodeRaw as (typeof formSpecFamily)[number])) continue;
+    if (!sr.completion_date) continue;
+    const specCode = specCodeRaw as (typeof formSpecFamily)[number];
+    const state = resolveCourseState(sr, course, freeze, todayIso, expiringDays, false);
+    combinedCandidates.push({ statusRow: sr, course, specCode, rank: formSpecRank(specCode), state });
+  }
+
+  const combinedBest = combinedCandidates
+    .map((candidate) => {
+      const ok = candidate.state === "idoneo" || candidate.state === "in scadenza";
+      const meets = candidate.rank >= requiredRank;
+      const expiryIso = computeEffectiveExpiryIso(candidate.statusRow, candidate.course);
+      const expiryKey = expiryIso ? parseDateOnlyKey(expiryIso) : null;
+      const completionKey = candidate.statusRow.completion_date ? parseDateOnlyKey(candidate.statusRow.completion_date) : null;
+      return { ...candidate, ok, meets, expiryIso, expiryKey, completionKey };
+    })
+    .sort((a, b) => {
+      if (a.ok !== b.ok) return a.ok ? -1 : 1;
+      if (a.meets !== b.meets) return a.meets ? -1 : 1;
+      if (a.rank !== b.rank) return b.rank - a.rank;
+      const ak = a.expiryKey ?? -1;
+      const bk = b.expiryKey ?? -1;
+      if (ak !== bk) return bk - ak;
+      const ac = a.completionKey ?? -1;
+      const bc = b.completionKey ?? -1;
+      return bc - ac;
+    })[0];
+
+  if (combinedBest) {
+    const risk = combinedBest.specCode.slice("FORM_SPEC_".length).toLowerCase();
+    const courseCode = `FORM_BASE+${combinedBest.specCode}`;
+    const courseTitle = `Formazione generale + specifica rischio ${risk}`;
+    const shouldUpgrade =
+      combinedBest.ok && combinedBest.rank < requiredRank && combinedBest.state !== "sospeso" && combinedBest.state !== "escluso";
+    const from = levelLabel(combinedBest.specCode) ?? combinedBest.specCode;
+    const to = levelLabel(formSpecRequired.code) ?? formSpecRequired.code;
+    const state = (shouldUpgrade ? "upgrade" : combinedBest.state) as WorkerCourseRow["stato"];
+    const row: WorkerCourseRow = {
+      workerId: employee.id,
+      matricola: employee.matricola,
+      cognome: employee.last_name,
+      nome: employee.first_name,
+      mansione: formatJobLabel(employee.job_title ?? ""),
+      cantiere: extractDisplayName(employee.sites),
+      sottocantiere: extractDisplayName(employee.sub_sites),
+      courseId: combinedBest.statusRow.course_id,
+      corsoCode: courseCode,
+      corso: courseTitle,
+      dataConclusione: combinedBest.statusRow.completion_date ?? null,
+      dataScadenza: combinedBest.expiryIso,
+      stato: state,
+      upgradeInfo: shouldUpgrade ? `${from} → ${to}` : null,
+      responsabile: employee.responsible_code,
+      referente: employee.referral ?? "",
+      note: combinedBest.statusRow.note ?? "",
+      origine: "obbligatorio",
+    };
+    return [row];
+  }
+
   const ownedSpecByCode = new Map<string, CourseStatusRow>();
   for (const sr of employeeStatusRows) {
     const code = courseMap.get(sr.course_id)?.code ?? "";
@@ -1274,9 +1383,14 @@ function buildTrainingBaseSectionRows({
     if (!sr.completion_date) continue;
     const completionKey = parseDateOnlyKey(sr.completion_date);
     if (!completionKey) continue;
-    if (!baseCompletionKey) continue;
-    if (completionKey <= baseCompletionKey) continue;
-    ownedSpecByCode.set(code, sr);
+    if (baseCompletionKey && completionKey < baseCompletionKey) continue;
+    const prev = ownedSpecByCode.get(code);
+    if (!prev) {
+      ownedSpecByCode.set(code, sr);
+      continue;
+    }
+    const prevKey = prev.completion_date ? parseDateOnlyKey(prev.completion_date) : null;
+    if (!prevKey || completionKey >= prevKey) ownedSpecByCode.set(code, sr);
   }
 
   const ownedSpecCode =
