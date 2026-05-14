@@ -475,7 +475,7 @@ export default function HomeSorveglianzaPage() {
       >
         <DashboardCard className="border-0 p-3">
           <KpiGrid className="sm:grid-cols-2 md:grid-cols-7">
-            <KpiCard label="Totale lavoratori" value={totalWorkers} subValue="100%" />
+            <KpiCard label="Totale lavoratori attivi" value={totalWorkers} subValue="100%" />
             <KpiCard
               label="Critico"
               value={criticoCount}

@@ -59,6 +59,7 @@ type WorkerCourseRow = {
   corso: string;
   dataConclusione: string | null;
   dataScadenza: string | null;
+  dataPrevista: string | null;
   stato:
     | "idoneo"
     | "in scadenza"
@@ -379,6 +380,7 @@ export async function GET(request: Request) {
                 corso: higherCourse.title,
                 dataConclusione: higherStatus.completion_date ?? null,
                 dataScadenza: higherStatus.expiry_date ?? null,
+                dataPrevista: higherStatus.planned_date ?? null,
                 stato: state as WorkerCourseRow["stato"],
                 upgradeInfo: null,
                 responsabile: employee.responsible_code,
@@ -445,6 +447,7 @@ export async function GET(request: Request) {
             corso: course.title,
             dataConclusione: lost ? null : statusEntry?.completion_date ?? null,
             dataScadenza: lost ? null : statusEntry?.expiry_date ?? null,
+            dataPrevista: lost ? null : statusEntry?.planned_date ?? null,
             stato: state as WorkerCourseRow["stato"],
             upgradeInfo: null,
             responsabile: employee.responsible_code,
@@ -484,6 +487,7 @@ export async function GET(request: Request) {
               corso: course.title,
               dataConclusione: statusEntry.completion_date ?? null,
               dataScadenza: statusEntry.expiry_date ?? null,
+              dataPrevista: statusEntry.planned_date ?? null,
               stato: "perso",
               upgradeInfo: null,
               responsabile: employee.responsible_code,
@@ -533,6 +537,7 @@ export async function GET(request: Request) {
           corso: substituteCourse.title,
           dataConclusione: substitute.statusEntry.completion_date ?? null,
           dataScadenza: substitute.statusEntry.expiry_date ?? null,
+          dataPrevista: substitute.statusEntry.planned_date ?? null,
           stato: state as WorkerCourseRow["stato"],
           upgradeInfo: null,
           responsabile: employee.responsible_code,
@@ -598,6 +603,7 @@ export async function GET(request: Request) {
           corso: course.title,
           dataConclusione: statusEntry.completion_date ?? null,
           dataScadenza: statusEntry.expiry_date ?? null,
+          dataPrevista: statusEntry.planned_date ?? null,
           stato: state as WorkerCourseRow["stato"],
           upgradeInfo: isUpgrade ? (upgradeInfoByCourseId.get(statusEntry.course_id) ?? null) : null,
           responsabile: employee.responsible_code,
@@ -1379,6 +1385,7 @@ function buildTrainingBaseSectionRows({
       corso: courseTitle,
       dataConclusione: combinedBest.statusRow.completion_date ?? null,
       dataScadenza: combinedBest.expiryIso,
+      dataPrevista: combinedBest.statusRow.planned_date ?? null,
       stato: state,
       upgradeInfo: null,
       responsabile: employee.responsible_code,
@@ -1447,6 +1454,7 @@ function buildTrainingBaseSectionRows({
         corso: courseTitle,
         dataConclusione: completionDate,
         dataScadenza: expiryDate,
+        dataPrevista: null,
         stato: state as WorkerCourseRow["stato"],
         upgradeInfo: null,
         responsabile: employee.responsible_code,
@@ -1472,6 +1480,7 @@ function buildTrainingBaseSectionRows({
     corso: baseCourse?.title ?? "Formazione generale",
     dataConclusione: formBaseStatus?.completion_date ?? null,
     dataScadenza: formBaseStatus?.expiry_date ?? null,
+    dataPrevista: formBaseStatus?.planned_date ?? null,
     stato: formBaseState as WorkerCourseRow["stato"],
     upgradeInfo: null,
     responsabile: employee.responsible_code,
@@ -1498,6 +1507,7 @@ function buildTrainingBaseSectionRows({
         corso: course?.title ?? "Formazione specifica",
         dataConclusione: ownedSpecStatus.completion_date ?? null,
         dataScadenza: ownedSpecStatus.expiry_date ?? null,
+        dataPrevista: ownedSpecStatus.planned_date ?? null,
         stato: "upgrade",
         upgradeInfo: `${from} → ${to}`,
         responsabile: employee.responsible_code,
@@ -1525,6 +1535,7 @@ function buildTrainingBaseSectionRows({
         corso: requiredSpecCourse?.title ?? "Formazione specifica",
         dataConclusione: requiredSpecStatus?.completion_date ?? null,
         dataScadenza: requiredSpecStatus?.expiry_date ?? null,
+        dataPrevista: requiredSpecStatus?.planned_date ?? null,
         stato: requiredSpecState as WorkerCourseRow["stato"],
         upgradeInfo: null,
         responsabile: employee.responsible_code,
@@ -1554,6 +1565,7 @@ function buildTrainingBaseSectionRows({
       corso: ownedCourse?.title ?? requiredSpecCourse?.title ?? "Formazione specifica",
       dataConclusione: ownedSpecStatus?.completion_date ?? null,
       dataScadenza: ownedSpecStatus?.expiry_date ?? null,
+      dataPrevista: ownedSpecStatus?.planned_date ?? null,
       stato: ownedSpecState as WorkerCourseRow["stato"],
       upgradeInfo,
       responsabile: employee.responsible_code,

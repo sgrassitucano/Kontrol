@@ -97,6 +97,7 @@ type WorkerCourseRow = {
   corso: string;
   dataConclusione: string | null;
   dataScadenza: string | null;
+  dataPrevista: string | null;
   stato:
     | "idoneo"
     | "in scadenza"
@@ -356,6 +357,7 @@ export async function GET(request: Request) {
                 corso: higherCourse.title,
                 dataConclusione: higherStatus.completion_date ?? null,
                 dataScadenza: higherStatus.expiry_date ?? null,
+                dataPrevista: higherStatus.planned_date ?? null,
                 stato: state as WorkerCourseRow["stato"],
                 upgradeInfo: null,
                 responsabile: employee.responsible_code,
@@ -403,6 +405,7 @@ export async function GET(request: Request) {
             corso: course.title,
             dataConclusione: lost ? null : statusEntry?.completion_date ?? null,
             dataScadenza: lost ? null : statusEntry?.expiry_date ?? null,
+            dataPrevista: lost ? null : statusEntry?.planned_date ?? null,
             stato: state as WorkerCourseRow["stato"],
             upgradeInfo: null,
             responsabile: employee.responsible_code,
@@ -426,6 +429,7 @@ export async function GET(request: Request) {
               corso: course.title,
               dataConclusione: statusEntry.completion_date ?? null,
               dataScadenza: statusEntry.expiry_date ?? null,
+              dataPrevista: statusEntry.planned_date ?? null,
               stato: "perso",
               upgradeInfo: null,
               responsabile: employee.responsible_code,
@@ -458,6 +462,7 @@ export async function GET(request: Request) {
           corso: substituteCourse.title,
           dataConclusione: substitute.statusEntry.completion_date ?? null,
           dataScadenza: substitute.statusEntry.expiry_date ?? null,
+          dataPrevista: substitute.statusEntry.planned_date ?? null,
           stato: state as WorkerCourseRow["stato"],
           upgradeInfo: null,
           responsabile: employee.responsible_code,
@@ -505,6 +510,7 @@ export async function GET(request: Request) {
           corso: course.title,
           dataConclusione: statusEntry.completion_date ?? null,
           dataScadenza: statusEntry.expiry_date ?? null,
+          dataPrevista: statusEntry.planned_date ?? null,
           stato: state as WorkerCourseRow["stato"],
           upgradeInfo: isUpgrade ? (upgradeInfoByCourseId.get(statusEntry.course_id) ?? null) : null,
           responsabile: employee.responsible_code,
@@ -626,6 +632,7 @@ export async function GET(request: Request) {
       "tipo corso",
       "data esecuzione",
       "data scadenza",
+      "data prevista",
       "note",
       "idoneo/non idoneo",
       "responsabile",
@@ -675,6 +682,7 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow) {
   const dataNascita = employee.birth_date ? isoToItDate(employee.birth_date) : "";
   const dataEsecuzione = row.dataConclusione ? isoToItDate(row.dataConclusione) : "";
   const dataScadenza = formatExpiryLabel(row);
+  const dataPrevista = row.dataPrevista ? isoToItDate(row.dataPrevista) : "";
   const note = mergeNotesForExport(row.note, row.stato === "upgrade" ? row.upgradeInfo : null);
   const tipoCorso = buildTipoCorso(row);
 
@@ -687,6 +695,7 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow) {
     "tipo corso": tipoCorso,
     "data esecuzione": dataEsecuzione,
     "data scadenza": dataScadenza,
+    "data prevista": dataPrevista,
     "note": note,
     "idoneo/non idoneo": buildEsitoLabel(row),
     "responsabile": employee.responsible_code ?? "",
@@ -1308,6 +1317,11 @@ function buildBaseAggregateRow({
     effectiveSpecStatus?.expiry_date ?? null,
   );
 
+  const plannedDate = pickLatestDate(
+    formBaseStatus?.planned_date ?? null,
+    effectiveSpecStatus?.planned_date ?? null,
+  );
+
   const risk = formSpecRequired.code.slice("FORM_SPEC_".length).toLowerCase();
   const courseCode = `FORM_BASE+${formSpecRequired.code}`;
   const courseTitle = `Formazione generale + specifica rischio ${risk}`;
@@ -1330,6 +1344,7 @@ function buildBaseAggregateRow({
     corso: courseTitle,
     dataConclusione: completionDate,
     dataScadenza: expiryDate,
+    dataPrevista: plannedDate,
     stato: state as WorkerCourseRow["stato"],
     upgradeInfo,
     responsabile: employee.responsible_code,

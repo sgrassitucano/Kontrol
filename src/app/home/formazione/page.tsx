@@ -18,6 +18,7 @@ type WorkerCourseRow = {
   corso: string;
   dataConclusione: string | null;
   dataScadenza: string | null;
+  dataPrevista: string | null;
   stato:
     | "idoneo"
     | "in scadenza"
@@ -131,6 +132,7 @@ type SortKey =
   | "corso"
   | "dataConclusione"
   | "dataScadenza"
+  | "dataPrevista"
   | "origine"
   | "stato"
   | "note";
@@ -742,6 +744,7 @@ export default function HomeFormazionePage() {
         cmp = compareText(`${a.corsoCode} ${a.corso}`, `${b.corsoCode} ${b.corso}`) || compareText(a.cognome, b.cognome);
       else if (sort.key === "dataConclusione") cmp = compareNullableIso(a.dataConclusione, b.dataConclusione);
       else if (sort.key === "dataScadenza") cmp = compareNullableIso(a.dataScadenza, b.dataScadenza);
+      else if (sort.key === "dataPrevista") cmp = compareNullableIso(a.dataPrevista, b.dataPrevista);
       else if (sort.key === "origine") cmp = compareText(a.origine, b.origine) || compareText(a.cognome, b.cognome);
       else if (sort.key === "stato") cmp = statusRank(a.stato) - statusRank(b.stato) || compareText(a.cognome, b.cognome);
       else cmp = compareNullableText(a.note, b.note) || compareText(a.cognome, b.cognome);
@@ -1659,6 +1662,15 @@ export default function HomeFormazionePage() {
                   </button>
                 </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("dataPrevista")}
+                    className="inline-flex items-center gap-1"
+                  >
+                    Data prevista {sortIcon("dataPrevista")}
+                  </button>
+                </th>
+                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("origine")} className="inline-flex items-center gap-1">
                     Origine {sortIcon("origine")}
                   </button>
@@ -1727,6 +1739,7 @@ export default function HomeFormazionePage() {
                     placeholder="mm/aaaa"
                   />
                 </th>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2" />
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
                   <MultiSelectDropdown
                     selected={columnFilters.origine}
@@ -1786,6 +1799,9 @@ export default function HomeFormazionePage() {
                   </td>
                   <td className={`px-4 py-2.5 font-medium tabular-nums ${textClass}`}>
                     {formatDateIt(row.dataScadenza)}
+                  </td>
+                  <td className={`px-4 py-2.5 font-medium tabular-nums ${textClass}`}>
+                    {formatDateIt(row.dataPrevista)}
                   </td>
                   <td className="px-4 py-2.5">
                     <span className={originClassName(row.origine)} title={row.origine}>
@@ -2242,6 +2258,7 @@ export default function HomeFormazionePage() {
                             <th className="px-3 py-2">Corso</th>
                             <th className="px-3 py-2">Data corso</th>
                             <th className="px-3 py-2">Scadenza</th>
+                            <th className="px-3 py-2">Data prevista</th>
                             <th className="px-3 py-2">Stato</th>
                             <th className="px-3 py-2">Azione</th>
                           </tr>
@@ -2266,6 +2283,9 @@ export default function HomeFormazionePage() {
                                   </td>
                                   <td className="px-3 py-2 font-medium tabular-nums text-slate-700">
                                     {formatDateIt(r.dataScadenza)}
+                                  </td>
+                                  <td className="px-3 py-2 font-medium tabular-nums text-slate-700">
+                                    {formatDateIt(r.dataPrevista)}
                                   </td>
                                   <td className="px-3 py-2">
                                     <span className={statusClassName(r.stato)}>{r.stato}</span>
