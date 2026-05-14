@@ -1409,14 +1409,6 @@ export default function HomeFormazionePage() {
                 <div key={panel.category} className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="text-sm font-bold text-[var(--brand-ink)]">{panel.title}</h3>
-                    <button
-                      type="button"
-                      onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
-                      className="rounded-lg bg-[var(--brand-primary)] px-2.5 py-1 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
-                      title="Applica filtro alla tabella"
-                    >
-                      Totale {totalWorkers}
-                    </button>
                   </div>
 
                   <div className="mt-3">
