@@ -1401,7 +1401,11 @@ export default function HomeFormazionePage() {
               const summary = panel.summary;
               const excludedCount = excludedByScopeEmployees;
               const criticoCount =
-                summary.counts.scaduto + summary.counts["da fare"] + summary.counts.programmato + summary.counts.upgrade;
+                summary.counts.scaduto +
+                summary.counts["da fare"] +
+                summary.counts.programmato +
+                summary.counts.upgrade +
+                summary.counts["in scadenza"];
               const totalWorkers = totalActiveEmployees;
               const criticoPct = percentage(criticoCount, totalWorkers);
 
@@ -1417,28 +1421,36 @@ export default function HomeFormazionePage() {
                         label="Totale"
                         value={totalWorkers}
                         subValue="100%"
+                        hint="Totale lavoratori in forza (attivi)."
+                        layout="dashboard"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
                       />
                       <KpiCard
                         label="Critico"
                         value={criticoCount}
                         subValue={`${criticoPct}%`}
+                        hint="in scadenza + da fare + scaduto + programmato + upgrade"
+                        layout="dashboard"
                         tone="danger"
                         onClick={() =>
-                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "programmato", "upgrade"] })
+                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "programmato", "upgrade", "in scadenza"] })
                         }
                       />
                       <KpiCard
-                        label="In scadenza"
-                        value={summary.counts["in scadenza"]}
-                        subValue={`${percentage(summary.counts["in scadenza"], totalWorkers)}%`}
-                        tone="warning"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["in scadenza"] })}
+                        label="Programmato"
+                        value={summary.counts.programmato}
+                        subValue={`${percentage(summary.counts.programmato, totalWorkers)}%`}
+                        hint="Priorità 1: programmato (esclude gli altri KPI critici)."
+                        layout="dashboard"
+                        tone="info"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["programmato"] })}
                       />
                       <KpiCard
                         label="Da fare"
                         value={summary.counts["da fare"]}
                         subValue={`${percentage(summary.counts["da fare"], totalWorkers)}%`}
+                        hint="Priorità 2: da fare (solo se non programmato)."
+                        layout="dashboard"
                         tone="danger"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["da fare"] })}
                       />
@@ -1446,27 +1458,35 @@ export default function HomeFormazionePage() {
                         label="Scaduto"
                         value={summary.counts.scaduto}
                         subValue={`${percentage(summary.counts.scaduto, totalWorkers)}%`}
+                        hint="Priorità 2: scaduto (solo se non programmato)."
+                        layout="dashboard"
                         tone="danger"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["scaduto"] })}
-                      />
-                      <KpiCard
-                        label="Programmato"
-                        value={summary.counts.programmato}
-                        subValue={`${percentage(summary.counts.programmato, totalWorkers)}%`}
-                        tone="info"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["programmato"] })}
                       />
                       <KpiCard
                         label="Upgrade"
                         value={summary.counts.upgrade}
                         subValue={`${percentage(summary.counts.upgrade, totalWorkers)}%`}
+                        hint="Priorità 2: upgrade (solo se non programmato)."
+                        layout="dashboard"
                         tone="purple"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["upgrade"] })}
+                      />
+                      <KpiCard
+                        label="In scadenza"
+                        value={summary.counts["in scadenza"]}
+                        subValue={`${percentage(summary.counts["in scadenza"], totalWorkers)}%`}
+                        hint={`In scadenza entro ${expiringDays} gg dalla data filtro.`}
+                        layout="dashboard"
+                        tone="warning"
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["in scadenza"] })}
                       />
                       <KpiCard
                         label="Esclusi"
                         value={excludedCount}
                         subValue={`${percentage(excludedCount, totalWorkers)}%`}
+                        hint="Esclusi."
+                        layout="dashboard"
                         tone="muted"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["escluso"] })}
                       />
@@ -3016,10 +3036,10 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
   );
 
   const stateRank = (s: WorkerCourseRow["stato"]) => {
-    if (s === "scaduto") return 1;
-    if (s === "da fare") return 2;
-    if (s === "upgrade") return 3;
-    if (s === "programmato") return 4;
+    if (s === "programmato") return 1;
+    if (s === "scaduto") return 2;
+    if (s === "da fare") return 3;
+    if (s === "upgrade") return 4;
     if (s === "in scadenza") return 5;
     if (s === "escluso") return 6;
     if (s === "sospeso") return 6;

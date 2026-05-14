@@ -78,19 +78,36 @@ export function KpiCard(props: {
   label: string;
   value: ReactNode;
   subValue?: ReactNode;
+  hint?: ReactNode;
   tone?: Tone;
   onClick?: () => void;
+  layout?: "default" | "dashboard";
 }) {
   const tone = props.tone ?? "neutral";
-  const content = (
-    <>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{props.label}</p>
-      <p className="mt-1 text-2xl font-bold tabular-nums">{props.value}</p>
-      {props.subValue !== undefined ? (
-        <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">{props.subValue}</p>
-      ) : null}
-    </>
-  );
+  const layout = props.layout ?? "default";
+  const content =
+    layout === "dashboard" ? (
+      <>
+        <p className="text-center text-xs font-bold text-slate-950">{props.label}</p>
+        <div className="mt-2 flex items-baseline justify-between gap-3">
+          <p className="text-2xl font-bold tabular-nums">{props.value}</p>
+          {props.subValue !== undefined ? (
+            <p className="text-2xl font-bold text-slate-700 tabular-nums">{props.subValue}</p>
+          ) : null}
+        </div>
+        {props.hint !== undefined ? (
+          <p className="mt-1 text-[10px] font-semibold text-slate-500">{props.hint}</p>
+        ) : null}
+      </>
+    ) : (
+      <>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{props.label}</p>
+        <p className="mt-1 text-2xl font-bold tabular-nums">{props.value}</p>
+        {props.subValue !== undefined ? (
+          <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">{props.subValue}</p>
+        ) : null}
+      </>
+    );
 
   if (props.onClick) {
     return (
