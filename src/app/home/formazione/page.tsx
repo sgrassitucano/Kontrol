@@ -340,7 +340,11 @@ export default function HomeFormazionePage() {
         frozenEmployees?: number;
       };
       if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore caricamento formazione lavoratori.");
+        if (response.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        throw new Error(body.error ?? `Errore caricamento formazione lavoratori (${response.status}).`);
       }
 
       const nextRows = body.rows ?? [];
@@ -1355,6 +1359,7 @@ export default function HomeFormazionePage() {
         }
       >
         {exportError ? <p className="text-xs font-medium text-red-600">{exportError}</p> : null}
+        {error ? <p className="text-xs font-medium text-red-600">{error}</p> : null}
       </ModuleHeader>
 
       <DashboardCard className="p-3">
