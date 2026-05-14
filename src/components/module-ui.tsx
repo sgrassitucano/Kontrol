@@ -88,7 +88,7 @@ export function KpiCard(props: {
   const content =
     layout === "dashboard" ? (
       <>
-        <p className="text-center text-xs font-bold text-slate-950">{props.label}</p>
+        <p className="text-center text-sm font-bold text-slate-950">{props.label}</p>
         <div className="mt-2 flex items-baseline justify-between gap-3">
           <p className="text-2xl font-bold tabular-nums">{props.value}</p>
           {props.subValue !== undefined ? (
@@ -96,7 +96,7 @@ export function KpiCard(props: {
           ) : null}
         </div>
         {props.hint !== undefined ? (
-          <p className="mt-1 text-[10px] font-semibold text-slate-500">{props.hint}</p>
+          <p className="mt-1 text-xs font-medium leading-snug text-slate-600">{props.hint}</p>
         ) : null}
       </>
     ) : (

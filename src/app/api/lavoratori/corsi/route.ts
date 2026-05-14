@@ -1219,11 +1219,8 @@ function resolveCourseState(
   }
 
   if (row.manual_state === "escluso") return "escluso";
-  if (row.manual_state === "programmato" && !row.completion_date) return "programmato";
-
-  if (row.planned_date && !row.completion_date) {
-    return "programmato";
-  }
+  if (row.manual_state === "programmato") return "programmato";
+  if (row.planned_date) return "programmato";
 
   if (!row.completion_date) {
     return isUpgrade ? "upgrade" : "da fare";

@@ -6,7 +6,7 @@ import { ItDateInput } from "@/components/it-date-input";
 type CourseOption = { code: string; title: string };
 type WorkerOption = { workerId: number; matricola: string; fullName: string; cantiere: string; sottocantiere: string };
 
-type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
+type EventType = "PROGRAMMATO" | "RIMUOVI_PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 
 export function EventModal(props: {
   isOpen: boolean;
@@ -344,6 +344,7 @@ export function EventModal(props: {
                 className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
               >
                 <option value="PROGRAMMATO">PROGRAMMATO</option>
+                <option value="RIMUOVI_PROGRAMMATO">RIMUOVI_PROGRAMMATO</option>
                 <option value="DA_FARE">DA_FARE</option>
                 <option value="SVOLTO">SVOLTO</option>
                 <option value="MODIFICA_DATA">MODIFICA_DATA</option>

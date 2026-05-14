@@ -51,7 +51,7 @@ type JobEntity = {
 };
 
 type CourseOption = { code: string; title: string };
-type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
+type EventType = "PROGRAMMATO" | "RIMUOVI_PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 type EventModalInit = {
   courseCode: string;
   courseSearch: string;
@@ -430,7 +430,7 @@ export default function HomeFormazionePage() {
   }, []);
 
   const updateInline = useCallback(
-    async (payload: { employeeId: number; courseCode: string; type: "PROGRAMMATO" | "DA_FARE" | "NOTE"; note?: string | null }) => {
+    async (payload: { employeeId: number; courseCode: string; type: "PROGRAMMATO" | "RIMUOVI_PROGRAMMATO" | "DA_FARE" | "NOTE"; note?: string | null }) => {
       const response = await fetch("/api/formazione/eventi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -447,6 +447,36 @@ export default function HomeFormazionePage() {
       }
     },
     [],
+  );
+
+  const removeProgrammedInline = useCallback(
+    async (row: WorkerCourseRow) => {
+      const key = `${row.workerId}-${row.corsoCode}`;
+      setInlineSaveError("");
+      setInlineSaving(key, true);
+      try {
+        const courseCodes = row.corsoCode.startsWith("FORM_BASE+")
+          ? ["FORM_BASE", row.corsoCode.slice("FORM_BASE+".length)]
+          : [row.corsoCode];
+        await Promise.all(
+          courseCodes.map((courseCode) =>
+            updateInline({
+              employeeId: row.workerId,
+              courseCode,
+              type: "RIMUOVI_PROGRAMMATO",
+              note: null,
+            }),
+          ),
+        );
+        await loadRows();
+        if (isWorkerDetailOpen && workerDetailEmployeeId === row.workerId) await loadWorkerDetail(row.workerId);
+      } catch (err) {
+        setInlineSaveError(err instanceof Error ? err.message : "Errore salvataggio.");
+      } finally {
+        setInlineSaving(key, false);
+      }
+    },
+    [isWorkerDetailOpen, loadRows, loadWorkerDetail, setInlineSaving, updateInline, workerDetailEmployeeId],
   );
 
   const saveInlineNote = useCallback(
@@ -1174,32 +1204,25 @@ export default function HomeFormazionePage() {
       return next;
     });
 
-    if (row.corsoCode.startsWith("FORM_BASE+")) {
-      openEventModal({
-        courseCode: "",
-        courseSearch: "",
-        type: row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO",
-        date: "",
-        note: "",
-      });
-      return;
-    }
-
     openEventModal({
       courseCode: row.corsoCode,
       courseSearch: `${row.corsoCode} ${row.corso}`,
-      type: row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO",
+      type: row.stato === "programmato" ? "RIMUOVI_PROGRAMMATO" : "PROGRAMMATO",
       date: "",
       note: "",
     });
   }
 
   function openRowEvent(row: WorkerCourseRow) {
+    if (row.stato === "programmato") {
+      void removeProgrammedInline(row);
+      return;
+    }
     setSelectedWorkerIds(new Set([row.workerId]));
     openEventModal({
       courseCode: row.corsoCode,
       courseSearch: `${row.corsoCode} ${row.corso}`.trim(),
-      type: row.stato === "programmato" ? "SVOLTO" : "PROGRAMMATO",
+      type: "PROGRAMMATO",
       date: "",
       note: "",
     });
@@ -1908,7 +1931,7 @@ export default function HomeFormazionePage() {
                         const next = String(event.target.value ?? "");
                         if (next !== row.note) void saveInlineNote(row, next);
                       }}
-                      className="w-full rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] text-slate-700"
+                      className="w-full rounded-lg border border-[var(--brand-line)] bg-white px-3 py-2 text-sm text-slate-700"
                       placeholder="-"
                     />
                   </td>
@@ -2834,7 +2857,7 @@ export default function HomeFormazionePage() {
 
 function statusClassName(status: WorkerCourseRow["stato"]) {
   const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.05em] leading-none";
+    "inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold leading-none";
   if (status === "escluso")
     return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   if (status === "perso")
@@ -2858,7 +2881,7 @@ function statusClassName(status: WorkerCourseRow["stato"]) {
 
 function originClassName(origine: WorkerCourseRow["origine"]) {
   const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-[0.05em] leading-none";
+    "inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold leading-none";
   if (origine === "aggiuntivo") {
     return `${base} border-violet-900/25 bg-violet-200/60 text-slate-950`;
   }
@@ -3074,11 +3097,15 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
     ]);
 
     allWorkerIds.forEach((workerId) => {
+      const candidates = [
+        aggregateByWorker.get(workerId) ?? null,
+        specByWorker.get(workerId) ?? null,
+        generalByWorker.get(workerId) ?? null,
+      ].filter(Boolean) as WorkerCourseRow[];
       const preferred =
-        aggregateByWorker.get(workerId) ??
-        specByWorker.get(workerId) ??
-        generalByWorker.get(workerId) ??
-        null;
+        candidates.length === 0
+          ? null
+          : candidates.reduce((best, curr) => (stateRank(curr.stato) < stateRank(best.stato) ? curr : best));
       if (!preferred) return;
       const state = preferred.stato as DashboardStateKey;
       if (DASHBOARD_STATES.includes(state)) counts[state].add(workerId);

@@ -3,7 +3,7 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
-type EventType = "PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
+type EventType = "PROGRAMMATO" | "RIMUOVI_PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 
 function chunkArray<T>(items: T[], chunkSize: number) {
   const size = Math.max(1, Math.floor(chunkSize));
@@ -76,6 +76,7 @@ export async function POST(request: Request) {
     }
     if (
       type !== "PROGRAMMATO" &&
+      type !== "RIMUOVI_PROGRAMMATO" &&
       type !== "SVOLTO" &&
       type !== "MODIFICA_DATA" &&
       type !== "ANNULLA" &&
@@ -207,10 +208,42 @@ export async function POST(request: Request) {
 
     if (type === "PROGRAMMATO") {
       const plannedDate = dateIso;
+      const existing: Array<{ employee_id: number }> = [];
       for (const chunk of chunkArray(employeeIds, 500)) {
-        const { error: updateError } = await auth.supabase
+        const { data, error: existingError } = await auth.supabase
           .from("training_employee_courses")
-          .upsert(
+          .select("employee_id")
+          .eq("course_id", courseId)
+          .in("employee_id", chunk);
+        if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+        existing.push(...((data ?? []) as typeof existing));
+      }
+
+      const existingIds = new Set<number>((existing ?? []).map((r) => Number(r.employee_id)).filter((v) => Number.isFinite(v) && v > 0));
+      const toInsert = employeeIds.filter((id) => !existingIds.has(id));
+      const toUpdate = employeeIds.filter((id) => existingIds.has(id));
+
+      if (toUpdate.length > 0) {
+        const payload: Record<string, unknown> = {
+          planned_date: plannedDate,
+          manual_state: "programmato" as const,
+          updated_by: auth.userId,
+        };
+        if (note !== null) payload.note = note;
+
+        for (const chunk of chunkArray(toUpdate, 500)) {
+          const { error: updateError } = await auth.supabase
+            .from("training_employee_courses")
+            .update(payload)
+            .in("employee_id", chunk)
+            .eq("course_id", courseId);
+          if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+        }
+      }
+
+      if (toInsert.length > 0) {
+        for (const chunk of chunkArray(toInsert, 500)) {
+          const { error: insertError } = await auth.supabase.from("training_employee_courses").insert(
             chunk.map((employeeId) => ({
               employee_id: employeeId,
               course_id: courseId,
@@ -221,11 +254,50 @@ export async function POST(request: Request) {
               updated_by: auth.userId,
               note,
             })),
-            { onConflict: "employee_id,course_id" },
           );
+          if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+        }
+      }
+
+      return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
+    }
+
+    if (type === "RIMUOVI_PROGRAMMATO") {
+      const existing: Array<{
+        employee_id: number;
+        planned_date: string | null;
+        manual_state: string | null;
+      }> = [];
+      for (const chunk of chunkArray(employeeIds, 500)) {
+        const { data, error: existingError } = await auth.supabase
+          .from("training_employee_courses")
+          .select("employee_id,planned_date,manual_state")
+          .eq("course_id", courseId)
+          .in("employee_id", chunk);
+        if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+        existing.push(...((data ?? []) as typeof existing));
+      }
+
+      const toClear = (existing ?? [])
+        .filter((row) => row.planned_date || row.manual_state === "programmato")
+        .map((row) => row.employee_id);
+
+      if (dryRun) return NextResponse.json({ ok: true, clearedPlanned: toClear.length });
+      if (toClear.length === 0) return NextResponse.json({ ok: true, processed: 0, skipped: employeeIds.length });
+
+      const payload: Record<string, unknown> = { planned_date: null, manual_state: null, updated_by: auth.userId };
+      if (note !== null) payload.note = note;
+
+      for (const chunk of chunkArray(toClear, 500)) {
+        const { error: updateError } = await auth.supabase
+          .from("training_employee_courses")
+          .update(payload)
+          .in("employee_id", chunk)
+          .eq("course_id", courseId);
         if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
       }
-      return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
+
+      return NextResponse.json({ ok: true, processed: toClear.length, skipped: employeeIds.length - toClear.length });
     }
 
     if (type === "DA_FARE") {
@@ -283,6 +355,81 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ ok: true, processed: toWrite.length, skipped: completedIds.size });
+    }
+
+    if (type === "MODIFICA_DATA") {
+      const expiryDate = computeExpiryFromCompletion(dateIso!, course as { validity_years: number | null; is_unlimited: boolean });
+      const existing: Array<{
+        employee_id: number;
+        completion_date: string | null;
+        planned_date: string | null;
+        manual_state: string | null;
+      }> = [];
+      for (const chunk of chunkArray(employeeIds, 500)) {
+        const { data, error: existingError } = await auth.supabase
+          .from("training_employee_courses")
+          .select("employee_id,completion_date,planned_date,manual_state")
+          .eq("course_id", courseId)
+          .in("employee_id", chunk);
+        if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+        existing.push(...((data ?? []) as typeof existing));
+      }
+
+      const existingByEmployee = new Map<number, (typeof existing)[number]>();
+      (existing ?? []).forEach((r) => existingByEmployee.set(r.employee_id, r));
+
+      const toUpdatePlanned = employeeIds.filter((id) => {
+        const r = existingByEmployee.get(id);
+        if (!r) return false;
+        return r.manual_state === "programmato" || Boolean(r.planned_date);
+      });
+      const toUpdatePlannedSet = new Set<number>(toUpdatePlanned);
+      const toUpsertDone = employeeIds.filter((id) => !toUpdatePlannedSet.has(id));
+
+      if (dryRun) {
+        return NextResponse.json({ ok: true, updatedPlanned: toUpdatePlanned.length, upsertsDone: toUpsertDone.length });
+      }
+
+      if (toUpdatePlanned.length > 0) {
+        const payload: Record<string, unknown> = {
+          planned_date: dateIso,
+          manual_state: "programmato" as const,
+          updated_by: auth.userId,
+        };
+        if (note !== null) payload.note = note;
+
+        for (const chunk of chunkArray(toUpdatePlanned, 500)) {
+          const { error: updateError } = await auth.supabase
+            .from("training_employee_courses")
+            .update(payload)
+            .in("employee_id", chunk)
+            .eq("course_id", courseId);
+          if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+        }
+      }
+
+      if (toUpsertDone.length > 0) {
+        for (const chunk of chunkArray(toUpsertDone, 500)) {
+          const { error: writeError } = await auth.supabase
+            .from("training_employee_courses")
+            .upsert(
+              chunk.map((employeeId) => ({
+                employee_id: employeeId,
+                course_id: courseId,
+                completion_date: dateIso,
+                expiry_date: expiryDate,
+                planned_date: null,
+                manual_state: null,
+                updated_by: auth.userId,
+                note,
+              })),
+              { onConflict: "employee_id,course_id" },
+            );
+          if (writeError) return NextResponse.json({ error: writeError.message }, { status: 500 });
+        }
+      }
+
+      return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
     }
 
     const expiryDate = dateIso ? computeExpiryFromCompletion(dateIso, course as { validity_years: number | null; is_unlimited: boolean }) : null;
