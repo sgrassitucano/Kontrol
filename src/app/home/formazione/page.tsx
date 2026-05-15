@@ -1426,7 +1426,6 @@ export default function HomeFormazionePage() {
               const criticoCount =
                 summary.counts.scaduto +
                 summary.counts["da fare"] +
-                summary.counts.programmato +
                 summary.counts.upgrade +
                 summary.counts["in scadenza"];
               const totalWorkers = totalActiveEmployees;
@@ -1452,11 +1451,11 @@ export default function HomeFormazionePage() {
                         label="Critico"
                         value={criticoCount}
                         subValue={`${criticoPct}%`}
-                        hint="in scadenza + da fare + scaduto + programmato + upgrade"
+                        hint="in scadenza + da fare + scaduto + upgrade (solo non programmati)"
                         layout="dashboard"
                         tone="danger"
                         onClick={() =>
-                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "programmato", "upgrade", "in scadenza"] })
+                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "upgrade", "in scadenza"] })
                         }
                       />
                       <KpiCard
