@@ -231,6 +231,7 @@ export default function HomeFormazionePage() {
   const importProgressTimerRef = useRef<number | null>(null);
   const importRunTokenRef = useRef(0);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
+  const bottomScrollRef = useRef<HTMLDivElement | null>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const syncingRef = useRef(false);
@@ -924,11 +925,18 @@ export default function HomeFormazionePage() {
     });
   }, [selectionStats.visibleIds]);
 
-  function syncHorizontalScroll(source: "top" | "middle") {
+  function syncHorizontalScroll(source: "top" | "middle" | "bottom") {
     if (syncingRef.current) return;
     syncingRef.current = true;
-    const nextLeft = (source === "top" ? topScrollRef.current : tableScrollRef.current)?.scrollLeft ?? 0;
+    const nextLeft =
+      (source === "top"
+        ? topScrollRef.current
+        : source === "bottom"
+          ? bottomScrollRef.current
+          : tableScrollRef.current
+      )?.scrollLeft ?? 0;
     if (source !== "top" && topScrollRef.current) topScrollRef.current.scrollLeft = nextLeft;
+    if (source !== "bottom" && bottomScrollRef.current) bottomScrollRef.current.scrollLeft = nextLeft;
     if (source !== "middle" && tableScrollRef.current) tableScrollRef.current.scrollLeft = nextLeft;
     syncingRef.current = false;
   }
@@ -1619,7 +1627,7 @@ export default function HomeFormazionePage() {
             </colgroup>
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                <th className="sticky left-0 top-0 z-40 bg-[var(--brand-panel)] px-4 py-2">
                   <input
                     ref={selectAllVisibleRef}
                     type="checkbox"
@@ -1629,17 +1637,17 @@ export default function HomeFormazionePage() {
                     disabled={selectionStats.visibleCount === 0}
                   />
                 </th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                <th className="sticky left-[56px] top-0 z-40 bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("matricola")} className="inline-flex items-center gap-1">
                     Matricola {sortIcon("matricola")}
                   </button>
                 </th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                <th className="sticky left-[176px] top-0 z-40 bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("cognome")} className="inline-flex items-center gap-1">
                     Cognome {sortIcon("cognome")}
                   </button>
                 </th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                <th className="sticky left-[346px] top-0 z-40 border-r border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("nome")} className="inline-flex items-center gap-1">
                     Nome {sortIcon("nome")}
                   </button>
@@ -1727,14 +1735,14 @@ export default function HomeFormazionePage() {
                 </th>
               </tr>
               <tr>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2" />
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                <th className="sticky left-0 top-8 z-30 bg-white px-3 py-2" />
+                <th className="sticky left-[56px] top-8 z-30 bg-white px-3 py-2">
                   <input value={columnFilters.matricola} onChange={(event) => setColumnFilters((v) => ({ ...v, matricola: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
                 </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                <th className="sticky left-[176px] top-8 z-30 bg-white px-3 py-2">
                   <input value={columnFilters.cognome} onChange={(event) => setColumnFilters((v) => ({ ...v, cognome: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
                 </th>
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                <th className="sticky left-[346px] top-8 z-30 border-r border-[var(--brand-line)] bg-white px-3 py-2">
                   <input value={columnFilters.nome} onChange={(event) => setColumnFilters((v) => ({ ...v, nome: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro" />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
@@ -1808,15 +1816,18 @@ export default function HomeFormazionePage() {
                 const rowClass = isLost
                   ? "border-t border-[var(--brand-line)] bg-slate-50/70 transition hover:bg-slate-100/60"
                   : "border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60";
+                const stickyBg = isLost
+                  ? "bg-slate-50/70 group-hover:bg-slate-100/60"
+                  : "bg-[var(--brand-panel)] group-hover:bg-[var(--brand-panel)]/60";
                 const inlineKey = `${row.workerId}-${row.corsoCode}`;
                 const isInlineSaving = inlineSavingKeys.has(inlineKey);
 
                 return (
                 <tr
                   key={`${row.workerId}-${row.corsoCode}`}
-                  className={rowClass}
+                  className={`${rowClass} group`}
                 >
-                  <td className="px-4 py-2.5">
+                  <td className={`sticky left-0 z-20 px-4 py-2.5 ${stickyBg}`}>
                     <input
                       type="checkbox"
                       checked={selectedWorkerIds.has(row.workerId)}
@@ -1824,9 +1835,9 @@ export default function HomeFormazionePage() {
                       aria-label={`Seleziona ${row.cognome} ${row.nome} (${row.matricola})`}
                     />
                   </td>
-                  <td className={`px-4 py-2.5 ${textClass}`}>{row.matricola}</td>
-                  <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.cognome}>{row.cognome}</td>
-                  <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.nome}>{row.nome}</td>
+                  <td className={`sticky left-[56px] z-20 px-4 py-2.5 ${stickyBg} ${textClass}`}>{row.matricola}</td>
+                  <td className={`sticky left-[176px] z-20 max-w-[170px] truncate px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.cognome}>{row.cognome}</td>
+                  <td className={`sticky left-[346px] z-20 max-w-[170px] truncate border-r border-[var(--brand-line)] px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.nome}>{row.nome}</td>
                   <td className={`max-w-[220px] truncate px-4 py-2.5 ${textClass}`} title={row.mansione || "-"}>{row.mansione || "-"}</td>
                   <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.cantiere}>{row.cantiere}</td>
                   <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.sottocantiere}>{row.sottocantiere}</td>
@@ -1946,6 +1957,13 @@ export default function HomeFormazionePage() {
               ) : null}
             </tbody>
           </table>
+        </div>
+        <div
+          ref={bottomScrollRef}
+          onScroll={() => syncHorizontalScroll("bottom")}
+          className="overflow-x-auto border-t border-[var(--brand-line)]"
+        >
+          <div style={{ width: tableScrollWidth, height: 16 }} />
         </div>
       </section>
 
