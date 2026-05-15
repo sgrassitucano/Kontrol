@@ -13,7 +13,8 @@ type ExclusionRequest =
   | {
       kind: "course";
       employeeId: number;
-      courseId: number;
+      courseId?: number;
+      courseCode?: string;
       enabled: boolean;
       note: string;
     };
@@ -108,9 +109,24 @@ export async function POST(request: Request) {
     }
 
     if (kind === "course") {
-      const courseId = Number((body as { courseId?: unknown }).courseId);
+      const courseIdRaw = (body as { courseId?: unknown }).courseId;
+      const courseCodeRaw = String((body as { courseCode?: unknown }).courseCode ?? "").trim();
+      let courseId = typeof courseIdRaw === "number" ? courseIdRaw : Number(courseIdRaw);
       if (!courseId || Number.isNaN(courseId)) {
-        return NextResponse.json({ error: "courseId non valido." }, { status: 400 });
+        if (!courseCodeRaw) {
+          return NextResponse.json({ error: "courseId/courseCode non valido." }, { status: 400 });
+        }
+        const { data: course, error: courseError } = await supabase
+          .from("training_courses")
+          .select("id")
+          .eq("code", courseCodeRaw)
+          .maybeSingle();
+        if (courseError) throw new Error(courseError.message);
+        const resolvedId = course ? Number((course as { id: number }).id) : null;
+        if (!resolvedId || Number.isNaN(resolvedId)) {
+          return NextResponse.json({ error: `Corso non trovato: ${courseCodeRaw}` }, { status: 404 });
+        }
+        courseId = resolvedId;
       }
 
       const { error } = await supabase

@@ -257,6 +257,10 @@ export default function HomeFormazionePage() {
   const [exclusionNoteDraft, setExclusionNoteDraft] = useState("");
   const [exclusionCourseSearch, setExclusionCourseSearch] = useState("");
   const [exclusionSelectedCourseId, setExclusionSelectedCourseId] = useState<number | null>(null);
+  const [exclusionCourseCode, setExclusionCourseCode] = useState("");
+  const [exclusionCourseNote, setExclusionCourseNote] = useState("");
+  const [exclusionCourseSaving, setExclusionCourseSaving] = useState(false);
+  const [exclusionCourseError, setExclusionCourseError] = useState("");
   const [inlineSaveError, setInlineSaveError] = useState("");
   const [inlineSavingKeys, setInlineSavingKeys] = useState<Set<string>>(() => new Set());
 
@@ -604,6 +608,40 @@ export default function HomeFormazionePage() {
       if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio esclusione.");
       await loadWorkerDetail(workerDetailEmployeeId);
       await loadRows();
+    },
+    [loadRows, loadWorkerDetail, workerDetailEmployeeId],
+  );
+
+  const submitCourseDerogaByCode = useCallback(
+    async (payload: { courseCode: string; note: string }) => {
+      if (!workerDetailEmployeeId) return;
+      setExclusionCourseSaving(true);
+      setExclusionCourseError("");
+      try {
+        const code = payload.courseCode.trim().toUpperCase();
+        if (!code) throw new Error("Codice corso obbligatorio.");
+        const response = await fetch("/api/formazione/esclusioni", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "course",
+            employeeId: workerDetailEmployeeId,
+            enabled: true,
+            note: payload.note,
+            courseCode: code,
+          }),
+        });
+        const body = (await response.json()) as { ok?: boolean; error?: string };
+        if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio deroga.");
+        setExclusionCourseCode("");
+        setExclusionCourseNote("");
+        await loadWorkerDetail(workerDetailEmployeeId);
+        await loadRows();
+      } catch (err) {
+        setExclusionCourseError(err instanceof Error ? err.message : "Errore salvataggio deroga.");
+      } finally {
+        setExclusionCourseSaving(false);
+      }
     },
     [loadRows, loadWorkerDetail, workerDetailEmployeeId],
   );
@@ -2578,6 +2616,35 @@ export default function HomeFormazionePage() {
                           </button>
                         );
                       })}
+                    </div>
+
+                    <div className="mt-4 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-3">
+                      <p className="text-xs font-semibold text-slate-600">Aggiungi deroga da codice (fallback)</p>
+                      <div className="mt-2 grid gap-2 md:grid-cols-[220px_minmax(0,1fr)_auto]">
+                        <input
+                          value={exclusionCourseCode}
+                          onChange={(event) => setExclusionCourseCode(event.target.value)}
+                          placeholder="FORM_SPEC_ALTO"
+                          className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                          disabled={employeeExclusion.isActive || exclusionCourseSaving}
+                        />
+                        <input
+                          value={exclusionCourseNote}
+                          onChange={(event) => setExclusionCourseNote(event.target.value)}
+                          placeholder="Motivazione (testo libero)"
+                          className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                          disabled={employeeExclusion.isActive || exclusionCourseSaving}
+                        />
+                        <button
+                          type="button"
+                          disabled={employeeExclusion.isActive || exclusionCourseSaving || !exclusionCourseCode.trim()}
+                          onClick={() => void submitCourseDerogaByCode({ courseCode: exclusionCourseCode, note: exclusionCourseNote })}
+                          className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {exclusionCourseSaving ? "Salvo..." : "Aggiungi"}
+                        </button>
+                      </div>
+                      {exclusionCourseError ? <p className="mt-2 text-xs font-medium text-red-600">{exclusionCourseError}</p> : null}
                     </div>
 
                     <p className="mt-4 text-sm font-semibold text-[var(--brand-ink)]">Corsi esclusi</p>
