@@ -1451,7 +1451,7 @@ export default function HomeFormazionePage() {
                         label="Critico"
                         value={criticoCount}
                         subValue={`${criticoPct}%`}
-                        hint="in scadenza + da fare + scaduto + upgrade (solo non programmati)"
+                        hint="scaduto + da fare + upgrade + in scadenza (non programmati)"
                         layout="dashboard"
                         tone="danger"
                         onClick={() =>
@@ -1462,7 +1462,7 @@ export default function HomeFormazionePage() {
                         label="Programmato"
                         value={summary.counts.programmato}
                         subValue={`${percentage(summary.counts.programmato, totalWorkers)}%`}
-                        hint="Priorità 1: programmato (esclude gli altri KPI critici)."
+                        hint="Corsi pianificati. Riduce i Critici solo quando programmi un corso critico."
                         layout="dashboard"
                         tone="info"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["programmato"] })}
@@ -1498,7 +1498,7 @@ export default function HomeFormazionePage() {
                         label="In scadenza"
                         value={summary.counts["in scadenza"]}
                         subValue={`${percentage(summary.counts["in scadenza"], totalWorkers)}%`}
-                        hint={`In scadenza entro ${expiringDays} gg dalla data filtro.`}
+                        hint={`In scadenza entro ${expiringDays} gg dalla data filtro (solo se non programmato).`}
                         layout="dashboard"
                         tone="warning"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["in scadenza"] })}
