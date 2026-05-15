@@ -1471,7 +1471,7 @@ export default function HomeFormazionePage() {
                         label="Da fare"
                         value={summary.counts["da fare"]}
                         subValue={`${percentage(summary.counts["da fare"], totalWorkers)}%`}
-                        hint="Priorità 2: da fare (solo se non programmato)."
+                        hint="Da fare (solo se non programmato)."
                         layout="dashboard"
                         tone="danger"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["da fare"] })}
@@ -1480,7 +1480,7 @@ export default function HomeFormazionePage() {
                         label="Scaduto"
                         value={summary.counts.scaduto}
                         subValue={`${percentage(summary.counts.scaduto, totalWorkers)}%`}
-                        hint="Priorità 2: scaduto (solo se non programmato)."
+                        hint="Scadenza passata rispetto alla data filtro (solo se non programmato)."
                         layout="dashboard"
                         tone="danger"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["scaduto"] })}
@@ -1489,7 +1489,7 @@ export default function HomeFormazionePage() {
                         label="Upgrade"
                         value={summary.counts.upgrade}
                         subValue={`${percentage(summary.counts.upgrade, totalWorkers)}%`}
-                        hint="Priorità 2: upgrade (solo se non programmato)."
+                        hint="Richiesta specifica superiore rispetto a quella svolta (solo se non programmato)."
                         layout="dashboard"
                         tone="purple"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["upgrade"] })}
@@ -1507,7 +1507,7 @@ export default function HomeFormazionePage() {
                         label="Esclusi"
                         value={excludedCount}
                         subValue={`${percentage(excludedCount, totalWorkers)}%`}
-                        hint="Esclusi."
+                        hint="Esclusi da scope o per regola."
                         layout="dashboard"
                         tone="muted"
                         onClick={() => applyDashboardFilter({ category: panel.category, states: ["escluso"] })}
