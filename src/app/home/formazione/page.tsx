@@ -316,6 +316,7 @@ export default function HomeFormazionePage() {
 
   const exclusionCourseOptions = useMemo(() => {
     const q = exclusionCourseSearch.trim().toLowerCase();
+    const pinnedCodes = new Set(["FORM_SPEC_BASSO", "FORM_SPEC_MEDIO", "FORM_SPEC_ALTO", "FORM_BASE"]);
     const list = catalogCourses
       .filter((c) => typeof c.id === "number" && c.id > 0)
       .filter((c) => {
@@ -323,10 +324,25 @@ export default function HomeFormazionePage() {
         if (courseExclusionNotes.has(c.id)) return false;
         if (!q) return true;
         return `${c.code} ${c.title}`.toLowerCase().includes(q);
-      })
-      .slice(0, 20);
-    return list;
+      });
+
+    if (!q) {
+      const pinned = list.filter((c) => pinnedCodes.has(c.code));
+      const others = list.filter((c) => !pinnedCodes.has(c.code)).slice(0, 50);
+      return [...pinned, ...others];
+    }
+
+    return list.slice(0, 200);
   }, [catalogCourses, courseExclusionNotes, exclusionCourseSearch]);
+
+  const formSpecShortcut = useMemo(() => {
+    const find = (code: string) => catalogCourses.find((c) => c.id && c.code === code) ?? null;
+    return {
+      basso: find("FORM_SPEC_BASSO"),
+      medio: find("FORM_SPEC_MEDIO"),
+      alto: find("FORM_SPEC_ALTO"),
+    };
+  }, [catalogCourses]);
 
   useEffect(() => {
     return () => {
@@ -2528,6 +2544,40 @@ export default function HomeFormazionePage() {
                       >
                         Aggiungi deroga
                       </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-600">Scorciatoie:</span>
+                      {[
+                        { label: "Spec basso", course: formSpecShortcut.basso },
+                        { label: "Spec medio", course: formSpecShortcut.medio },
+                        { label: "Spec alto", course: formSpecShortcut.alto },
+                      ].map((item) => {
+                        const id = item.course?.id ?? null;
+                        const disabled = employeeExclusion.isActive || !id || courseExclusionNotes.has(id);
+                        return (
+                          <button
+                            key={item.label}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => {
+                              if (!id) return;
+                              setExclusionCourseSearch(item.course?.code ?? "");
+                              setExclusionSelectedCourseId(id);
+                              openExclusionNoteModal({ kind: "course", courseId: id });
+                            }}
+                            className={[
+                              "rounded-full border px-3 py-1.5 text-xs font-bold transition",
+                              disabled
+                                ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
+                                : "border-[var(--brand-line)] bg-white text-slate-700 hover:bg-slate-50",
+                            ].join(" ")}
+                            title={item.course ? `${item.course.code} - ${item.course.title}` : "Non presente nel catalogo corsi"}
+                          >
+                            {item.label}
+                          </button>
+                        );
+                      })}
                     </div>
 
                     <p className="mt-4 text-sm font-semibold text-[var(--brand-ink)]">Corsi esclusi</p>
