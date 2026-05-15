@@ -50,7 +50,7 @@ type JobEntity = {
   isExtra: boolean;
 };
 
-type CourseOption = { code: string; title: string };
+type CourseOption = { id?: number; code: string; title: string };
 type EventType = "PROGRAMMATO" | "RIMUOVI_PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 type EventModalInit = {
   courseCode: string;
@@ -255,6 +255,8 @@ export default function HomeFormazionePage() {
   const [exclusionNoteKind, setExclusionNoteKind] = useState<"employee" | "course">("course");
   const [exclusionNoteCourseId, setExclusionNoteCourseId] = useState<number | null>(null);
   const [exclusionNoteDraft, setExclusionNoteDraft] = useState("");
+  const [exclusionCourseSearch, setExclusionCourseSearch] = useState("");
+  const [exclusionSelectedCourseId, setExclusionSelectedCourseId] = useState<number | null>(null);
   const [inlineSaveError, setInlineSaveError] = useState("");
   const [inlineSavingKeys, setInlineSavingKeys] = useState<Set<string>>(() => new Set());
 
@@ -275,23 +277,56 @@ export default function HomeFormazionePage() {
   useEffect(() => {
     async function loadCourseCatalog() {
       try {
-        const response = await fetch("/api/formazione/matrice?scopeType=job");
-        const body = (await response.json()) as {
-          courses?: Array<{ code: string; title: string }>;
-          entities?: JobEntity[];
+        const [coursesResponse, jobResponse] = await Promise.all([
+          fetch("/api/formazione/corsi"),
+          fetch("/api/formazione/matrice?scopeType=job"),
+        ]);
+
+        const coursesBody = (await coursesResponse.json()) as {
+          courses?: Array<{ id: number; code: string; title: string }>;
+          error?: string;
         };
-        if (!response.ok) return;
-        const normalized = (body.courses ?? [])
-          .map((course) => ({ code: course.code, title: course.title }))
-          .sort((a, b) => a.code.localeCompare(b.code));
-        setCatalogCourses(normalized);
-        setJobEntities((body.entities ?? []).map((entity) => ({ ...entity, isExtra: Boolean(entity.isExtra) })));
+        if (coursesResponse.ok && !coursesBody.error) {
+          const normalized = (coursesBody.courses ?? [])
+            .map((course) => ({ id: Number(course.id), code: course.code, title: course.title }))
+            .filter((course) => Number.isFinite(course.id) && course.id > 0 && course.code && course.title)
+            .sort((a, b) => a.code.localeCompare(b.code));
+          setCatalogCourses(normalized);
+        }
+
+        const jobBody = (await jobResponse.json()) as { entities?: JobEntity[]; error?: string };
+        if (jobResponse.ok && !jobBody.error) {
+          setJobEntities((jobBody.entities ?? []).map((entity) => ({ ...entity, isExtra: Boolean(entity.isExtra) })));
+        }
       } catch {
         // fallback automatico: se la fetch fallisce useremo comunque i corsi derivati dai rows.
       }
     }
     void loadCourseCatalog();
   }, [setShowExcludedEmployees]);
+
+  const courseById = useMemo(() => {
+    const map = new Map<number, CourseOption>();
+    catalogCourses.forEach((course) => {
+      if (!course.id) return;
+      map.set(course.id, course);
+    });
+    return map;
+  }, [catalogCourses]);
+
+  const exclusionCourseOptions = useMemo(() => {
+    const q = exclusionCourseSearch.trim().toLowerCase();
+    const list = catalogCourses
+      .filter((c) => typeof c.id === "number" && c.id > 0)
+      .filter((c) => {
+        if (!c.id) return false;
+        if (courseExclusionNotes.has(c.id)) return false;
+        if (!q) return true;
+        return `${c.code} ${c.title}`.toLowerCase().includes(q);
+      })
+      .slice(0, 20);
+    return list;
+  }, [catalogCourses, courseExclusionNotes, exclusionCourseSearch]);
 
   useEffect(() => {
     return () => {
@@ -942,12 +977,13 @@ export default function HomeFormazionePage() {
   }
 
   const courseOptions = useMemo(() => {
-    if (catalogCourses.length > 0) return catalogCourses;
-    const map = new Map<string, string>();
-    rows.forEach((row) => map.set(row.corsoCode, row.corso));
-    return Array.from(map.entries())
-      .map(([code, title]) => ({ code, title }))
-      .sort((a, b) => a.code.localeCompare(b.code));
+    const map = new Map<string, CourseOption>();
+    catalogCourses.forEach((course) => map.set(course.code, { id: course.id, code: course.code, title: course.title }));
+    rows.forEach((row) => {
+      if (map.has(row.corsoCode)) return;
+      map.set(row.corsoCode, { id: row.courseId, code: row.corsoCode, title: row.corso });
+    });
+    return Array.from(map.values()).sort((a, b) => a.code.localeCompare(b.code));
   }, [catalogCourses, rows]);
 
   const workerOptions = useMemo(() => {
@@ -2453,7 +2489,48 @@ export default function HomeFormazionePage() {
                   </div>
 
                   <div className="rounded-xl border border-[var(--brand-line)] bg-white p-4">
-                    <p className="text-sm font-semibold text-[var(--brand-ink)]">Corsi esclusi</p>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--brand-ink)]">Deroga su corsi (per lavoratore)</p>
+                        <p className="mt-1 text-xs text-slate-500">Puoi escludere qualsiasi corso per questo lavoratore (solo nel modulo Formazione).</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_220px_auto]">
+                      <input
+                        value={exclusionCourseSearch}
+                        onChange={(event) => {
+                          setExclusionCourseSearch(event.target.value);
+                          setExclusionSelectedCourseId(null);
+                        }}
+                        placeholder="Cerca corso (codice o titolo)"
+                        className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                        disabled={employeeExclusion.isActive}
+                      />
+                      <select
+                        value={exclusionSelectedCourseId ? String(exclusionSelectedCourseId) : ""}
+                        onChange={(event) => setExclusionSelectedCourseId(event.target.value ? Number(event.target.value) : null)}
+                        className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        disabled={employeeExclusion.isActive}
+                      >
+                        <option value="">Seleziona corso</option>
+                        {exclusionCourseOptions.map((c) => (
+                          <option key={c.id} value={String(c.id)}>
+                            {c.code} - {c.title}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={employeeExclusion.isActive || !exclusionSelectedCourseId}
+                        onClick={() => exclusionSelectedCourseId && openExclusionNoteModal({ kind: "course", courseId: exclusionSelectedCourseId })}
+                        className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Aggiungi deroga
+                      </button>
+                    </div>
+
+                    <p className="mt-4 text-sm font-semibold text-[var(--brand-ink)]">Corsi esclusi</p>
                     <p className="mt-1 text-xs text-slate-500">Elenco esclusioni attive per singolo corso.</p>
                     <div className="mt-3 overflow-hidden rounded-xl border border-[var(--brand-line)] bg-white">
                       <div className="overflow-x-auto">
@@ -2473,27 +2550,26 @@ export default function HomeFormazionePage() {
                                 </td>
                               </tr>
                             ) : (
-                              workerDetailRows
-                                .filter((r) => (r.courseId ? courseExclusionNotes.has(r.courseId) : false))
-                                .slice()
-                                .sort((a, b) => `${a.corsoCode} ${a.corso}`.localeCompare(`${b.corsoCode} ${b.corso}`))
+                              Array.from(courseExclusionNotes.entries())
+                                .map(([courseId, note]) => {
+                                  const course = courseById.get(courseId) ?? null;
+                                  const label = course ? `${course.code} ${course.title}` : `Corso #${courseId}`;
+                                  const sortKey = course ? `${course.code} ${course.title}` : `ZZZ-${courseId}`;
+                                  return { courseId, note, label, sortKey, code: course?.code ?? "" };
+                                })
+                                .sort((a, b) => a.sortKey.localeCompare(b.sortKey, "it", { sensitivity: "base", numeric: true }))
                                 .map((r) => (
-                                  <tr
-                                    key={`excluded-${r.courseId ?? r.corsoCode}`}
-                                    className="border-t border-[var(--brand-line)]"
-                                  >
+                                  <tr key={`excluded-${r.courseId}`} className="border-t border-[var(--brand-line)]">
                                     <td className="px-3 py-2 text-slate-700">
-                                      <span className="font-semibold text-slate-800">{r.corsoCode}</span> {r.corso}
+                                      {r.code ? <span className="font-semibold text-slate-800">{r.code}</span> : null}{" "}
+                                      {r.label}
                                     </td>
-                                    <td className="px-3 py-2 text-slate-700">
-                                      {r.courseId ? courseExclusionNotes.get(r.courseId) ?? "-" : "-"}
-                                    </td>
+                                    <td className="px-3 py-2 text-slate-700">{r.note || "-"}</td>
                                     <td className="px-3 py-2 text-right">
                                       <button
                                         type="button"
-                                        disabled={!r.courseId}
-                                        onClick={() => r.courseId && void deleteCourseExclusion(r.courseId)}
-                                        className="rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                                        onClick={() => void deleteCourseExclusion(r.courseId)}
+                                        className="rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                                       >
                                         Cancella
                                       </button>
