@@ -10,8 +10,7 @@ export async function GET() {
   try {
     const { data, error } = await auth.supabase
       .from("training_courses")
-      .select("id,code,title")
-      .eq("is_active", true)
+      .select("id,code,title,is_active")
       .order("code");
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -20,6 +19,7 @@ export async function GET() {
         id: Number((row as { id: number }).id),
         code: String((row as { code: string }).code),
         title: String((row as { title: string }).title),
+        isActive: Boolean((row as { is_active?: boolean }).is_active),
       })),
     });
   } catch (err) {
@@ -29,4 +29,3 @@ export async function GET() {
     );
   }
 }
-

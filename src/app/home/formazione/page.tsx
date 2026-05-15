@@ -50,7 +50,7 @@ type JobEntity = {
   isExtra: boolean;
 };
 
-type CourseOption = { id?: number; code: string; title: string };
+type CourseOption = { id?: number; code: string; title: string; isActive?: boolean };
 type EventType = "PROGRAMMATO" | "RIMUOVI_PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 type EventModalInit = {
   courseCode: string;
@@ -283,12 +283,12 @@ export default function HomeFormazionePage() {
         ]);
 
         const coursesBody = (await coursesResponse.json()) as {
-          courses?: Array<{ id: number; code: string; title: string }>;
+          courses?: Array<{ id: number; code: string; title: string; isActive: boolean }>;
           error?: string;
         };
         if (coursesResponse.ok && !coursesBody.error) {
           const normalized = (coursesBody.courses ?? [])
-            .map((course) => ({ id: Number(course.id), code: course.code, title: course.title }))
+            .map((course) => ({ id: Number(course.id), code: course.code, title: course.title, isActive: Boolean(course.isActive) }))
             .filter((course) => Number.isFinite(course.id) && course.id > 0 && course.code && course.title)
             .sort((a, b) => a.code.localeCompare(b.code));
           setCatalogCourses(normalized);
@@ -2514,9 +2514,9 @@ export default function HomeFormazionePage() {
                         disabled={employeeExclusion.isActive}
                       >
                         <option value="">Seleziona corso</option>
-                        {exclusionCourseOptions.map((c) => (
+                      {exclusionCourseOptions.map((c) => (
                           <option key={c.id} value={String(c.id)}>
-                            {c.code} - {c.title}
+                            {c.code} - {c.title}{c.isActive === false ? " (disattivo)" : ""}
                           </option>
                         ))}
                       </select>
