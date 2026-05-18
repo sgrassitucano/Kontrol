@@ -1713,7 +1713,7 @@ export default function HomeFormazionePage() {
               <col style={{ width: 120 }} />
               <col style={{ width: 190 }} />
               <col style={{ width: 80 }} />
-              <col style={{ width: 520 }} />
+              <col style={{ width: "40ch" }} />
             </colgroup>
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
@@ -2021,7 +2021,7 @@ export default function HomeFormazionePage() {
                       </button>
                     </div>
                   </td>
-                  <td className={`max-w-[520px] px-4 py-2.5 ${textClass}`}>
+                  <td className={`max-w-[40ch] px-4 py-2.5 ${textClass}`}>
                     <input
                       key={`${inlineKey}-${row.note}`}
                       type="text"
