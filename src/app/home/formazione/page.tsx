@@ -1838,7 +1838,10 @@ export default function HomeFormazionePage() {
                   </button>
                 </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Azione</th>
-                <th className="sticky top-0 z-20 min-w-[720px] bg-[var(--brand-panel)] px-4 py-2">
+                <th
+                  style={{ width: FORMAZIONE_NOTE_COL_WIDTH, minWidth: FORMAZIONE_NOTE_COL_WIDTH }}
+                  className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2"
+                >
                   <button type="button" onClick={() => toggleSort("note")} className="inline-flex items-center gap-1">
                     Note {sortIcon("note")}
                   </button>
@@ -1914,7 +1917,10 @@ export default function HomeFormazionePage() {
                   />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2" />
-                <th className="sticky top-8 z-10 min-w-[720px] bg-white px-3 py-2">
+                <th
+                  style={{ width: FORMAZIONE_NOTE_COL_WIDTH, minWidth: FORMAZIONE_NOTE_COL_WIDTH }}
+                  className="sticky top-8 z-10 bg-white px-3 py-2"
+                >
                   <input value={columnFilters.note} onChange={(event) => setColumnFilters((v) => ({ ...v, note: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro note" />
                 </th>
               </tr>
@@ -2041,7 +2047,7 @@ export default function HomeFormazionePage() {
                       </button>
                     </div>
                   </td>
-                  <td className={`min-w-[720px] px-4 py-2.5 ${textClass}`}>
+                  <td style={{ width: FORMAZIONE_NOTE_COL_WIDTH, minWidth: FORMAZIONE_NOTE_COL_WIDTH }} className={`px-4 py-2.5 ${textClass}`}>
                     <input
                       key={`${inlineKey}-${row.note}`}
                       type="text"
