@@ -5,6 +5,25 @@ import { normalizeJobCode } from "@/lib/training/normalize";
 import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
 
+const FORMAZIONE_NOTE_COL_WIDTH = 720;
+const FORMAZIONE_TABLE_WIDTH =
+  56 +
+  120 +
+  170 +
+  170 +
+  220 +
+  170 +
+  170 +
+  90 +
+  90 +
+  240 +
+  90 +
+  90 +
+  120 +
+  190 +
+  80 +
+  FORMAZIONE_NOTE_COL_WIDTH;
+
 type WorkerCourseRow = {
   workerId: number;
   matricola: string;
@@ -235,7 +254,7 @@ export default function HomeFormazionePage() {
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const syncingRef = useRef(false);
-  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+  const [tableScrollWidth, setTableScrollWidth] = useState(FORMAZIONE_TABLE_WIDTH);
   const [dashboardCategoryFilter, setDashboardCategoryFilter] = useState<"base" | "operativi" | null>(null);
   const [dashboardStateFilter, setDashboardStateFilter] = useState<WorkerCourseRow["stato"][] | null>(null);
   const [isDashboardCollapsed, setIsDashboardCollapsed] = useState(false);
@@ -898,7 +917,7 @@ export default function HomeFormazionePage() {
   }, []);
 
   useEffect(() => {
-    const width = tableRef.current?.scrollWidth ?? 0;
+    const width = tableRef.current?.scrollWidth ?? FORMAZIONE_TABLE_WIDTH;
     setTableScrollWidth(width);
   }, [filteredRows.length]);
 
@@ -1695,6 +1714,7 @@ export default function HomeFormazionePage() {
         >
           <table
             ref={tableRef}
+            style={{ width: FORMAZIONE_TABLE_WIDTH }}
             className="min-w-full table-fixed text-left text-xs [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap"
           >
             <colgroup>
@@ -1713,7 +1733,7 @@ export default function HomeFormazionePage() {
               <col style={{ width: 120 }} />
               <col style={{ width: 190 }} />
               <col style={{ width: 80 }} />
-              <col style={{ width: "40ch" }} />
+              <col style={{ width: FORMAZIONE_NOTE_COL_WIDTH }} />
             </colgroup>
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
@@ -1818,7 +1838,7 @@ export default function HomeFormazionePage() {
                   </button>
                 </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Azione</th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                <th className="sticky top-0 z-20 min-w-[720px] bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("note")} className="inline-flex items-center gap-1">
                     Note {sortIcon("note")}
                   </button>
@@ -1894,7 +1914,7 @@ export default function HomeFormazionePage() {
                   />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2" />
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                <th className="sticky top-8 z-10 min-w-[720px] bg-white px-3 py-2">
                   <input value={columnFilters.note} onChange={(event) => setColumnFilters((v) => ({ ...v, note: event.target.value }))} className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case" placeholder="Filtro note" />
                 </th>
               </tr>
@@ -2021,7 +2041,7 @@ export default function HomeFormazionePage() {
                       </button>
                     </div>
                   </td>
-                  <td className={`max-w-[40ch] px-4 py-2.5 ${textClass}`}>
+                  <td className={`min-w-[720px] px-4 py-2.5 ${textClass}`}>
                     <input
                       key={`${inlineKey}-${row.note}`}
                       type="text"
