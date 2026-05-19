@@ -125,27 +125,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const expiringDays = Number(url.searchParams.get("expiringDays") ?? "30");
     const dateParam = url.searchParams.get("date");
-    const includeExcluded = url.searchParams.get("includeExcluded") === "1";
-    const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
-    const category = (url.searchParams.get("category") ?? "").trim();
-    const statesParam = (url.searchParams.get("states") ?? "").trim();
-    const origineParam = (url.searchParams.get("origine") ?? "").trim();
-    const originiParam = (url.searchParams.get("origini") ?? "").trim();
-    const filterMatricola = (url.searchParams.get("matricola") ?? "").trim();
-    const filterCognome = (url.searchParams.get("cognome") ?? "").trim();
-    const filterNome = (url.searchParams.get("nome") ?? "").trim();
-    const filterMansione = (url.searchParams.get("mansione") ?? "").trim();
-    const filterCantiere = (url.searchParams.get("cantiere") ?? "").trim();
-    const filterSottocantiere = (url.searchParams.get("sottocantiere") ?? "").trim();
-    const filterResponsabile = (url.searchParams.get("responsabile") ?? "").trim();
-    const filterReferente = (url.searchParams.get("referente") ?? "").trim();
-    const courseCodesParam = (url.searchParams.get("courseCodes") ?? "").trim();
-    const completionMonthsParam = (url.searchParams.get("completionMonths") ?? "").trim();
-    const expiryMonthsParam = (url.searchParams.get("expiryMonths") ?? "").trim();
-    const filterCorso = (url.searchParams.get("corso") ?? "").trim();
-    const filterDataConclusione = (url.searchParams.get("dataConclusione") ?? "").trim();
-    const filterDataScadenza = (url.searchParams.get("dataScadenza") ?? "").trim();
-    const filterNote = (url.searchParams.get("note") ?? "").trim();
+    const includeExcluded = true;
 
     const todayIso =
       typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
@@ -324,6 +304,32 @@ export async function GET(request: Request) {
             const to = levelLabel(course.code) ?? course.code;
             upgradeInfoByCourseId.set(bestLower.courseId, `${from} → ${to}`);
             upgradeCourseIds.add(bestLower.courseId);
+            const bestLowerStatus = employeeStatusRows.find((row) => row.course_id === bestLower.courseId);
+            const bestLowerCourse = courseMap.get(bestLower.courseId);
+            const baseState = bestLowerCourse
+              ? resolveCourseState(bestLowerStatus, bestLowerCourse, freeze, todayIso, expiringDaysSafe, false)
+              : "upgrade";
+            const state = freeze ? "sospeso" : "upgrade";
+            rows.push({
+              workerId: employee.id,
+              matricola: employee.matricola,
+              cognome: employee.last_name,
+              nome: employee.first_name,
+              mansione: employee.job_title ?? "",
+              cantiere: extractDisplayName(employee.sites),
+              sottocantiere: extractDisplayName(employee.sub_sites),
+              corsoCode: course.code,
+              corso: course.title,
+              dataConclusione: bestLowerStatus?.completion_date ?? null,
+              dataScadenza: bestLowerStatus?.expiry_date ?? null,
+              dataPrevista: bestLowerStatus?.planned_date ?? null,
+              stato: (baseState === "sospeso" ? "sospeso" : state) as WorkerCourseRow["stato"],
+              upgradeInfo: `${from} → ${to}`,
+              responsabile: employee.responsible_code,
+              referente: employee.referral ?? "",
+              note: bestLowerStatus?.note ?? "",
+              origine: "obbligatorio",
+            });
             continue;
           }
 
@@ -526,103 +532,6 @@ export async function GET(request: Request) {
     const employeeById = new Map(employees.map((e) => [e.id, e]));
     const workbook = XLSX.utils.book_new();
 
-    const statesFilter =
-      statesParam
-        ? new Set(
-            statesParam
-              .split(",")
-              .map((v) => v.trim())
-              .filter(Boolean),
-          )
-        : null;
-
-    const originiFilter = originiParam
-      ? new Set(
-          originiParam
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean),
-        )
-      : null;
-
-    const courseCodesFilter = courseCodesParam
-      ? new Set(
-          courseCodesParam
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean),
-        )
-      : null;
-
-    const completionMonthsFilter = completionMonthsParam
-      ? new Set(
-          completionMonthsParam
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean),
-        )
-      : null;
-
-    const expiryMonthsFilter = expiryMonthsParam
-      ? new Set(
-          expiryMonthsParam
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean),
-        )
-      : null;
-
-    const shouldIncludeRow = (row: WorkerCourseRow) => {
-      if (category) {
-        const isBase = isBaseCode(row.corsoCode);
-        if (category === "base" && !isBase) return false;
-        if (category === "operativi" && isBase) return false;
-      }
-      if (statesFilter && !statesFilter.has(row.stato)) return false;
-      if (origineParam && row.origine !== origineParam) return false;
-      if (originiFilter && !originiFilter.has(row.origine)) return false;
-      if (courseCodesFilter && !courseCodesFilter.has(row.corsoCode)) return false;
-      if (completionMonthsFilter && !completionMonthsFilter.has(isoToMonthYear(row.dataConclusione))) return false;
-      if (expiryMonthsFilter && !expiryMonthsFilter.has(isoToMonthYear(row.dataScadenza))) return false;
-      if (q) {
-        const searchable = [
-          row.matricola,
-          row.cognome,
-          row.nome,
-          row.cantiere,
-          row.sottocantiere,
-          row.responsabile,
-          row.referente,
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!searchable.includes(q)) return false;
-      }
-      if (filterMatricola && !matchText(row.matricola, filterMatricola)) return false;
-      if (filterCognome && !matchText(row.cognome, filterCognome)) return false;
-      if (filterNome && !matchText(row.nome, filterNome)) return false;
-      if (filterMansione && !matchText(row.mansione, filterMansione)) return false;
-      if (filterCantiere && !matchText(row.cantiere, filterCantiere)) return false;
-      if (filterSottocantiere && !matchText(row.sottocantiere, filterSottocantiere)) return false;
-      if (filterResponsabile && !matchText(row.responsabile, filterResponsabile)) return false;
-      if (filterReferente && !matchText(row.referente, filterReferente)) return false;
-      if (filterCorso && !matchText(`${row.corsoCode} ${row.corso}`, filterCorso)) return false;
-      if (filterDataConclusione && !matchText(row.dataConclusione ?? "", filterDataConclusione)) return false;
-      if (filterDataScadenza && !matchText(row.dataScadenza ?? "", filterDataScadenza)) return false;
-      if (filterNote && !matchText(row.note ?? "", filterNote)) return false;
-      return true;
-    };
-
-    const filtered = rows.filter(shouldIncludeRow);
-
-    filtered.sort((a, b) => {
-      const bySurname = a.cognome.localeCompare(b.cognome, "it", { sensitivity: "base" });
-      if (bySurname !== 0) return bySurname;
-      const byName = a.nome.localeCompare(b.nome, "it", { sensitivity: "base" });
-      if (byName !== 0) return byName;
-      return `${a.corsoCode} ${a.corso}`.localeCompare(`${b.corsoCode} ${b.corso}`, "it", { sensitivity: "base" });
-    });
-
     const headers = [
       "cognome",
       "nome",
@@ -630,11 +539,12 @@ export async function GET(request: Request) {
       "cantiere",
       "sottocantiere",
       "tipo corso",
+      "upgrade",
       "data esecuzione",
       "data scadenza",
       "data prevista",
       "note",
-      "idoneo/non idoneo",
+      "stato",
       "responsabile",
       "referente",
       "data nascita",
@@ -643,17 +553,65 @@ export async function GET(request: Request) {
       "cellulare",
     ] as const;
 
-    const sheet: Record<(typeof headers)[number], string>[] = [];
+    const byPerson = (a: WorkerCourseRow, b: WorkerCourseRow) => {
+      const bySurname = a.cognome.localeCompare(b.cognome, "it", { sensitivity: "base" });
+      if (bySurname !== 0) return bySurname;
+      const byName = a.nome.localeCompare(b.nome, "it", { sensitivity: "base" });
+      if (byName !== 0) return byName;
+      return `${a.corsoCode} ${a.corso}`.localeCompare(`${b.corsoCode} ${b.corso}`, "it", { sensitivity: "base" });
+    };
 
-    filtered.forEach((row) => {
-      const employee = employeeById.get(row.workerId);
-      if (!employee) return;
-      sheet.push(buildExportRow(employee, row));
+    const allRows = [...rows].sort(byPerson);
+
+    const genSpecBasso = allRows.filter((row) => row.corsoCode === "FORM_BASE+FORM_SPEC_BASSO" || row.corsoCode === "FORM_SPEC_BASSO");
+
+    const genSpecMedioAlto = allRows.filter((row) => {
+      if (row.corsoCode === "FORM_BASE+FORM_SPEC_MEDIO" || row.corsoCode === "FORM_BASE+FORM_SPEC_ALTO") return true;
+      if (row.corsoCode === "FORM_SPEC_MEDIO" || row.corsoCode === "FORM_SPEC_ALTO") return true;
+      if (row.stato === "upgrade" && typeof row.upgradeInfo === "string") {
+        const lower = row.upgradeInfo.toLowerCase();
+        return lower.includes("medio") || lower.includes("alto");
+      }
+      return false;
     });
 
-    const ws = XLSX.utils.json_to_sheet(sheet, { header: [...headers] });
-    applyCalibri10WithBoldHeader(ws);
-    XLSX.utils.book_append_sheet(workbook, ws, "Formazione");
+    const aggiornamentoSpecifica = allRows.filter((row) => {
+      const isSpec = row.corsoCode.startsWith("FORM_SPEC_") || row.corsoCode.startsWith("FORM_BASE+FORM_SPEC_");
+      return Boolean(isSpec && row.dataConclusione && row.dataScadenza);
+    });
+
+    const muletto = allRows.filter((row) => row.corsoCode === "CORSO_MUL");
+    const primoSoccorso = allRows.filter((row) => row.corsoCode === "CORSO_PS");
+    const antincendio = allRows.filter((row) => Boolean(row.corsoCode.match(/^CORSO_AI_[123]$/)));
+    const altriOperativi = allRows.filter((row) => {
+      if (isBaseCode(row.corsoCode)) return false;
+      if (row.corsoCode === "CORSO_MUL") return false;
+      if (row.corsoCode === "CORSO_PS") return false;
+      if (row.corsoCode.match(/^CORSO_AI_[123]$/)) return false;
+      return true;
+    });
+
+    const reportSheets: Array<{ name: string; kind: ReportSheetKind; rows: WorkerCourseRow[] }> = [
+      { name: "gen+spec basso", kind: "gen_spec_basso", rows: genSpecBasso },
+      { name: "gen+spec medio-alto", kind: "gen_spec_medio_alto", rows: genSpecMedioAlto },
+      { name: "aggiornamento", kind: "aggiornamento_specifica", rows: aggiornamentoSpecifica },
+      { name: "muletto", kind: "muletto", rows: muletto },
+      { name: "primo soccorso", kind: "primo_soccorso", rows: primoSoccorso },
+      { name: "antincendio", kind: "antincendio", rows: antincendio },
+      { name: "altri operativi", kind: "altri_operativi", rows: altriOperativi },
+    ];
+
+    reportSheets.forEach((sheetCfg) => {
+      const sheet: Record<(typeof headers)[number], string>[] = [];
+      sheetCfg.rows.forEach((row) => {
+        const employee = employeeById.get(row.workerId);
+        if (!employee) return;
+        sheet.push(buildExportRow(employee, row, sheetCfg.kind));
+      });
+      const ws = XLSX.utils.json_to_sheet(sheet, { header: [...headers] });
+      applyCalibri10WithBoldHeader(ws);
+      XLSX.utils.book_append_sheet(workbook, ws, sanitizeSheetName(sheetCfg.name));
+    });
 
     const out = XLSX.write(
       workbook,
@@ -678,13 +636,23 @@ export async function GET(request: Request) {
   }
 }
 
-function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow) {
+type ReportSheetKind =
+  | "gen_spec_basso"
+  | "gen_spec_medio_alto"
+  | "aggiornamento_specifica"
+  | "muletto"
+  | "primo_soccorso"
+  | "antincendio"
+  | "altri_operativi";
+
+function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow, sheet: ReportSheetKind) {
   const dataNascita = employee.birth_date ? isoToItDate(employee.birth_date) : "";
   const dataEsecuzione = row.dataConclusione ? isoToItDate(row.dataConclusione) : "";
   const dataScadenza = formatExpiryLabel(row);
   const dataPrevista = row.dataPrevista ? isoToItDate(row.dataPrevista) : "";
-  const note = mergeNotesForExport(row.note, row.stato === "upgrade" ? row.upgradeInfo : null);
-  const tipoCorso = buildTipoCorso(row);
+  const note = (row.note ?? "").trim();
+  const tipoCorso = buildTipoCorsoForReport(row, sheet);
+  const upgrade = buildUpgradeLabel(row, sheet);
 
   return {
     "cognome": employee.last_name ?? "",
@@ -693,11 +661,12 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow) {
     "cantiere": extractDisplayName(employee.sites),
     "sottocantiere": extractDisplayName(employee.sub_sites),
     "tipo corso": tipoCorso,
+    "upgrade": upgrade,
     "data esecuzione": dataEsecuzione,
     "data scadenza": dataScadenza,
     "data prevista": dataPrevista,
     "note": note,
-    "idoneo/non idoneo": buildEsitoLabel(row),
+    "stato": row.stato,
     "responsabile": employee.responsible_code ?? "",
     "referente": employee.referral ?? "",
     "data nascita": dataNascita,
@@ -707,12 +676,10 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow) {
   };
 }
 
-function buildEsitoLabel(row: WorkerCourseRow) {
-  if (row.stato === "idoneo" || row.stato === "in scadenza") return "IDONEO";
-  if (row.stato === "escluso") return "ESENTE";
-  if (row.stato === "perso") return "PERSO";
-  if (row.stato === "sospeso") return "SOSPESO";
-  return "NON IDONEO";
+function sanitizeSheetName(name: string) {
+  const cleaned = String(name ?? "").replace(/[\\/?*[\]:]/g, "-").trim();
+  const out = cleaned.length > 31 ? cleaned.slice(0, 31) : cleaned;
+  return out || "Sheet";
 }
 
 function formatExpiryLabel(row: WorkerCourseRow) {
@@ -720,16 +687,6 @@ function formatExpiryLabel(row: WorkerCourseRow) {
   if (!row.dataConclusione) return "";
   if (!row.dataScadenza) return "ILLIMITATO";
   return isoToItDate(row.dataScadenza);
-}
-
-function matchText(value: string, filter: string) {
-  const normalizedFilter = filter.trim().toLowerCase();
-  if (!normalizedFilter) return true;
-  const normalizedValue = String(value ?? "").toLowerCase();
-  if (normalizedValue.includes(normalizedFilter)) return true;
-  const formattedValue = isoToItDate(String(value ?? "")).toLowerCase();
-  if (formattedValue !== normalizedValue && formattedValue.includes(normalizedFilter)) return true;
-  return false;
 }
 
 function buildTipoCorso(row: WorkerCourseRow) {
@@ -753,25 +710,83 @@ function extractRiskFromBaseCode(code: string) {
   return match[1].toLowerCase();
 }
 
-function mergeNotesForExport(note: string, upgradeInfo: string | null) {
-  const base = (note ?? "").trim();
-  const upgrade = (upgradeInfo ?? "").trim();
-  if (!upgrade) return base;
-  if (!base) return `upgrade ${upgrade}`;
-  return `${base} | upgrade ${upgrade}`;
+function buildUpgradeLabel(row: WorkerCourseRow, sheet: ReportSheetKind) {
+  if (sheet !== "gen_spec_medio_alto")
+    return row.stato === "upgrade" ? `upgrade ${normalizeUpgradeArrow(row.upgradeInfo).toLowerCase()}` : "";
+  if (row.stato !== "upgrade") return "";
+  return `upgrade ${normalizeUpgradeArrow(row.upgradeInfo).toLowerCase()}`;
+}
+
+function buildTipoCorsoForReport(row: WorkerCourseRow, sheet: ReportSheetKind) {
+  if (sheet === "muletto") return buildOperationalTipoCorso(row, "muletto", row.corsoCode === "CORSO_MUL");
+  if (sheet === "primo_soccorso") return buildOperationalTipoCorso(row, "primo soccorso", row.corsoCode === "CORSO_PS");
+  if (sheet === "antincendio") {
+    const level = row.corsoCode.match(/^CORSO_AI_([123])$/)?.[1] ?? "";
+    const roman = level === "1" ? "i" : level === "2" ? "ii" : level === "3" ? "iii" : "";
+    return buildOperationalTipoCorso(row, roman ? `antincendio liv. ${roman}` : "antincendio", Boolean(roman));
+  }
+  if (sheet === "altri_operativi") {
+    const base = (row.corso ?? "").trim();
+    if (shouldLabelAsAggiornamento(row)) return `aggiornamento ${base}`.trim();
+    return base;
+  }
+  if (sheet === "aggiornamento_specifica") {
+    const risk = extractRiskFromBaseCode(row.corsoCode);
+    return `aggiornamento specifica rischio ${risk}`;
+  }
+  if (sheet === "gen_spec_basso") {
+    if (row.corsoCode === "FORM_SPEC_BASSO") return "solo specifica rischio basso";
+    return "generale + specifica rischio basso";
+  }
+  if (sheet === "gen_spec_medio_alto") {
+    if (row.stato === "upgrade") {
+      const upgradeTarget = extractUpgradeTargetRisk(row.upgradeInfo);
+      if (upgradeTarget) return `specifica rischio ${upgradeTarget}`;
+      return buildTipoCorso(row);
+    }
+    return buildTipoCorso(row);
+  }
+  return buildTipoCorso(row);
+}
+
+function shouldLabelAsAggiornamento(row: WorkerCourseRow) {
+  if (!row.dataConclusione) return false;
+  if (!row.dataScadenza) return false;
+  return row.stato === "scaduto" || row.stato === "in scadenza" || row.stato === "programmato";
+}
+
+function buildOperationalTipoCorso(row: WorkerCourseRow, label: string, isKnown: boolean) {
+  const base = isKnown ? label : buildTipoCorso(row);
+  if (shouldLabelAsAggiornamento(row)) return `aggiornamento ${base}`.trim();
+  return base;
+}
+
+function normalizeUpgradeArrow(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  return raw.replace(/\s*→\s*/g, " -> ").replace(/\s*->\s*/g, " -> ");
+}
+
+function extractUpgradeTargetRisk(value: string | null | undefined) {
+  const raw = String(value ?? "").toLowerCase();
+  if (raw.includes("->") || raw.includes("→")) {
+    const normalized = raw.replace(/\s*→\s*/g, " -> ").replace(/\s*->\s*/g, " -> ");
+    const parts = normalized.split(" -> ").map((p) => p.trim());
+    const target = parts[1] ?? "";
+    if (target.includes("basso")) return "basso";
+    if (target.includes("medio")) return "medio";
+    if (target.includes("alto")) return "alto";
+  }
+  if (raw.includes("basso")) return "basso";
+  if (raw.includes("medio")) return "medio";
+  if (raw.includes("alto")) return "alto";
+  return null;
 }
 
 function isoToItDate(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return value;
   return `${match[3]}/${match[2]}/${match[1]}`;
-}
-
-function isoToMonthYear(value: string | null) {
-  if (!value) return "(vuoto)";
-  const match = value.match(/^(\d{4})-(\d{2})/);
-  if (!match) return "(vuoto)";
-  return `${match[2]}/${match[1]}`;
 }
 
 function formatFilenameDate(date: Date) {
