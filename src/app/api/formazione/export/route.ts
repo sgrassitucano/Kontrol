@@ -551,6 +551,7 @@ export async function GET(request: Request) {
       "referente",
       "data nascita",
       "luogo nascita",
+      "codice fiscale",
       "mail",
       "cellulare",
     ] as const;
@@ -659,6 +660,7 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow, sheet: Repo
     "referente": employee.referral ?? "",
     "data nascita": dataNascita,
     "luogo nascita": employee.birth_place ?? "",
+    "codice fiscale": employee.tax_code ?? "",
     "mail": employee.email_primary ?? "",
     "cellulare": employee.mobile ?? "",
   };
