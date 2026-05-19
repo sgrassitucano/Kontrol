@@ -244,7 +244,7 @@ export async function GET(request: Request) {
       }
 
       const formBaseCourseId = findCourseIdByCode("FORM_BASE", courseMap);
-      const formSpecRequired = findRequiredFormSpecCourse(requiredCourseIds, courseMap, excludedCourseCodes);
+      const formSpecRequired = findEffectiveRequiredFormSpecCourse(requiredCourseIds, courseMap, excludedCourseCodes);
 
       if (
         typeof formBaseCourseId === "number" &&
@@ -1212,19 +1212,44 @@ function findCourseIdByCode(
   return null;
 }
 
-function findRequiredFormSpecCourse(
+function findEffectiveRequiredFormSpecCourse(
   requiredCourseIds: Set<number>,
   courseMap: Map<number, CourseRow>,
   excludedCodes: Set<string> | null,
 ) {
-  let fallback: { courseId: number; code: string } | null = null;
+  const rankOf = (code: string) => {
+    if (code === "FORM_SPEC_ALTO") return 3;
+    if (code === "FORM_SPEC_MEDIO") return 2;
+    if (code === "FORM_SPEC_BASSO") return 1;
+    return 0;
+  };
+
+  let requiredRank = 0;
   for (const courseId of requiredCourseIds) {
     const code = courseMap.get(courseId)?.code ?? "";
     if (!code.startsWith("FORM_SPEC_")) continue;
-    if (!(excludedCodes?.has(code) ?? false)) return { courseId, code };
-    if (!fallback) fallback = { courseId, code };
+    requiredRank = Math.max(requiredRank, rankOf(code));
   }
-  if (fallback) return fallback;
+  if (requiredRank <= 0) return null;
+
+  const specByRank: Array<{ rank: number; code: string }> = [
+    { rank: 3, code: "FORM_SPEC_ALTO" },
+    { rank: 2, code: "FORM_SPEC_MEDIO" },
+    { rank: 1, code: "FORM_SPEC_BASSO" },
+  ];
+
+  for (const candidate of specByRank) {
+    if (candidate.rank > requiredRank) continue;
+    if (excludedCodes?.has(candidate.code) ?? false) continue;
+    const courseId = findCourseIdByCode(candidate.code, courseMap);
+    if (courseId !== null) return { courseId, code: candidate.code };
+  }
+
+  for (const courseId of requiredCourseIds) {
+    const code = courseMap.get(courseId)?.code ?? "";
+    if (code.startsWith("FORM_SPEC_")) return { courseId, code };
+  }
+
   return null;
 }
 
