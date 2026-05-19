@@ -1217,39 +1217,12 @@ function findEffectiveRequiredFormSpecCourse(
   courseMap: Map<number, CourseRow>,
   excludedCodes: Set<string> | null,
 ) {
-  const rankOf = (code: string) => {
-    if (code === "FORM_SPEC_ALTO") return 3;
-    if (code === "FORM_SPEC_MEDIO") return 2;
-    if (code === "FORM_SPEC_BASSO") return 1;
-    return 0;
-  };
-
-  let requiredRank = 0;
-  for (const courseId of requiredCourseIds) {
-    const code = courseMap.get(courseId)?.code ?? "";
-    if (!code.startsWith("FORM_SPEC_")) continue;
-    requiredRank = Math.max(requiredRank, rankOf(code));
+  const family = ["FORM_SPEC_ALTO", "FORM_SPEC_MEDIO", "FORM_SPEC_BASSO"] as const;
+  for (const code of family) {
+    if (excludedCodes?.has(code) ?? false) continue;
+    const courseId = findCourseIdByCode(code, courseMap);
+    if (courseId !== null && requiredCourseIds.has(courseId)) return { courseId, code };
   }
-  if (requiredRank <= 0) return null;
-
-  const specByRank: Array<{ rank: number; code: string }> = [
-    { rank: 3, code: "FORM_SPEC_ALTO" },
-    { rank: 2, code: "FORM_SPEC_MEDIO" },
-    { rank: 1, code: "FORM_SPEC_BASSO" },
-  ];
-
-  for (const candidate of specByRank) {
-    if (candidate.rank > requiredRank) continue;
-    if (excludedCodes?.has(candidate.code) ?? false) continue;
-    const courseId = findCourseIdByCode(candidate.code, courseMap);
-    if (courseId !== null) return { courseId, code: candidate.code };
-  }
-
-  for (const courseId of requiredCourseIds) {
-    const code = courseMap.get(courseId)?.code ?? "";
-    if (code.startsWith("FORM_SPEC_")) return { courseId, code };
-  }
-
   return null;
 }
 

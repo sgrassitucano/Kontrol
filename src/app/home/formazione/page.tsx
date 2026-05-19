@@ -916,6 +916,14 @@ export default function HomeFormazionePage() {
     setDashboardStateFilter(next.states);
   }, []);
 
+  const resetAllFilters = useCallback(() => {
+    setSearch("");
+    setColumnFilters(INITIAL_COLUMN_FILTERS);
+    setShowExcludedEmployees(false);
+    setFilterError("");
+    applyDashboardFilter(null);
+  }, [applyDashboardFilter]);
+
   useEffect(() => {
     const width = tableRef.current?.scrollWidth ?? FORMAZIONE_TABLE_WIDTH;
     setTableScrollWidth(width);
@@ -1677,15 +1685,24 @@ export default function HomeFormazionePage() {
             <option value="60">60gg</option>
             <option value="90">90gg</option>
           </select>
-          <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={showExcludedEmployees}
-              onChange={(event) => setShowExcludedEmployees(event.target.checked)}
-              className="h-4 w-4"
-            />
-            Mostra esclusi
-          </label>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={showExcludedEmployees}
+                onChange={(event) => setShowExcludedEmployees(event.target.checked)}
+                className="h-4 w-4"
+              />
+              Mostra esclusi
+            </label>
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+            >
+              Reset filtri
+            </button>
+          </div>
         </div>
         <p className="mt-2 text-xs text-slate-500">
           Simulazione su data selezionata (in scadenza: {expiringDays}gg).
