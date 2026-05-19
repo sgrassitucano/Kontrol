@@ -220,13 +220,15 @@ export async function GET(request: Request) {
     ];
 
     for (const employee of employees.filter((row) => !shouldExcludeEmployee(row))) {
+      const excludedCourseIds = excludedCourseIdsByEmployee.get(employee.id) ?? null;
+      const excludedCourseCodes = excludedCourseIds ? buildExcludedCourseCodeSet(excludedCourseIds, courseMap) : null;
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
       const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso);
-      let requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap);
+      let requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap, excludedCourseCodes);
       applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
       expandPrerequisites(requiredCourseIds, prerequisitesByFromCourseId);
-      requiredCourseIds = collapseLeveledCourseRequirements(requiredCourseIds, courseMap);
+      requiredCourseIds = collapseLeveledCourseRequirements(requiredCourseIds, courseMap, excludedCourseCodes);
       applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
 
       const upgradeInfoByCourseId = new Map<number, string>();
@@ -242,7 +244,7 @@ export async function GET(request: Request) {
       }
 
       const formBaseCourseId = findCourseIdByCode("FORM_BASE", courseMap);
-      const formSpecRequired = findRequiredFormSpecCourse(requiredCourseIds, courseMap);
+      const formSpecRequired = findRequiredFormSpecCourse(requiredCourseIds, courseMap, excludedCourseCodes);
 
       if (
         typeof formBaseCourseId === "number" &&
@@ -1170,6 +1172,7 @@ function resolveRequiredCourseIds(employee: EmployeeRow, grouped: ReturnType<typ
 function collapseLeveledCourseRequirements(
   requiredIds: Set<number>,
   courseMap: Map<number, CourseRow>,
+  excludedCodes: Set<string> | null,
 ) {
   const result = new Set(requiredIds);
   const requiredCodes = new Set<string>();
@@ -1185,11 +1188,12 @@ function collapseLeveledCourseRequirements(
   ] as const;
 
   leveledFamilies.forEach((family) => {
-    const winnerCode = family.find((code) => requiredCodes.has(code));
+    const winnerCode = family.find((code) => requiredCodes.has(code) && !(excludedCodes?.has(code) ?? false));
     if (!winnerCode) return;
 
     family.forEach((code) => {
       if (code === winnerCode) return;
+      if (excludedCodes?.has(code)) return;
       const losingId = findCourseIdByCode(code, courseMap);
       if (losingId !== null) result.delete(losingId);
     });
@@ -1211,14 +1215,26 @@ function findCourseIdByCode(
 function findRequiredFormSpecCourse(
   requiredCourseIds: Set<number>,
   courseMap: Map<number, CourseRow>,
+  excludedCodes: Set<string> | null,
 ) {
+  let fallback: { courseId: number; code: string } | null = null;
   for (const courseId of requiredCourseIds) {
     const code = courseMap.get(courseId)?.code ?? "";
-    if (code.startsWith("FORM_SPEC_")) {
-      return { courseId, code };
-    }
+    if (!code.startsWith("FORM_SPEC_")) continue;
+    if (!(excludedCodes?.has(code) ?? false)) return { courseId, code };
+    if (!fallback) fallback = { courseId, code };
   }
+  if (fallback) return fallback;
   return null;
+}
+
+function buildExcludedCourseCodeSet(excludedCourseIds: Set<number>, courseMap: Map<number, CourseRow>) {
+  const out = new Set<string>();
+  excludedCourseIds.forEach((courseId) => {
+    const code = courseMap.get(courseId)?.code ?? "";
+    if (code) out.add(code);
+  });
+  return out;
 }
 
 function buildBaseAggregateRow({
