@@ -565,27 +565,13 @@ export async function GET(request: Request) {
 
     const allRows = [...rows].sort(byPerson);
 
-    const genSpecBasso = allRows.filter((row) => row.corsoCode === "FORM_BASE+FORM_SPEC_BASSO" || row.corsoCode === "FORM_SPEC_BASSO");
+    const exportableRows = allRows.filter((row) => row.stato !== "escluso");
 
-    const genSpecMedioAlto = allRows.filter((row) => {
-      if (row.corsoCode === "FORM_BASE+FORM_SPEC_MEDIO" || row.corsoCode === "FORM_BASE+FORM_SPEC_ALTO") return true;
-      if (row.corsoCode === "FORM_SPEC_MEDIO" || row.corsoCode === "FORM_SPEC_ALTO") return true;
-      if (row.stato === "upgrade" && typeof row.upgradeInfo === "string") {
-        const lower = row.upgradeInfo.toLowerCase();
-        return lower.includes("medio") || lower.includes("alto");
-      }
-      return false;
-    });
-
-    const aggiornamentoSpecifica = allRows.filter((row) => {
-      const isSpec = row.corsoCode.startsWith("FORM_SPEC_") || row.corsoCode.startsWith("FORM_BASE+FORM_SPEC_");
-      return Boolean(isSpec && row.dataConclusione && row.dataScadenza);
-    });
-
-    const muletto = allRows.filter((row) => row.corsoCode === "CORSO_MUL");
-    const primoSoccorso = allRows.filter((row) => row.corsoCode === "CORSO_PS");
-    const antincendio = allRows.filter((row) => Boolean(row.corsoCode.match(/^CORSO_AI_[123]$/)));
-    const altriOperativi = allRows.filter((row) => {
+    const base = exportableRows.filter((row) => isBaseCode(row.corsoCode));
+    const muletto = exportableRows.filter((row) => row.corsoCode === "CORSO_MUL");
+    const primoSoccorso = exportableRows.filter((row) => row.corsoCode === "CORSO_PS");
+    const antincendio = exportableRows.filter((row) => Boolean(row.corsoCode.match(/^CORSO_AI_[123]$/)));
+    const altriOperativi = exportableRows.filter((row) => {
       if (isBaseCode(row.corsoCode)) return false;
       if (row.corsoCode === "CORSO_MUL") return false;
       if (row.corsoCode === "CORSO_PS") return false;
@@ -594,9 +580,7 @@ export async function GET(request: Request) {
     });
 
     const reportSheets: Array<{ name: string; kind: ReportSheetKind; rows: WorkerCourseRow[] }> = [
-      { name: "gen+spec basso", kind: "gen_spec_basso", rows: genSpecBasso },
-      { name: "gen+spec medio-alto", kind: "gen_spec_medio_alto", rows: genSpecMedioAlto },
-      { name: "aggiornamento", kind: "aggiornamento_specifica", rows: aggiornamentoSpecifica },
+      { name: "BASE", kind: "base", rows: base },
       { name: "muletto", kind: "muletto", rows: muletto },
       { name: "primo soccorso", kind: "primo_soccorso", rows: primoSoccorso },
       { name: "antincendio", kind: "antincendio", rows: antincendio },
@@ -639,9 +623,7 @@ export async function GET(request: Request) {
 }
 
 type ReportSheetKind =
-  | "gen_spec_basso"
-  | "gen_spec_medio_alto"
-  | "aggiornamento_specifica"
+  | "base"
   | "muletto"
   | "primo_soccorso"
   | "antincendio"
@@ -655,6 +637,10 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow, sheet: Repo
   const note = (row.note ?? "").trim();
   const tipoCorso = buildTipoCorsoForReport(row, sheet);
   const upgrade = buildUpgradeLabel(row, sheet);
+  const stato =
+    sheet === "base" && (row.stato === "perso" || row.stato === "upgrade" || row.stato === "sospeso")
+      ? "da fare"
+      : row.stato;
 
   return {
     "cognome": employee.last_name ?? "",
@@ -668,7 +654,7 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow, sheet: Repo
     "data scadenza": dataScadenza,
     "data prevista": dataPrevista,
     "note": note,
-    "stato": row.stato,
+    "stato": stato,
     "responsabile": employee.responsible_code ?? "",
     "referente": employee.referral ?? "",
     "data nascita": dataNascita,
@@ -713,10 +699,8 @@ function extractRiskFromBaseCode(code: string) {
 }
 
 function buildUpgradeLabel(row: WorkerCourseRow, sheet: ReportSheetKind) {
-  if (sheet !== "gen_spec_medio_alto")
-    return row.stato === "upgrade" ? `upgrade ${normalizeUpgradeArrow(row.upgradeInfo).toLowerCase()}` : "";
-  if (row.stato !== "upgrade") return "";
-  return `upgrade ${normalizeUpgradeArrow(row.upgradeInfo).toLowerCase()}`;
+  if (sheet !== "base") return "";
+  return row.stato === "upgrade" ? `upgrade ${normalizeUpgradeArrow(row.upgradeInfo).toLowerCase()}` : "";
 }
 
 function buildTipoCorsoForReport(row: WorkerCourseRow, sheet: ReportSheetKind) {
@@ -731,22 +715,6 @@ function buildTipoCorsoForReport(row: WorkerCourseRow, sheet: ReportSheetKind) {
     const base = (row.corso ?? "").trim();
     if (shouldLabelAsAggiornamento(row)) return `aggiornamento ${base}`.trim();
     return base;
-  }
-  if (sheet === "aggiornamento_specifica") {
-    const risk = extractRiskFromBaseCode(row.corsoCode);
-    return `aggiornamento specifica rischio ${risk}`;
-  }
-  if (sheet === "gen_spec_basso") {
-    if (row.corsoCode === "FORM_SPEC_BASSO") return "solo specifica rischio basso";
-    return "generale + specifica rischio basso";
-  }
-  if (sheet === "gen_spec_medio_alto") {
-    if (row.stato === "upgrade") {
-      const upgradeTarget = extractUpgradeTargetRisk(row.upgradeInfo);
-      if (upgradeTarget) return `specifica rischio ${upgradeTarget}`;
-      return buildTipoCorso(row);
-    }
-    return buildTipoCorso(row);
   }
   return buildTipoCorso(row);
 }
@@ -767,22 +735,6 @@ function normalizeUpgradeArrow(value: string | null | undefined) {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
   return raw.replace(/\s*→\s*/g, " -> ").replace(/\s*->\s*/g, " -> ");
-}
-
-function extractUpgradeTargetRisk(value: string | null | undefined) {
-  const raw = String(value ?? "").toLowerCase();
-  if (raw.includes("->") || raw.includes("→")) {
-    const normalized = raw.replace(/\s*→\s*/g, " -> ").replace(/\s*->\s*/g, " -> ");
-    const parts = normalized.split(" -> ").map((p) => p.trim());
-    const target = parts[1] ?? "";
-    if (target.includes("basso")) return "basso";
-    if (target.includes("medio")) return "medio";
-    if (target.includes("alto")) return "alto";
-  }
-  if (raw.includes("basso")) return "basso";
-  if (raw.includes("medio")) return "medio";
-  if (raw.includes("alto")) return "alto";
-  return null;
 }
 
 function isoToItDate(value: string) {
@@ -1390,7 +1342,6 @@ function buildBaseAggregateRow({
 
 function isToDoFromScratch(row: CourseStatusRow | undefined) {
   if (!row) return true;
-  if (row.planned_date && !row.completion_date) return false;
   if (row.completion_date) return false;
   return true;
 }
