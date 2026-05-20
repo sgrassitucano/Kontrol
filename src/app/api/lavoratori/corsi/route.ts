@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { requireAnyModuleAccess } from "@/lib/api/access";
+import { cacheGet, cacheSet } from "@/lib/server-cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type EmployeeRow = {
@@ -134,22 +135,38 @@ export async function GET(request: Request) {
 
     const employeeIds = Array.from(new Set(employees.map((e) => e.id)));
 
+    const staticKey = "training_static_v1";
+    const staticCached = cacheGet<{ courses: CourseRow[]; rules: MatrixRule[]; ruleLinks: RuleLinkRow[] }>(staticKey);
+    const staticLoaded = staticCached ?? (await (async () => {
+      const [{ data: courses, error: coursesError }, rules, ruleLinks] = await Promise.all([
+        dataSupabase.from("training_courses").select("id,code,title,is_active,validity_years,is_unlimited"),
+        fetchAllRules(dataSupabase),
+        fetchAllRuleLinks(dataSupabase),
+      ]);
+      if (coursesError) throw new Error(coursesError.message);
+      const out = {
+        courses: (courses ?? []) as CourseRow[],
+        rules: (rules ?? []) as MatrixRule[],
+        ruleLinks: (ruleLinks ?? []) as RuleLinkRow[],
+      };
+      cacheSet(staticKey, out, 5 * 60 * 1000);
+      return out;
+    })());
+
+    const scopeKey = "training_scope_exclusions_v1";
+    const scopeCached = applyFormazioneExclusions ? cacheGet<ScopeExclusionRow[]>(scopeKey) : null;
     const [
-      { data: courses, error: coursesError },
-      rules,
       courseRows,
       freezes,
-      ruleLinks,
       scopeExclusions,
       employeeExclusions,
       courseExclusions,
     ] = await Promise.all([
-      dataSupabase.from("training_courses").select("id,code,title,is_active,validity_years,is_unlimited"),
-      fetchAllRules(dataSupabase),
       fetchCourseRowsByEmployeeIds(dataSupabase, employeeIds),
       fetchFreezesByEmployeeIds(dataSupabase, employeeIds),
-      fetchAllRuleLinks(dataSupabase),
-      applyFormazioneExclusions ? fetchAllScopeExclusions(dataSupabase) : Promise.resolve([] as ScopeExclusionRow[]),
+      applyFormazioneExclusions
+        ? scopeCached ?? fetchAllScopeExclusions(dataSupabase)
+        : Promise.resolve([] as ScopeExclusionRow[]),
       applyFormazioneExclusions
         ? fetchTrainingEmployeeExclusionsByEmployeeIds(dataSupabase, employeeIds)
         : Promise.resolve([] as TrainingEmployeeExclusionRow[]),
@@ -157,23 +174,20 @@ export async function GET(request: Request) {
         ? fetchTrainingEmployeeCourseExclusionsByEmployeeIds(dataSupabase, employeeIds)
         : Promise.resolve([] as TrainingEmployeeCourseExclusionRow[]),
     ]);
-
-    if (coursesError) {
-      throw new Error(coursesError.message);
-    }
+    if (applyFormazioneExclusions && scopeCached === null) cacheSet(scopeKey, scopeExclusions, 60 * 1000);
 
     const todayIso =
       typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
     const activeFreeze = buildActiveFreezeMap((freezes ?? []) as FreezeRow[], todayIso);
-    const courseMap = new Map(((courses ?? []) as CourseRow[]).map((course) => [course.id, course]));
+    const courseMap = new Map(staticLoaded.courses.map((course) => [course.id, course]));
     const statusRows = (courseRows ?? []) as CourseStatusRow[];
     const statusMap = new Map(statusRows.map((row) => [`${row.employee_id}:${row.course_id}`, row]));
     const statusByEmployee = buildStatusByEmployeeMap(statusRows);
-    const rulesByScope = groupRulesByScope((rules ?? []) as MatrixRule[]);
-    const substitutersByToCourseId = buildSubstitutersByToCourseId((ruleLinks ?? []) as RuleLinkRow[]);
-    const substitutionTargetsByFromCourseId = buildSubstitutionTargetsByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
-    const exemptionsByFromCourseId = buildExemptionsByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
-    const prerequisitesByFromCourseId = buildPrerequisitesByFromCourseId((ruleLinks ?? []) as RuleLinkRow[]);
+    const rulesByScope = groupRulesByScope(staticLoaded.rules);
+    const substitutersByToCourseId = buildSubstitutersByToCourseId(staticLoaded.ruleLinks);
+    const substitutionTargetsByFromCourseId = buildSubstitutionTargetsByFromCourseId(staticLoaded.ruleLinks);
+    const exemptionsByFromCourseId = buildExemptionsByFromCourseId(staticLoaded.ruleLinks);
+    const prerequisitesByFromCourseId = buildPrerequisitesByFromCourseId(staticLoaded.ruleLinks);
 
     const excludedSiteIds = new Set<number>();
     const excludedSubSiteIds = new Set<number>();

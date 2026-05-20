@@ -445,6 +445,47 @@ export default function HomeFormazionePage() {
     }
   }, [expiringDays, showExcludedEmployees, simulationDate]);
 
+  const upsertEmployeeRows = useCallback((employeeId: number, employeeRows: WorkerCourseRow[]) => {
+    setRows((prev) => {
+      const next = prev.filter((row) => row.workerId !== employeeId);
+      next.push(...employeeRows);
+      return next;
+    });
+  }, []);
+
+  const reloadEmployeeRows = useCallback(
+    async (employeeId: number) => {
+      const params = new URLSearchParams();
+      params.set("panel", "formazione");
+      params.set("employeeId", String(employeeId));
+      params.set("date", simulationDate);
+      params.set("expiringDays", String(expiringDays));
+      const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`);
+      const body = (await response.json()) as { rows?: WorkerCourseRow[]; error?: string };
+      if (!response.ok || body.error) {
+        if (response.status === 401) {
+          window.location.href = "/login";
+          return [];
+        }
+        throw new Error(body.error ?? "Errore caricamento dettaglio lavoratore.");
+      }
+      const employeeRows = body.rows ?? [];
+      upsertEmployeeRows(employeeId, employeeRows);
+      return employeeRows;
+    },
+    [expiringDays, simulationDate, upsertEmployeeRows],
+  );
+
+  const reloadEmployeeRowsAndMaybeDetail = useCallback(
+    async (employeeId: number) => {
+      const employeeRows = await reloadEmployeeRows(employeeId);
+      if (isWorkerDetailOpen && workerDetailEmployeeId === employeeId) {
+        setWorkerDetailRows(employeeRows);
+      }
+    },
+    [isWorkerDetailOpen, reloadEmployeeRows, workerDetailEmployeeId],
+  );
+
   useEffect(() => {
     const id = setTimeout(() => {
       void loadRows();
@@ -457,20 +498,11 @@ export default function HomeFormazionePage() {
       setWorkerDetailLoading(true);
       setWorkerDetailError("");
       try {
-        const params = new URLSearchParams();
-        params.set("panel", "formazione");
-        params.set("employeeId", String(employeeId));
-        params.set("date", simulationDate);
-        params.set("expiringDays", String(expiringDays));
         const [rowsResponse, exclusionsResponse] = await Promise.all([
-          fetch(`/api/lavoratori/corsi?${params.toString()}`),
+          reloadEmployeeRows(employeeId),
           fetch(`/api/formazione/esclusioni?employeeId=${employeeId}`),
         ]);
 
-        const rowsBody = (await rowsResponse.json()) as { rows?: WorkerCourseRow[]; error?: string };
-        if (!rowsResponse.ok || rowsBody.error) {
-          throw new Error(rowsBody.error ?? "Errore caricamento dettaglio lavoratore.");
-        }
         const exclusionsBody = (await exclusionsResponse.json()) as {
           employee?: { isActive: boolean; note: string };
           excludedCourses?: Array<{ courseId: number; note: string }>;
@@ -480,7 +512,7 @@ export default function HomeFormazionePage() {
           throw new Error(exclusionsBody.error ?? "Errore caricamento esclusioni.");
         }
 
-        setWorkerDetailRows(rowsBody.rows ?? []);
+        setWorkerDetailRows(rowsResponse);
         const employee = exclusionsBody.employee ?? { isActive: false, note: "" };
         setEmployeeExclusion({ isActive: Boolean(employee.isActive), note: employee.note ?? "" });
         setCourseExclusionNotes(
@@ -492,7 +524,7 @@ export default function HomeFormazionePage() {
         setWorkerDetailLoading(false);
       }
     },
-    [expiringDays, simulationDate],
+    [reloadEmployeeRows],
   );
 
   const setInlineSaving = useCallback((key: string, saving: boolean) => {
@@ -543,15 +575,14 @@ export default function HomeFormazionePage() {
             }),
           ),
         );
-        await loadRows();
-        if (isWorkerDetailOpen && workerDetailEmployeeId === row.workerId) await loadWorkerDetail(row.workerId);
+        await reloadEmployeeRowsAndMaybeDetail(row.workerId);
       } catch (err) {
         setInlineSaveError(err instanceof Error ? err.message : "Errore salvataggio.");
       } finally {
         setInlineSaving(key, false);
       }
     },
-    [isWorkerDetailOpen, loadRows, loadWorkerDetail, setInlineSaving, updateInline, workerDetailEmployeeId],
+    [reloadEmployeeRowsAndMaybeDetail, setInlineSaving, updateInline],
   );
 
   const saveInlineNote = useCallback(
@@ -574,15 +605,14 @@ export default function HomeFormazionePage() {
             }),
           ),
         );
-        await loadRows();
-        if (isWorkerDetailOpen && workerDetailEmployeeId === row.workerId) await loadWorkerDetail(row.workerId);
+        await reloadEmployeeRowsAndMaybeDetail(row.workerId);
       } catch (err) {
         setInlineSaveError(err instanceof Error ? err.message : "Errore salvataggio.");
       } finally {
         setInlineSaving(key, false);
       }
     },
-    [isWorkerDetailOpen, loadRows, loadWorkerDetail, setInlineSaving, updateInline, workerDetailEmployeeId],
+    [reloadEmployeeRowsAndMaybeDetail, setInlineSaving, updateInline],
   );
 
   const openWorkerDetail = useCallback(
@@ -626,9 +656,8 @@ export default function HomeFormazionePage() {
       const body = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio esclusione.");
       await loadWorkerDetail(workerDetailEmployeeId);
-      await loadRows();
     },
-    [loadRows, loadWorkerDetail, workerDetailEmployeeId],
+    [loadWorkerDetail, workerDetailEmployeeId],
   );
 
   const submitCourseDerogaByCode = useCallback(
@@ -655,14 +684,13 @@ export default function HomeFormazionePage() {
         setExclusionCourseCode("");
         setExclusionCourseNote("");
         await loadWorkerDetail(workerDetailEmployeeId);
-        await loadRows();
       } catch (err) {
         setExclusionCourseError(err instanceof Error ? err.message : "Errore salvataggio deroga.");
       } finally {
         setExclusionCourseSaving(false);
       }
     },
-    [loadRows, loadWorkerDetail, workerDetailEmployeeId],
+    [loadWorkerDetail, workerDetailEmployeeId],
   );
 
   const deleteCourseExclusion = useCallback(
@@ -677,12 +705,11 @@ export default function HomeFormazionePage() {
         const body = (await response.json()) as { ok?: boolean; error?: string };
         if (!response.ok || body.error) throw new Error(body.error ?? "Errore cancellazione esclusione.");
         await loadWorkerDetail(workerDetailEmployeeId);
-        await loadRows();
       } catch (err) {
         setWorkerDetailError(err instanceof Error ? err.message : "Errore cancellazione esclusione.");
       }
     },
-    [loadRows, loadWorkerDetail, workerDetailEmployeeId],
+    [loadWorkerDetail, workerDetailEmployeeId],
   );
 
   const requestEmployeeExclusionToggle = useCallback(async () => {
@@ -2803,13 +2830,19 @@ export default function HomeFormazionePage() {
         courseOptions={courseOptions}
         initial={eventModalInit}
         onSaved={async (employeeIds) => {
-          await loadRows();
-          if (
-            isWorkerDetailOpen &&
-            typeof workerDetailEmployeeId === "number" &&
-            employeeIds.includes(workerDetailEmployeeId)
-          ) {
-            await loadWorkerDetail(workerDetailEmployeeId);
+          if (employeeIds.length > 15) {
+            await loadRows();
+            if (
+              isWorkerDetailOpen &&
+              typeof workerDetailEmployeeId === "number" &&
+              employeeIds.includes(workerDetailEmployeeId)
+            ) {
+              await loadWorkerDetail(workerDetailEmployeeId);
+            }
+            return;
+          }
+          for (const employeeId of employeeIds) {
+            await reloadEmployeeRowsAndMaybeDetail(employeeId);
           }
         }}
       />
