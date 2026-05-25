@@ -267,7 +267,7 @@ export async function GET(request: Request) {
       const excludedCourseCodes = excludedCourseIds ? buildExcludedCourseCodeSet(excludedCourseIds, courseMap) : null;
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
-      const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso);
+      const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso, excludedCourseIds);
       let requiredCourseIds = expandCombinedBaseRequirements(
         collapseLeveledCourseRequirements(rawRequiredIds, courseMap, excludedCourseCodes),
         courseMap,
@@ -331,6 +331,7 @@ export async function GET(request: Request) {
             courseMap,
             statusMap,
             employeeStatusRows,
+            excludedCourseIds,
             freeze,
             todayIso,
             expiringDays: expiringDaysSafe,
@@ -361,6 +362,7 @@ export async function GET(request: Request) {
             requiredIndex: reqIndex,
             courseMap,
             todayIso,
+            excludedCourseIds,
           });
 
           if (bestLower) {
@@ -377,6 +379,7 @@ export async function GET(request: Request) {
             requiredIndex: reqIndex,
             courseMap,
             todayIso,
+            excludedCourseIds,
           });
 
           if (bestHigher) {
@@ -903,9 +906,11 @@ function buildValidCompletedCourseIdSet(
   statusRows: CourseStatusRow[],
   courseMap: Map<number, CourseRow>,
   todayIso: string,
+  excludedCourseIds?: Set<number> | null,
 ) {
   const set = new Set<number>();
   statusRows.forEach((row) => {
+    if (excludedCourseIds?.has(row.course_id) ?? false) return;
     const course = courseMap.get(row.course_id);
     if (!course) return;
     if (isValidCourseStatus(row, course, todayIso)) set.add(row.course_id);
@@ -1298,7 +1303,13 @@ function buildExcludedCourseCodeSet(excludedCourseIds: Set<number>, courseMap: M
   const out = new Set<string>();
   excludedCourseIds.forEach((courseId) => {
     const code = courseMap.get(courseId)?.code ?? "";
-    if (code) out.add(code);
+    if (!code) return;
+    out.add(code);
+    const spec = parseCombinedFormSpecCode(code);
+    if (spec) {
+      out.add("FORM_BASE");
+      out.add(spec);
+    }
   });
   return out;
 }
@@ -1335,6 +1346,7 @@ function buildTrainingBaseSectionRows({
   courseMap,
   statusMap,
   employeeStatusRows,
+  excludedCourseIds,
   freeze,
   todayIso,
   expiringDays,
@@ -1345,6 +1357,7 @@ function buildTrainingBaseSectionRows({
   courseMap: Map<number, CourseRow>;
   statusMap: Map<string, CourseStatusRow>;
   employeeStatusRows: CourseStatusRow[];
+  excludedCourseIds: Set<number> | null;
   freeze: FreezeRow | undefined;
   todayIso: string;
   expiringDays: number;
@@ -1367,6 +1380,7 @@ function buildTrainingBaseSectionRows({
   }> = [];
 
   for (const sr of employeeStatusRows) {
+    if (excludedCourseIds?.has(sr.course_id) ?? false) continue;
     const course = courseMap.get(sr.course_id);
     if (!course) continue;
     const specCodeRaw = parseCombinedFormSpecCode(course.code);
@@ -1430,6 +1444,7 @@ function buildTrainingBaseSectionRows({
 
   const ownedSpecByCode = new Map<string, CourseStatusRow>();
   for (const sr of employeeStatusRows) {
+    if (excludedCourseIds?.has(sr.course_id) ?? false) continue;
     const code = courseMap.get(sr.course_id)?.code ?? "";
     if (!formSpecFamily.includes(code as (typeof formSpecFamily)[number])) continue;
     if (!sr.completion_date) continue;
@@ -1652,16 +1667,19 @@ function findBestLowerValidCourse({
   requiredIndex,
   courseMap,
   todayIso,
+  excludedCourseIds,
 }: {
   statusRows: CourseStatusRow[];
   family: readonly string[];
   requiredIndex: number;
   courseMap: Map<number, CourseRow>;
   todayIso: string;
+  excludedCourseIds?: Set<number> | null;
 }) {
   const candidates: Array<{ courseId: number; courseCode: string; familyIndex: number }> = [];
 
   for (const sr of statusRows) {
+    if (excludedCourseIds?.has(sr.course_id) ?? false) continue;
     const course = courseMap.get(sr.course_id);
     if (!course) continue;
     if (!family.includes(course.code)) continue;
@@ -1681,16 +1699,19 @@ function findBestHigherValidCourse({
   requiredIndex,
   courseMap,
   todayIso,
+  excludedCourseIds,
 }: {
   statusRows: CourseStatusRow[];
   family: readonly string[];
   requiredIndex: number;
   courseMap: Map<number, CourseRow>;
   todayIso: string;
+  excludedCourseIds?: Set<number> | null;
 }) {
   const candidates: Array<{ courseId: number; courseCode: string; familyIndex: number }> = [];
 
   for (const sr of statusRows) {
+    if (excludedCourseIds?.has(sr.course_id) ?? false) continue;
     const course = courseMap.get(sr.course_id);
     if (!course) continue;
     if (!family.includes(course.code)) continue;

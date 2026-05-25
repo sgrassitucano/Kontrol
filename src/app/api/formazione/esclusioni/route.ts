@@ -59,9 +59,28 @@ export async function GET(request: Request) {
       activeCourses.set(r.course_id, r.note ?? "");
     });
 
+    const courseIds = Array.from(activeCourses.keys());
+    const courseInfoById = new Map<number, { code: string; title: string }>();
+    if (courseIds.length > 0) {
+      const { data: courseInfo, error: courseInfoError } = await supabase
+        .from("training_courses")
+        .select("id,code,title")
+        .in("id", courseIds);
+      if (courseInfoError) throw new Error(courseInfoError.message);
+      (courseInfo ?? []).forEach((row) => {
+        const r = row as { id: number; code: string; title: string };
+        courseInfoById.set(r.id, { code: r.code, title: r.title });
+      });
+    }
+
     return NextResponse.json({
       employee: employee ? { isActive: employee.is_active, note: employee.note ?? "" } : { isActive: false, note: "" },
-      excludedCourses: Array.from(activeCourses.entries()).map(([courseId, note]) => ({ courseId, note })),
+      excludedCourses: Array.from(activeCourses.entries()).map(([courseId, note]) => ({
+        courseId,
+        courseCode: courseInfoById.get(courseId)?.code ?? "",
+        courseTitle: courseInfoById.get(courseId)?.title ?? "",
+        note,
+      })),
     });
   } catch (err) {
     return NextResponse.json(

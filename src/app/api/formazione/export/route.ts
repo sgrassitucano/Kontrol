@@ -224,7 +224,7 @@ export async function GET(request: Request) {
       const excludedCourseCodes = excludedCourseIds ? buildExcludedCourseCodeSet(excludedCourseIds, courseMap) : null;
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
-      const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso);
+      const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso, excludedCourseIds);
       let requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap, excludedCourseCodes);
       applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
       expandPrerequisites(requiredCourseIds, prerequisitesByFromCourseId);
@@ -700,6 +700,13 @@ function extractRiskFromBaseCode(code: string) {
   return match[1].toLowerCase();
 }
 
+function parseCombinedFormSpecCode(courseCode: string) {
+  if (!courseCode.startsWith("FORM_BASE+")) return null;
+  const suffix = courseCode.slice("FORM_BASE+".length);
+  if (!suffix.startsWith("FORM_SPEC_")) return null;
+  return suffix;
+}
+
 function buildUpgradeLabel(row: WorkerCourseRow, sheet: ReportSheetKind) {
   if (sheet !== "base") return "";
   return row.stato === "upgrade" ? `upgrade ${normalizeUpgradeArrow(row.upgradeInfo).toLowerCase()}` : "";
@@ -973,9 +980,11 @@ function buildValidCompletedCourseIdSet(
   statusRows: CourseStatusRow[],
   courseMap: Map<number, CourseRow>,
   todayIso: string,
+  excludedCourseIds?: Set<number> | null,
 ) {
   const set = new Set<number>();
   statusRows.forEach((row) => {
+    if (excludedCourseIds?.has(row.course_id) ?? false) return;
     const course = courseMap.get(row.course_id);
     if (!course) return;
     if (isValidCourseStatus(row, course, todayIso)) set.add(row.course_id);
@@ -1184,7 +1193,13 @@ function buildExcludedCourseCodeSet(excludedCourseIds: Set<number>, courseMap: M
   const out = new Set<string>();
   excludedCourseIds.forEach((courseId) => {
     const code = courseMap.get(courseId)?.code ?? "";
-    if (code) out.add(code);
+    if (!code) return;
+    out.add(code);
+    const spec = parseCombinedFormSpecCode(code);
+    if (spec) {
+      out.add("FORM_BASE");
+      out.add(spec);
+    }
   });
   return out;
 }
