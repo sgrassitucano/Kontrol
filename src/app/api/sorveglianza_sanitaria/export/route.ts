@@ -517,10 +517,11 @@ export async function GET(request: Request) {
       "sottocantiere",
       "provider",
       "scadenza visita",
+      "stato",
       "limitazioni",
     ] as const;
 
-    const sheet: Record<(typeof headers)[number], string>[] = rows.map(({ employee, provider, nextDueDate, limitations }) => ({
+    const sheet: Record<(typeof headers)[number], string>[] = rows.map(({ employee, provider, nextDueDate, limitations, state }) => ({
       "cognome": employee.last_name ?? "",
       "nome": employee.first_name ?? "",
       "codice": employee.matricola ?? "",
@@ -533,6 +534,7 @@ export async function GET(request: Request) {
       "sottocantiere": extractDisplayName(employee.sub_sites),
       "provider": provider,
       "scadenza visita": nextDueDate ? isoToItDate(nextDueDate) : "",
+      "stato": state,
       "limitazioni": limitations,
     }));
 
