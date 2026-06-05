@@ -289,4 +289,33 @@ create policy "import_run_undos_insert_by_module"
     )
   );
 
+alter table public.employees
+  add column if not exists sex text,
+  add column if not exists birth_province text,
+  add column if not exists residence_address text,
+  add column if not exists residence_postal_code text,
+  add column if not exists residence_city text,
+  add column if not exists residence_province text,
+  add column if not exists residence_belfiore_code text;
+
+alter table public.employees
+  drop constraint if exists employees_sex_check,
+  add constraint employees_sex_check check (sex is null or sex in ('M', 'F'));
+
+alter table public.employees
+  drop constraint if exists employees_birth_province_check,
+  add constraint employees_birth_province_check check (birth_province is null or birth_province ~ '^[A-Z]{2}$');
+
+alter table public.employees
+  drop constraint if exists employees_residence_province_check,
+  add constraint employees_residence_province_check check (residence_province is null or residence_province ~ '^[A-Z]{2}$');
+
+alter table public.employees
+  drop constraint if exists employees_residence_postal_code_check,
+  add constraint employees_residence_postal_code_check check (residence_postal_code is null or residence_postal_code ~ '^[0-9]{5}$');
+
+alter table public.employees
+  drop constraint if exists employees_residence_belfiore_check,
+  add constraint employees_residence_belfiore_check check (residence_belfiore_code is null or residence_belfiore_code ~ '^[A-Z][0-9]{3}$');
+
 select pg_notify('pgrst','reload schema');

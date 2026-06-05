@@ -19,6 +19,7 @@ type RawEmployeeRow = {
   firstName: string;
   birthDateIso: string;
   birthPlace: string;
+  birthProvince: string;
   taxCode: string;
   phone: string;
   mobile: string;
@@ -33,6 +34,12 @@ type RawEmployeeRow = {
   subSiteDisplayName: string;
   subSiteNormalizedName: string;
   theoreticalWeeklyMinutes: number;
+  residencePostalCode: string;
+  residenceCity: string;
+  residenceAddress: string;
+  residenceProvince: string;
+  sex: string;
+  residenceBelfioreCode: string;
 };
 
 type ExistingEmployee = {
@@ -40,6 +47,13 @@ type ExistingEmployee = {
   matricola: string;
   tax_code: string;
   status: "attivo" | "dimesso";
+  sex: string | null;
+  birth_province: string | null;
+  residence_address: string | null;
+  residence_postal_code: string | null;
+  residence_city: string | null;
+  residence_province: string | null;
+  residence_belfiore_code: string | null;
 };
 
 type SiteRow = {
@@ -238,6 +252,7 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
       firstName: cleanCell(getByAliases(row, headerIndex, ["nome"])),
       birthDate: getByAliases(row, headerIndex, ["data nascita"]),
       birthPlace: cleanCell(getByAliases(row, headerIndex, ["luogo nascita"])),
+      birthProvince: cleanCell(getByAliases(row, headerIndex, ["provincia nascita"])).toUpperCase(),
       taxCode: cleanCell(getByAliases(row, headerIndex, ["codice fiscale"])).toUpperCase(),
       phone: cleanCell(getByAliases(row, headerIndex, ["telefono"])),
       mobile: cleanCell(getByAliases(row, headerIndex, ["cellulare"])),
@@ -258,6 +273,12 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
       theoreticalRaw: cleanCell(
         getByAliases(row, headerIndex, ["teorico settimanale (ca5)", "teorico settimanale"]),
       ),
+      residencePostalCode: cleanCell(getByAliases(row, headerIndex, ["cap residenza"])),
+      residenceCity: cleanCell(getByAliases(row, headerIndex, ["comune residenza"])),
+      residenceAddress: cleanCell(getByAliases(row, headerIndex, ["indirizzo residenza"])),
+      residenceProvince: cleanCell(getByAliases(row, headerIndex, ["provincia residenza"])).toUpperCase(),
+      sex: cleanCell(getByAliases(row, headerIndex, ["sesso"])).toUpperCase(),
+      residenceBelfioreCode: cleanCell(getByAliases(row, headerIndex, ["codice comune residenza"])).toUpperCase(),
     };
 
     const birthDateIso = parseDateToIso(raw.birthDate);
@@ -288,6 +309,11 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
     if (theoreticalWeeklyMinutes === null) {
       rowIssues.push("teorico settimanale mancante/non valido (usato 0)");
     }
+    if (raw.sex && raw.sex !== "M" && raw.sex !== "F") rowIssues.push("sesso non valido (atteso M/F)");
+    if (raw.birthProvince && !raw.birthProvince.match(/^[A-Z]{2}$/)) rowIssues.push("provincia nascita non valida (atteso sigla 2 lettere)");
+    if (raw.residenceProvince && !raw.residenceProvince.match(/^[A-Z]{2}$/)) rowIssues.push("provincia residenza non valida (atteso sigla 2 lettere)");
+    if (raw.residencePostalCode && !raw.residencePostalCode.match(/^[0-9]{5}$/)) rowIssues.push("cap residenza non valido (atteso 5 cifre)");
+    if (raw.residenceBelfioreCode && !raw.residenceBelfioreCode.match(/^[A-Z][0-9]{3}$/)) rowIssues.push("codice comune residenza non valido (atteso es. L833)");
     if (emailSanitized.issues.length > 0) {
       rowIssues.push(...emailSanitized.issues);
     }
@@ -356,6 +382,7 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
       firstName: raw.firstName || DEFAULT_TEXT_VALUE,
       birthDateIso: ensuredBirthDateIso,
       birthPlace: raw.birthPlace || DEFAULT_TEXT_VALUE,
+      birthProvince: raw.birthProvince,
       taxCode: raw.taxCode,
       phone: raw.phone,
       mobile: raw.mobile,
@@ -370,6 +397,12 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
       subSiteDisplayName: raw.subSite ? toTitleCase(raw.subSite) : "",
       subSiteNormalizedName: raw.subSite ? normalizeSiteName(raw.subSite) : "",
       theoreticalWeeklyMinutes: ensuredTheoreticalWeeklyMinutes,
+      residencePostalCode: raw.residencePostalCode,
+      residenceCity: raw.residenceCity,
+      residenceAddress: raw.residenceAddress,
+      residenceProvince: raw.residenceProvince,
+      sex: raw.sex,
+      residenceBelfioreCode: raw.residenceBelfioreCode,
     });
   });
 
@@ -500,6 +533,7 @@ async function commitImport(args: {
 
   const commitErrors: ImportErrorRow[] = [];
   let committedRows = 0;
+  const existingByTaxCode = new Map(existingEmployees.map((employee) => [employee.tax_code, employee]));
 
   const payload: Array<{
     row: RawEmployeeRow;
@@ -510,6 +544,7 @@ async function commitImport(args: {
       last_name: string;
       birth_date: string | null;
       birth_place: string;
+      birth_province: string | null;
       responsible_code: string;
       job_title: string;
       job_title_notes: string | null;
@@ -518,6 +553,12 @@ async function commitImport(args: {
       email_primary: string | null;
       email_secondary: string | null;
       referral: string | null;
+      sex: string | null;
+      residence_address: string | null;
+      residence_postal_code: string | null;
+      residence_city: string | null;
+      residence_province: string | null;
+      residence_belfiore_code: string | null;
       theoretical_weekly_minutes: number;
       site_id: number;
       sub_site_id: number | null;
@@ -544,6 +585,15 @@ async function commitImport(args: {
       ? subSiteMap.get(`${siteId}:${row.subSiteNormalizedName}`) ?? null
       : null;
 
+    const existingEmployee = existingByTaxCode.get(row.taxCode) ?? null;
+    const normalizedSex = row.sex === "M" || row.sex === "F" ? row.sex : "";
+    const normalizedBirthProvince = row.birthProvince.match(/^[A-Z]{2}$/) ? row.birthProvince : "";
+    const normalizedResidenceProvince = row.residenceProvince.match(/^[A-Z]{2}$/) ? row.residenceProvince : "";
+    const normalizedResidencePostalCode = row.residencePostalCode.match(/^[0-9]{5}$/) ? row.residencePostalCode : "";
+    const normalizedResidenceBelfioreCode = row.residenceBelfioreCode.match(/^[A-Z][0-9]{3}$/)
+      ? row.residenceBelfioreCode
+      : "";
+
     payload.push({
       row,
       record: {
@@ -553,6 +603,7 @@ async function commitImport(args: {
         last_name: row.lastName,
         birth_date: row.birthDateIso,
         birth_place: row.birthPlace,
+        birth_province: normalizedBirthProvince || existingEmployee?.birth_province || null,
         responsible_code: row.responsibleCode,
         job_title: row.jobTitle,
         job_title_notes: row.jobTitleNotes || null,
@@ -561,6 +612,12 @@ async function commitImport(args: {
         email_primary: row.emailPrimary || null,
         email_secondary: row.emailSecondary || null,
         referral: row.referral || null,
+        sex: normalizedSex || existingEmployee?.sex || null,
+        residence_address: row.residenceAddress || existingEmployee?.residence_address || null,
+        residence_postal_code: normalizedResidencePostalCode || existingEmployee?.residence_postal_code || null,
+        residence_city: row.residenceCity || existingEmployee?.residence_city || null,
+        residence_province: normalizedResidenceProvince || existingEmployee?.residence_province || null,
+        residence_belfiore_code: normalizedResidenceBelfioreCode || existingEmployee?.residence_belfiore_code || null,
         theoretical_weekly_minutes: row.theoreticalWeeklyMinutes,
         site_id: siteId,
         sub_site_id: subSiteId,
@@ -697,7 +754,9 @@ async function fetchExistingEmployees(supabase: SupabaseClient): Promise<Existin
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from("employees")
-      .select("id,matricola,tax_code,status")
+      .select(
+        "id,matricola,tax_code,status,sex,birth_province,residence_address,residence_postal_code,residence_city,residence_province,residence_belfiore_code",
+      )
       .range(from, to);
 
     if (error) {

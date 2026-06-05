@@ -14,6 +14,12 @@ type EmployeeRow = {
   last_name: string;
   birth_date: string;
   birth_place: string;
+  birth_province: string | null;
+  sex: string | null;
+  residence_address: string | null;
+  residence_postal_code: string | null;
+  residence_city: string | null;
+  residence_province: string | null;
   mobile: string | null;
   email_primary: string | null;
   responsible_code: string;
@@ -535,6 +541,7 @@ export async function GET(request: Request) {
     const workbook = XLSX.utils.book_new();
 
     const headers = [
+      "matricola",
       "cognome",
       "nome",
       "mansione",
@@ -600,6 +607,137 @@ export async function GET(request: Request) {
       XLSX.utils.book_append_sheet(workbook, ws, sanitizeSheetName(sheetCfg.name));
     });
 
+    const ebafosHeaders = [
+      "Nome",
+      "Cognome",
+      "Email Discente (opzionale)",
+      "Data Nascita (opzionale)",
+      "Sesso (M/F) (opzionale)",
+      "Nato in Italia (0 - Si / 1 - No) (opzionale)",
+      "Luogo di Nascita / Nazione di Nascita (opzionale)",
+      "Mansione (opzionale)",
+      "Codice Fiscale (obbligatorio se dati anagrafici non compilati)",
+      "Codice Ateco (x.xx.xx.xx) (opzionale)",
+      "Numero Identificazione Fiscale TIN (opzionale)",
+    ] as const;
+
+    const ebafosRows: Record<(typeof ebafosHeaders)[number], string>[] = [];
+    exportableRows
+      .filter((row) => row.stato === "programmato")
+      .forEach((row) => {
+        const employee = employeeById.get(row.workerId);
+        if (!employee) return;
+        ebafosRows.push({
+          "Nome": employee.first_name ?? "",
+          "Cognome": employee.last_name ?? "",
+          "Email Discente (opzionale)": employee.email_primary ?? "",
+          "Data Nascita (opzionale)": employee.birth_date ? isoToItDate(employee.birth_date) : "",
+          "Sesso (M/F) (opzionale)": employee.sex ?? "",
+          "Nato in Italia (0 - Si / 1 - No) (opzionale)": "",
+          "Luogo di Nascita / Nazione di Nascita (opzionale)": employee.birth_place ?? "",
+          "Mansione (opzionale)": employee.job_title ?? "",
+          "Codice Fiscale (obbligatorio se dati anagrafici non compilati)": employee.tax_code ?? "",
+          "Codice Ateco (x.xx.xx.xx) (opzionale)": "",
+          "Numero Identificazione Fiscale TIN (opzionale)": "",
+        });
+      });
+
+    const ebafosWs = XLSX.utils.json_to_sheet(ebafosRows, { header: [...ebafosHeaders] });
+    applyCalibri10WithBoldHeader(ebafosWs);
+    XLSX.utils.book_append_sheet(workbook, ebafosWs, "EBAFOS");
+
+    const piattaformaHeaders = [
+      "COGNOME",
+      "NOME",
+      "INDIRIZZO RESIDENZA",
+      "CAP RESIDENZA",
+      "CITTA RESIDENZA",
+      "PROVINCIA RESIDENZA",
+      "REGIONE RESIDENZA",
+      "CITTA NASCITA",
+      "PROVINCIA NASCITA",
+      "REGIONE NASCITA",
+      "DATA NASCITA",
+      "CODICE FISCALE",
+      "SESSO",
+      "MAIL",
+      "CELL",
+      "USERNAME",
+      "PASSWORD",
+      "MANSIONE",
+      "NOTE",
+    ] as const;
+
+    const piattaformaEmployeeIds = new Set<number>();
+    const piattaformaNotesByEmployeeId = new Map<number, Set<string>>();
+
+    base.forEach((row) => {
+      const normalizedState = normalizeBaseSheetState(row);
+      const isBassoEntry =
+        row.corsoCode === "FORM_SPEC_BASSO" ||
+        row.corsoCode === "FORM_BASE+FORM_SPEC_BASSO";
+      const isAllRisksGenSpec =
+        row.corsoCode.startsWith("FORM_BASE+FORM_SPEC_") ||
+        row.corsoCode === "FORM_SPEC_BASSO" ||
+        row.corsoCode === "FORM_SPEC_MEDIO" ||
+        row.corsoCode === "FORM_SPEC_ALTO";
+
+      const include =
+        (isBassoEntry && (normalizedState === "da fare" || normalizedState === "programmato")) ||
+        (isAllRisksGenSpec && (normalizedState === "scaduto" || normalizedState === "programmato"));
+
+      if (!include) return;
+      piattaformaEmployeeIds.add(row.workerId);
+      const note = (row.note ?? "").trim();
+      if (!note) return;
+      const set = piattaformaNotesByEmployeeId.get(row.workerId);
+      if (!set) piattaformaNotesByEmployeeId.set(row.workerId, new Set([note]));
+      else set.add(note);
+    });
+
+    const piattaformaRows: Record<(typeof piattaformaHeaders)[number], string>[] = Array.from(
+      piattaformaEmployeeIds.values(),
+    )
+      .map((id) => employeeById.get(id))
+      .filter((employee): employee is EmployeeRow => Boolean(employee))
+      .sort((a, b) => {
+        const bySurname = a.last_name.localeCompare(b.last_name, "it", { sensitivity: "base" });
+        if (bySurname !== 0) return bySurname;
+        return a.first_name.localeCompare(b.first_name, "it", { sensitivity: "base" });
+      })
+      .map((employee) => {
+        const taxCode = (employee.tax_code ?? "").toUpperCase();
+        const username = taxCode.length >= 6 ? taxCode.slice(0, 6) : "";
+        const notes = Array.from(piattaformaNotesByEmployeeId.get(employee.id) ?? []).join(" | ");
+        const provinceResidence = (employee.residence_province ?? "").toUpperCase();
+        const provinceBirth = (employee.birth_province ?? "").toUpperCase();
+        return {
+          "COGNOME": employee.last_name ?? "",
+          "NOME": employee.first_name ?? "",
+          "INDIRIZZO RESIDENZA": employee.residence_address ?? "",
+          "CAP RESIDENZA": employee.residence_postal_code ?? "",
+          "CITTA RESIDENZA": employee.residence_city ?? "",
+          "PROVINCIA RESIDENZA": provinceResidence,
+          "REGIONE RESIDENZA": provinceToRegion(provinceResidence),
+          "CITTA NASCITA": employee.birth_place ?? "",
+          "PROVINCIA NASCITA": provinceBirth,
+          "REGIONE NASCITA": provinceToRegion(provinceBirth),
+          "DATA NASCITA": employee.birth_date ? isoToItDate(employee.birth_date) : "",
+          "CODICE FISCALE": taxCode,
+          "SESSO": employee.sex ?? "",
+          "MAIL": employee.email_primary ?? "",
+          "CELL": employee.mobile ?? "",
+          "USERNAME": username,
+          "PASSWORD": "Morelli2026!",
+          "MANSIONE": employee.job_title ?? "",
+          "NOTE": notes,
+        };
+      });
+
+    const piattaformaWs = XLSX.utils.json_to_sheet(piattaformaRows, { header: [...piattaformaHeaders] });
+    applyCalibri10WithBoldHeader(piattaformaWs);
+    XLSX.utils.book_append_sheet(workbook, piattaformaWs, "PIATTAFORMA");
+
     const out = XLSX.write(
       workbook,
       { type: "array", bookType: "xlsx", cellStyles: true } as XlsxWriteOptionsWithStyles,
@@ -644,6 +782,7 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow, sheet: Repo
       : row.stato;
 
   return {
+    "matricola": employee.matricola ?? "",
     "cognome": employee.last_name ?? "",
     "nome": employee.first_name ?? "",
     "mansione": employee.job_title ?? "",
@@ -664,6 +803,73 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow, sheet: Repo
     "mail": employee.email_primary ?? "",
     "cellulare": employee.mobile ?? "",
   };
+}
+
+function normalizeBaseSheetState(row: WorkerCourseRow) {
+  return row.stato === "perso" || row.stato === "upgrade" || row.stato === "sospeso"
+    ? "da fare"
+    : row.stato;
+}
+
+const REGION_BY_PROVINCE: Record<string, string> = (() => {
+  const data: Record<string, { sigla: string }[] | string[]> = {
+    "regioni": [
+      "Sicilia",
+      "Piemonte",
+      "Marche",
+      "Valle d'Aosta",
+      "Toscana",
+      "Campania",
+      "Puglia",
+      "Veneto",
+      "Lombardia",
+      "Emilia-Romagna",
+      "Trentino-Alto Adige",
+      "Sardegna",
+      "Molise",
+      "Calabria",
+      "Abruzzo",
+      "Lazio",
+      "Liguria",
+      "Friuli-Venezia Giulia",
+      "Basilicata",
+      "Umbria",
+    ],
+    "Sicilia": [{ "sigla": "AG" }, { "sigla": "CL" }, { "sigla": "CT" }, { "sigla": "EN" }, { "sigla": "ME" }, { "sigla": "PA" }, { "sigla": "RG" }, { "sigla": "SR" }, { "sigla": "TP" }],
+    "Piemonte": [{ "sigla": "AL" }, { "sigla": "AT" }, { "sigla": "BI" }, { "sigla": "CN" }, { "sigla": "NO" }, { "sigla": "TO" }, { "sigla": "VB" }, { "sigla": "VC" }],
+    "Marche": [{ "sigla": "AN" }, { "sigla": "AP" }, { "sigla": "FM" }, { "sigla": "MC" }, { "sigla": "PU" }],
+    "Valle d'Aosta": [{ "sigla": "AO" }],
+    "Toscana": [{ "sigla": "AR" }, { "sigla": "FI" }, { "sigla": "GR" }, { "sigla": "LI" }, { "sigla": "LU" }, { "sigla": "MS" }, { "sigla": "PI" }, { "sigla": "PT" }, { "sigla": "PO" }, { "sigla": "SI" }],
+    "Campania": [{ "sigla": "AV" }, { "sigla": "BN" }, { "sigla": "CE" }, { "sigla": "NA" }, { "sigla": "SA" }],
+    "Puglia": [{ "sigla": "BA" }, { "sigla": "BT" }, { "sigla": "BR" }, { "sigla": "FG" }, { "sigla": "LE" }, { "sigla": "TA" }],
+    "Veneto": [{ "sigla": "BL" }, { "sigla": "PD" }, { "sigla": "RO" }, { "sigla": "TV" }, { "sigla": "VE" }, { "sigla": "VR" }, { "sigla": "VI" }],
+    "Lombardia": [{ "sigla": "BG" }, { "sigla": "BS" }, { "sigla": "CO" }, { "sigla": "CR" }, { "sigla": "LC" }, { "sigla": "LO" }, { "sigla": "MN" }, { "sigla": "MI" }, { "sigla": "MB" }, { "sigla": "PV" }, { "sigla": "SO" }, { "sigla": "VA" }],
+    "Emilia-Romagna": [{ "sigla": "BO" }, { "sigla": "FE" }, { "sigla": "FC" }, { "sigla": "MO" }, { "sigla": "PR" }, { "sigla": "PC" }, { "sigla": "RA" }, { "sigla": "RE" }, { "sigla": "RN" }],
+    "Trentino-Alto Adige": [{ "sigla": "BZ" }, { "sigla": "TN" }],
+    "Sardegna": [{ "sigla": "CA" }, { "sigla": "CI" }, { "sigla": "NU" }, { "sigla": "OT" }, { "sigla": "OR" }, { "sigla": "VS" }, { "sigla": "SS" }, { "sigla": "OG" }, { "sigla": "SU" }],
+    "Molise": [{ "sigla": "CB" }, { "sigla": "IS" }],
+    "Calabria": [{ "sigla": "CZ" }, { "sigla": "CS" }, { "sigla": "KR" }, { "sigla": "RC" }, { "sigla": "VV" }],
+    "Abruzzo": [{ "sigla": "CH" }, { "sigla": "AQ" }, { "sigla": "PE" }, { "sigla": "TE" }],
+    "Lazio": [{ "sigla": "FR" }, { "sigla": "LT" }, { "sigla": "RI" }, { "sigla": "RM" }, { "sigla": "VT" }],
+    "Liguria": [{ "sigla": "GE" }, { "sigla": "IM" }, { "sigla": "SP" }, { "sigla": "SV" }],
+    "Friuli-Venezia Giulia": [{ "sigla": "GO" }, { "sigla": "PN" }, { "sigla": "TS" }, { "sigla": "UD" }],
+    "Basilicata": [{ "sigla": "MT" }, { "sigla": "PZ" }],
+    "Umbria": [{ "sigla": "PG" }, { "sigla": "TR" }],
+  };
+
+  const map: Record<string, string> = {};
+  (data["regioni"] as string[]).forEach((region) => {
+    const provinces = data[region] as { sigla: string }[] | undefined;
+    provinces?.forEach((p) => {
+      map[p.sigla.toUpperCase()] = region;
+    });
+  });
+  return map;
+})();
+
+function provinceToRegion(provinceCode: string) {
+  const key = (provinceCode ?? "").trim().toUpperCase();
+  return REGION_BY_PROVINCE[key] ?? "";
 }
 
 function sanitizeSheetName(name: string) {
@@ -900,7 +1106,7 @@ async function fetchAllEmployees(supabase: SupabaseClient) {
     const { data, error } = await supabase
       .from("employees")
       .select(
-        "id,matricola,tax_code,first_name,last_name,birth_date,birth_place,mobile,email_primary,responsible_code,referral,site_id,sub_site_id,job_title,job_title_notes,sites(display_name),sub_sites(display_name)",
+        "id,matricola,tax_code,first_name,last_name,birth_date,birth_place,birth_province,sex,residence_address,residence_postal_code,residence_city,residence_province,mobile,email_primary,responsible_code,referral,site_id,sub_site_id,job_title,job_title_notes,sites(display_name),sub_sites(display_name)",
       )
       .eq("status", "attivo")
       .order("last_name")
