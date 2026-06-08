@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardCard, KpiCard, KpiGrid, ModuleHeader } from "@/components/module-ui";
 import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
+import { isoToItDate } from "@/lib/it-date";
 
 type WorkerSurveillanceRow = {
   workerId: number;
@@ -738,7 +739,9 @@ export default function HomeSorveglianzaPage() {
                     </span>
                   </td>
                   <td className="w-[8%] px-4 py-2.5 text-slate-700">{row.visitaRichiesta}</td>
-                  <td className="w-[10%] px-4 py-2.5 text-slate-700">{row.scadenzaVisita ?? "-"}</td>
+                  <td className="w-[10%] px-4 py-2.5 text-slate-700">
+                    {row.scadenzaVisita ? isoToItDate(row.scadenzaVisita) : "-"}
+                  </td>
                   <td className="w-[10%] px-4 py-2.5">
                     <span className={statusPillClassName(row.stato)}>{row.stato}</span>
                   </td>
@@ -832,7 +835,9 @@ export default function HomeSorveglianzaPage() {
                       </div>
                       <div className="text-right">
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Scadenza attuale</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">{workerDetail.record?.next_due_date ?? "-"}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                          {workerDetail.record?.next_due_date ? isoToItDate(workerDetail.record.next_due_date) : "-"}
+                        </p>
                       </div>
                     </div>
                   </div>

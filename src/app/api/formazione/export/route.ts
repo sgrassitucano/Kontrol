@@ -3,6 +3,7 @@ import * as XLSX from "xlsx-js-style";
 import { applyCalibri10WithBoldHeader } from "@/lib/excel";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { requireModuleAccess } from "@/lib/api/access";
+import { isoToItDate } from "@/lib/it-date";
 import type { SupabaseClient } from "@supabase/supabase-js";
 type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean };
 
@@ -950,12 +951,6 @@ function normalizeUpgradeArrow(value: string | null | undefined) {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
   return raw.replace(/\s*→\s*/g, " -> ").replace(/\s*->\s*/g, " -> ");
-}
-
-function isoToItDate(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return value;
-  return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
 function formatFilenameDate(date: Date) {

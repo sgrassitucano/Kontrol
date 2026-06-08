@@ -4,6 +4,7 @@ import { requireModuleAccess } from "@/lib/api/access";
 import { normalizeJobCode } from "@/lib/training/normalize";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyCalibri10WithBoldHeader } from "@/lib/excel";
+import { isoToItDate } from "@/lib/it-date";
 
 type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean };
 
@@ -93,12 +94,6 @@ function extractDisplayName(value: unknown) {
     return (value as { display_name?: string }).display_name ?? "-";
   }
   return "-";
-}
-
-function isoToItDate(value: string) {
-  const match = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return value;
-  return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
 function buildActiveFreezeMap(rows: FreezeRow[], today: Date) {
