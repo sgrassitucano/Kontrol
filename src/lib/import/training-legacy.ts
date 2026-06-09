@@ -59,7 +59,8 @@ export type LegacyPreviewIssue = {
   issueType:
     | "missing_employee"
     | "missing_course"
-    | "ambiguous_form_spec_note";
+    | "ambiguous_form_spec_note"
+    | "missing_start_date";
   message: string;
 };
 
@@ -85,6 +86,7 @@ export type LegacyPreviewSummary = {
   missingEmployees: number;
   mappedCourses: number;
   missingCourses: number;
+  missingStartDateRows: number;
   svoltoIllimitato: number;
   daFare: number;
   daAggiornare: number;
@@ -103,6 +105,7 @@ export type LegacyCommitResult = {
   summary: LegacyPreviewSummary & {
     committedRows: number;
     skippedDaFareRows: number;
+    skippedMissingStartDateRows: number;
   };
   message: string;
 };
@@ -145,6 +148,7 @@ export async function previewLegacyTrainingImport({
   let missingEmployees = 0;
   let mappedCourses = 0;
   let missingCourses = 0;
+  let missingStartDateRows = 0;
   let svoltoIllimitato = 0;
   let daFare = 0;
   let daAggiornare = 0;
@@ -227,6 +231,20 @@ export async function previewLegacyTrainingImport({
       }
     }
 
+    if (employee && course && !row.startDate) {
+      missingStartDateRows += 1;
+      issues.push({
+        rowNumber: row.rowNumber,
+        matricola: row.matricola,
+        cognome: row.cognome,
+        nome: row.nome,
+        rawCourseCode: row.rawCourseCode,
+        canonicalCourseCode: row.canonicalCourseCode,
+        issueType: "missing_start_date",
+        message: "Riga senza data corso valida: non verra' caricata in commit.",
+      });
+    }
+
     const interpretation = interpretRow(row, course, aiPsCounts, todayIso);
     if (interpretation === "svolto_illimitato") svoltoIllimitato += 1;
     if (interpretation === "da_fare") daFare += 1;
@@ -272,6 +290,7 @@ export async function previewLegacyTrainingImport({
       missingEmployees,
       mappedCourses,
       missingCourses,
+      missingStartDateRows,
       svoltoIllimitato,
       daFare,
       daAggiornare,
@@ -362,6 +381,7 @@ export async function commitLegacyTrainingImport({
     expiry_date: string | null;
   }> = [];
   let skippedDaFareRows = 0;
+  let skippedMissingStartDateRows = 0;
 
   for (const item of selectedByKey.values()) {
     const { interpretation, row, employeeId, course } = item;
@@ -372,7 +392,7 @@ export async function commitLegacyTrainingImport({
 
     if (interpretation === "svolto_illimitato") {
       if (!row.startDate) {
-        skippedDaFareRows += 1;
+        skippedMissingStartDateRows += 1;
         continue;
       }
       payload.push({
@@ -384,7 +404,11 @@ export async function commitLegacyTrainingImport({
       continue;
     }
 
-    const completionDate = row.startDate ?? todayIso;
+    const completionDate = row.startDate;
+    if (!completionDate) {
+      skippedMissingStartDateRows += 1;
+      continue;
+    }
     const expiryDate = computeTheoreticalExpiryDate(completionDate, course);
     payload.push({
       employee_id: employeeId,
@@ -452,6 +476,7 @@ export async function commitLegacyTrainingImport({
       ...preview.summary,
       committedRows: payload.length,
       skippedDaFareRows,
+      skippedMissingStartDateRows,
     },
     message: "Commit legacy completato (solo dipendenti in anagrafica attiva).",
   };

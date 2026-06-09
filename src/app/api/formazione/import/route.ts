@@ -69,7 +69,13 @@ export async function POST(request: Request) {
 
     if (mode === "commit") {
       const summary = (result as { summary?: unknown }).summary as
-        | { totalRows?: number; committedRows?: number; missingEmployees?: number; missingCourses?: number }
+        | {
+            totalRows?: number;
+            committedRows?: number;
+            missingEmployees?: number;
+            missingCourses?: number;
+            missingStartDateRows?: number;
+          }
         | undefined;
       if (importRunId) {
         await auth.supabase
@@ -79,7 +85,8 @@ export async function POST(request: Request) {
             processed_rows: typeof summary?.committedRows === "number" ? summary.committedRows : 0,
             error_rows:
               (typeof summary?.missingEmployees === "number" ? summary.missingEmployees : 0) +
-              (typeof summary?.missingCourses === "number" ? summary.missingCourses : 0),
+              (typeof summary?.missingCourses === "number" ? summary.missingCourses : 0) +
+              (typeof summary?.missingStartDateRows === "number" ? summary.missingStartDateRows : 0),
             status: "completed",
           })
           .eq("id", importRunId);

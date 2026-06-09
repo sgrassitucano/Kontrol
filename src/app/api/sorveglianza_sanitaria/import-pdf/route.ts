@@ -270,21 +270,20 @@ function collapseUpsertsByEmployeeId(
       return;
     }
 
-    const out = { ...existing.upsert };
+    const candDue = candidateUpsert.next_due_date ?? null;
+    const prevDue = existing.upsert.next_due_date ?? null;
+    const takeCandidate =
+      candDue && prevDue
+        ? candDue > prevDue || (candDue === prevDue && r.page >= existing.page)
+        : candDue
+          ? true
+          : prevDue
+            ? false
+            : r.page >= existing.page;
 
-    const a = candidateUpsert.next_due_date ?? null;
-    const b = existing.upsert.next_due_date ?? null;
-    if (a && b) out.next_due_date = a > b ? a : b;
-    else if (a && !b) out.next_due_date = a;
-
-    const candLim = (candidateUpsert.limitations ?? "").trim();
-    const prevLim = (existing.upsert.limitations ?? "").trim();
-    if (candLim && !prevLim) out.limitations = candLim;
-    else if (candLim && prevLim && candLim !== prevLim) {
-      if (r.page >= existing.page) out.limitations = candLim;
+    if (takeCandidate) {
+      map.set(r.employee_id, { page: r.page, upsert: candidateUpsert });
     }
-
-    map.set(r.employee_id, { page: Math.max(existing.page, r.page), upsert: out });
   });
 
   return Array.from(map.values());
