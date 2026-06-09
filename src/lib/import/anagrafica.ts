@@ -512,18 +512,20 @@ async function commitImport(args: {
   }
 
   if (importRunId && errors.length > 0) {
-    await supabase.from("import_run_errors").insert(
-      errors.map((error) => ({
-        import_run_id: importRunId,
-        row_number: error.rowNumber,
-        matricola: error.matricola || null,
-        tax_code: error.taxCode || null,
-        last_name: error.lastName || null,
-        first_name: error.firstName || null,
-        error_type: error.errorType,
-        error_message: error.errorMessage,
-      })),
-    );
+    for (const part of chunkArray(errors, 500)) {
+      await supabase.from("import_run_errors").insert(
+        part.map((error) => ({
+          import_run_id: importRunId,
+          row_number: error.rowNumber,
+          matricola: error.matricola || null,
+          tax_code: error.taxCode || null,
+          last_name: error.lastName || null,
+          first_name: error.firstName || null,
+          error_type: error.errorType,
+          error_message: error.errorMessage,
+        })),
+      );
+    }
   }
 
   const nowIso = new Date().toISOString();
@@ -715,18 +717,20 @@ async function commitImport(args: {
       .eq("id", importRunId);
 
     if (commitErrors.length > 0) {
-      await supabase.from("import_run_errors").insert(
-        commitErrors.map((error) => ({
-          import_run_id: importRunId,
-          row_number: error.rowNumber,
-          matricola: error.matricola || null,
-          tax_code: error.taxCode || null,
-          last_name: error.lastName || null,
-          first_name: error.firstName || null,
-          error_type: error.errorType,
-          error_message: error.errorMessage,
-        })),
-      );
+      for (const part of chunkArray(commitErrors, 500)) {
+        await supabase.from("import_run_errors").insert(
+          part.map((error) => ({
+            import_run_id: importRunId,
+            row_number: error.rowNumber,
+            matricola: error.matricola || null,
+            tax_code: error.taxCode || null,
+            last_name: error.lastName || null,
+            first_name: error.firstName || null,
+            error_type: error.errorType,
+            error_message: error.errorMessage,
+          })),
+        );
+      }
     }
   }
 
@@ -846,19 +850,24 @@ async function ensureSubSites(
   }
 
   const map = new Map<string, number>();
+  const wantedBySiteId = new Map<number, Set<string>>();
+  payload.forEach((item) => {
+    const set = wantedBySiteId.get(item.site_id) ?? new Set<string>();
+    set.add(item.normalized_name);
+    wantedBySiteId.set(item.site_id, set);
+  });
 
-  for (const item of payload) {
-    const { data, error } = await supabase
-      .from("sub_sites")
-      .select("id,site_id,normalized_name")
-      .eq("site_id", item.site_id)
-      .eq("normalized_name", item.normalized_name)
-      .limit(1);
-
-    if (!error && data && data.length > 0) {
-      const row = data[0] as SubSiteRow;
-      map.set(`${row.site_id}:${row.normalized_name}`, row.id);
+  const siteIds = Array.from(wantedBySiteId.keys());
+  for (const chunk of chunkArray(siteIds, 200)) {
+    const { data, error } = await supabase.from("sub_sites").select("id,site_id,normalized_name").in("site_id", chunk);
+    if (error) {
+      throw new Error(`Errore lettura sottocantieri: ${error.message}`);
     }
+    (data as SubSiteRow[]).forEach((row) => {
+      const wanted = wantedBySiteId.get(row.site_id);
+      if (!wanted || !wanted.has(row.normalized_name)) return;
+      map.set(`${row.site_id}:${row.normalized_name}`, row.id);
+    });
   }
 
   return map;
