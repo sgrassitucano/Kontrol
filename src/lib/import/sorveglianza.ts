@@ -502,7 +502,6 @@ function parseWorkbook(
       });
     }
     const requiresVisit = requiresVisitParsed ?? true;
-    let nextDueDate = parseDateToIso(dueRaw);
 
     const dueCell =
       worksheet && dueColIndex >= 0
@@ -513,7 +512,8 @@ function parseWorkbook(
 
     const dueRawText = cleanCell(dueCell?.w ?? dueRaw);
 
-    if (!nextDueDate && dueCell) {
+    let nextDueDate: string | null = null;
+    if (dueCell) {
       if (dueCell.f && (dueCell.v === undefined || dueCell.v === null || dueCell.v === "")) {
         errors.push({
           rowNumber,
@@ -526,9 +526,10 @@ function parseWorkbook(
             'La cella "scadenza visita" contiene una formula senza valore. Salva/Esporta il file con valori (incolla valori) e reimporta.',
         });
       } else {
-        nextDueDate = parseDateToIso(dueCell.v ?? dueCell.w ?? dueRaw);
+        nextDueDate = parseDateToIso(dueCell.v ?? dueCell.w ?? null);
       }
     }
+    if (!nextDueDate) nextDueDate = parseDateToIso(dueRaw);
 
     if (dueRawText && !nextDueDate) {
       errors.push({
