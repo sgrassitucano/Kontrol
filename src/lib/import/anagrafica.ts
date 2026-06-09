@@ -10,6 +10,7 @@ type ImportParams = {
   supabase: SupabaseClient;
   importedBy?: string | null;
   confirmHighDismissals?: boolean;
+  confirmCriticalDismissals?: boolean;
 };
 
 type RawEmployeeRow = {
@@ -95,6 +96,8 @@ export type ImportSummary = {
   reactivatedRows: number;
   dismissedRows: number;
   existingActiveEmployees: number;
+  snapshotTaxCodes: number;
+  dismissalRisk: "none" | "warning" | "critical";
 };
 
 export type ImportResult = {
@@ -127,6 +130,7 @@ export async function processAnagraficaImport({
   supabase,
   importedBy,
   confirmHighDismissals,
+  confirmCriticalDismissals,
 }: ImportParams): Promise<ImportResult> {
   const parsed = parseWorkbook(fileBuffer);
   const existingEmployees = await fetchExistingEmployees(supabase);
@@ -157,6 +161,12 @@ export async function processAnagraficaImport({
     reactivatedRows: analysis.reactivatedRows,
     dismissedRows: analysis.dismissedRows,
     existingActiveEmployees,
+    snapshotTaxCodes: parsed.snapshotTaxCodes.length,
+    dismissalRisk: assessDismissalRisk({
+      existingActiveEmployees,
+      dismissedRows: analysis.dismissedRows,
+      snapshotTaxCodes: parsed.snapshotTaxCodes.length,
+    }),
   };
 
   if (mode === "preview") {
@@ -170,18 +180,29 @@ export async function processAnagraficaImport({
     };
   }
 
-  if (
-    existingActiveEmployees > 0 &&
-    analysis.dismissedRows / existingActiveEmployees > 0.05 &&
-    !confirmHighDismissals
-  ) {
+  if (summaryBase.dismissalRisk === "critical" && !confirmCriticalDismissals) {
     return {
       mode: "preview",
       summary: summaryBase,
       previewRows,
       errors: allErrors,
       importRunId: null,
-      message: "ATTENZIONE: dimessi > 5% degli attivi. Conferma richiesta prima del commit.",
+      message:
+        "ATTENZIONE CRITICA: il file provocherebbe dimissioni massive o non contiene abbastanza CF validi. Doppia conferma richiesta prima del commit.",
+    };
+  }
+
+  if (summaryBase.dismissalRisk !== "none" && !confirmHighDismissals) {
+    return {
+      mode: "preview",
+      summary: summaryBase,
+      previewRows,
+      errors: allErrors,
+      importRunId: null,
+      message:
+        summaryBase.dismissalRisk === "critical"
+          ? "ATTENZIONE CRITICA: dimissioni massive stimate. Conferma richiesta prima del commit."
+          : "ATTENZIONE: dimessi > 5% degli attivi. Conferma richiesta prima del commit.",
     };
   }
 
@@ -469,6 +490,20 @@ function analyzeAgainstExisting(
     reactivatedRows,
     dismissedRows,
   };
+}
+
+export function assessDismissalRisk(args: {
+  existingActiveEmployees: number;
+  dismissedRows: number;
+  snapshotTaxCodes: number;
+}) {
+  const { existingActiveEmployees, dismissedRows, snapshotTaxCodes } = args;
+  if (existingActiveEmployees <= 0 || dismissedRows <= 0) return "none" as const;
+  if (snapshotTaxCodes <= 0) return "critical" as const;
+  const rate = dismissedRows / existingActiveEmployees;
+  if (dismissedRows >= 50 || rate > 0.2) return "critical" as const;
+  if (rate > 0.05) return "warning" as const;
+  return "none" as const;
 }
 
 async function commitImport(args: {

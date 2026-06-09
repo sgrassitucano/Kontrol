@@ -43,6 +43,7 @@ export default function GestioneImportPage() {
   const statusPollRef = useRef<number | null>(null);
   const lastRunPollRef = useRef<number | null>(null);
   const [confirmHighDismissals, setConfirmHighDismissals] = useState(false);
+  const [confirmCriticalDismissals, setConfirmCriticalDismissals] = useState(false);
 
   const derivedCounts = useMemo(() => {
     const warningRows = result?.errors?.filter((row) => row.errorType === "row_imported_with_issues").length ?? 0;
@@ -82,7 +83,9 @@ export default function GestioneImportPage() {
     return (result?.summary.dismissedRows ?? 0) / totalActive;
   }, [result]);
 
-  const isHighDismissals = dismissRate > 0.05;
+  const dismissalRisk = result?.summary.dismissalRisk ?? "none";
+  const isHighDismissals = dismissalRisk === "warning" || dismissalRisk === "critical";
+  const isCriticalDismissals = dismissalRisk === "critical";
 
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +172,7 @@ export default function GestioneImportPage() {
       formData.append("file", selectedFile);
       if (mode === "commit") {
         formData.append("confirmHighDismissals", confirmHighDismissals ? "1" : "0");
+        formData.append("confirmCriticalDismissals", confirmCriticalDismissals ? "1" : "0");
       }
 
       const controller = new AbortController();
@@ -247,6 +251,7 @@ export default function GestioneImportPage() {
               setResult(null);
               setServerError("");
               setConfirmHighDismissals(false);
+              setConfirmCriticalDismissals(false);
             }}
             className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
           />
@@ -266,13 +271,16 @@ export default function GestioneImportPage() {
               !result ||
               result.mode !== "preview" ||
               derivedCounts.blockingRows > 0 ||
-              (isHighDismissals && !confirmHighDismissals)
+              (isHighDismissals && !confirmHighDismissals) ||
+              (isCriticalDismissals && !confirmCriticalDismissals)
             }
             title={
               !result || result.mode !== "preview"
                 ? "Esegui prima l'anteprima."
                 : derivedCounts.blockingRows > 0
                   ? "Risolvi prima gli errori bloccanti."
+                  : isCriticalDismissals && !confirmCriticalDismissals
+                    ? "Caso critico: serve doppia conferma."
                   : isHighDismissals && !confirmHighDismissals
                     ? "Dimessi > 5%: conferma richiesta."
                     : "Esegui commit import."
@@ -297,10 +305,23 @@ export default function GestioneImportPage() {
               />
               <span>
                 Dimessi stimati: {result.summary.dismissedRows} su {result.summary.existingActiveEmployees} attivi
-                ({Math.round(dismissRate * 1000) / 10}%).
+                ({Math.round(dismissRate * 1000) / 10}%). Snapshot CF validi: {result.summary.snapshotTaxCodes}.
                 Confermo di voler procedere comunque.
               </span>
             </label>
+            {isCriticalDismissals ? (
+              <label className="mt-3 flex items-start gap-2 text-xs font-semibold text-red-700">
+                <input
+                  type="checkbox"
+                  checked={confirmCriticalDismissals}
+                  onChange={(e) => setConfirmCriticalDismissals(e.target.checked)}
+                  className="mt-[2px]"
+                />
+                <span>
+                  Caso critico: confermo esplicitamente che il file e' completo e che le dimissioni massive sono volute.
+                </span>
+              </label>
+            ) : null}
           </div>
         ) : null}
         {result ? (
