@@ -340,6 +340,34 @@ async function makePdfImportUpsertsSafe(args: {
   return { rows: safeRows, skippedOlderDueDates };
 }
 
+async function insertImportRunErrors(args: {
+  supabase: SupabaseClient;
+  importRunId: string;
+  errors: PdfImportErrorRow[];
+}) {
+  const { supabase, importRunId, errors } = args;
+  if (!importRunId) return;
+  if (errors.length === 0) return;
+
+  const chunkSize = 500;
+  for (let i = 0; i < errors.length; i += chunkSize) {
+    const part = errors.slice(i, i + chunkSize);
+    const { error } = await supabase.from("import_run_errors").insert(
+      part.map((e) => ({
+        import_run_id: importRunId,
+        row_number: Number.isFinite(e.page) ? e.page : 0,
+        matricola: null,
+        tax_code: String(e.taxCode ?? "").trim() ? String(e.taxCode).trim() : null,
+        last_name: null,
+        first_name: null,
+        error_type: String(e.errorType ?? "").trim() || "error",
+        error_message: String(e.errorMessage ?? "").trim() || "Errore import PDF.",
+      })),
+    );
+    if (error) throw new Error(error.message);
+  }
+}
+
 export async function POST(request: Request) {
   const auth = await requireModuleAccess("sorveglianza", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -474,6 +502,15 @@ export async function POST(request: Request) {
         updatedRecords = rowsToUpsert.length;
       }
 
+      if (safe.skippedOlderDueDates > 0) {
+        errors.push({
+          page: 0,
+          taxCode: "",
+          errorType: "skipped_older_due_date",
+          errorMessage: `Saltate ${safe.skippedOlderDueDates} scadenze più vecchie rispetto a quelle già presenti.`,
+        });
+      }
+
       const summary: PdfImportSummary = {
         totalPages: normalizedUpdates.length,
         parsedPages: normalizedUpdates.length,
@@ -485,15 +522,22 @@ export async function POST(request: Request) {
         errors: errors.length,
       };
 
-      await auth.supabase.from("import_runs").insert({
-        source: "sorveglianza_pdf",
-        file_name: fileName || "import_pdf",
-        imported_by: auth.userId,
-        total_rows: summary.totalPages,
-        processed_rows: summary.matchedEmployees,
-        error_rows: summary.errors,
-        status: "completed",
-      });
+      const runInsert = await auth.supabase
+        .from("import_runs")
+        .insert({
+          source: "sorveglianza_pdf",
+          file_name: fileName || "import_pdf",
+          imported_by: auth.userId,
+          total_rows: summary.totalPages,
+          processed_rows: summary.matchedEmployees,
+          error_rows: summary.errors,
+          status: "completed",
+        })
+        .select("id")
+        .single();
+
+      const importRunId = (runInsert.data as { id?: string } | null)?.id ?? null;
+      if (importRunId) await insertImportRunErrors({ supabase: auth.supabase, importRunId, errors });
 
       const response: PdfImportResponse = {
         mode,
@@ -689,6 +733,16 @@ export async function POST(request: Request) {
       updatedRecords = rowsToUpsert.length;
     }
 
+    const errorsForRun = [...errors];
+    if (mode === "commit" && safe.skippedOlderDueDates > 0) {
+      errorsForRun.push({
+        page: 0,
+        taxCode: "",
+        errorType: "skipped_older_due_date",
+        errorMessage: `Saltate ${safe.skippedOlderDueDates} scadenze più vecchie rispetto a quelle già presenti.`,
+      });
+    }
+
     const summary: PdfImportSummary = {
       totalPages: parsed.length,
       parsedPages: parsed.length,
@@ -697,7 +751,7 @@ export async function POST(request: Request) {
       updatedRecords,
       dueDateFound,
       limitationsFound,
-      errors: errors.length,
+      errors: errorsForRun.length,
     };
 
     const message =
@@ -708,22 +762,28 @@ export async function POST(request: Request) {
         : `Anteprima PDF completata: ${matchedEmployees} pagine associate.`;
 
     if (mode === "commit") {
-      await auth.supabase.from("import_runs").insert({
-        source: "sorveglianza_pdf",
-        file_name: file instanceof File ? file.name : fileName || "import_pdf",
-        imported_by: auth.userId,
-        total_rows: summary.totalPages,
-        processed_rows: summary.matchedEmployees,
-        error_rows: summary.errors,
-        status: "completed",
-      });
+      const runInsert = await auth.supabase
+        .from("import_runs")
+        .insert({
+          source: "sorveglianza_pdf",
+          file_name: file instanceof File ? file.name : fileName || "import_pdf",
+          imported_by: auth.userId,
+          total_rows: summary.totalPages,
+          processed_rows: summary.matchedEmployees,
+          error_rows: summary.errors,
+          status: "completed",
+        })
+        .select("id")
+        .single();
+      const importRunId = (runInsert.data as { id?: string } | null)?.id ?? null;
+      if (importRunId) await insertImportRunErrors({ supabase: auth.supabase, importRunId, errors: errorsForRun });
     }
 
     const response: PdfImportResponse = {
       mode,
       summary,
       previewRows,
-      errors: errors.slice(0, 200),
+      errors: errorsForRun.slice(0, 200),
       message,
     };
 
