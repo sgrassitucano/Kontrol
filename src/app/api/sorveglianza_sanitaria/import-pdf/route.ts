@@ -249,7 +249,7 @@ async function buildEmployeeLookupByTaxCode(supabase: SupabaseClient, taxCodes: 
   return byTax;
 }
 
-function collapseUpsertsByEmployeeId(
+export function collapseUpsertsByEmployeeId(
   rows: Array<{ page: number; employee_id: number; created_by: string | null; next_due_date?: string | null; limitations?: string | null }>,
 ) {
   const map = new Map<
