@@ -201,6 +201,18 @@ const DASHBOARD_STATES: DashboardStateKey[] = [
   "escluso",
 ];
 
+type ImportLastRun = {
+  id: string;
+  source: string;
+  fileName: string;
+  status: string;
+  createdAt: string;
+  importedByName: string | null;
+  totalRows?: number;
+  processedRows?: number;
+  errorRows?: number;
+};
+
 export default function HomeFormazionePage() {
   const [rows, setRows] = useState<WorkerCourseRow[]>([]);
   const [totalActiveEmployees, setTotalActiveEmployees] = useState(0);
@@ -245,7 +257,8 @@ export default function HomeFormazionePage() {
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState("");
   const [importProgress, setImportProgress] = useState(0);
-  const [importLastRun, setImportLastRun] = useState<{ createdAt: string; fileName: string; importedByName: string | null } | null>(null);
+  const [importLastRun, setImportLastRun] = useState<ImportLastRun | null>(null);
+  const [isDownloadingImportReport, setIsDownloadingImportReport] = useState(false);
   const [importUndoLoading, setImportUndoLoading] = useState(false);
   const [importUndoMessage, setImportUndoMessage] = useState("");
   const importProgressTimerRef = useRef<number | null>(null);
@@ -384,11 +397,31 @@ export default function HomeFormazionePage() {
     return d.toLocaleString("it-IT");
   }
 
+  const downloadFrom = useCallback(async (url: string) => {
+    setIsDownloadingImportReport(true);
+    try {
+      const response = await fetch(url, { method: "GET" });
+      if (!response.ok) throw new Error("Errore download report.");
+      const blob = await response.blob();
+      const disp = response.headers.get("content-disposition") ?? "";
+      const match = disp.match(/filename=\"([^\"]+)\"/i);
+      const filename = match?.[1] ?? "report.csv";
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } finally {
+      setIsDownloadingImportReport(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const response = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
-      const body = (await response.json()) as { run: { createdAt: string; fileName: string; importedByName: string | null } | null; error?: string };
+      const body = (await response.json()) as { run: ImportLastRun | null; error?: string };
       if (cancelled) return;
       if (!response.ok || body.error) return;
       setImportLastRun(body.run);
@@ -1243,7 +1276,7 @@ export default function HomeFormazionePage() {
       setImportProgress(100);
 
       const last = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
-      const lastBody = (await last.json()) as { run: { createdAt: string; fileName: string; importedByName: string | null } | null; error?: string };
+      const lastBody = (await last.json()) as { run: ImportLastRun | null; error?: string };
       if (last.ok && !lastBody.error) setImportLastRun(lastBody.run);
       await loadRows();
     } catch (err) {
@@ -1274,7 +1307,7 @@ export default function HomeFormazionePage() {
         `Annullamento completato (${body.source}): ripristinate ${body.restoredRows}, eliminate ${body.deletedRows}, saltate ${body.skippedRows}.`,
       );
       const last = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
-      const lastBody = (await last.json()) as { run: { createdAt: string; fileName: string; importedByName: string | null } | null; error?: string };
+      const lastBody = (await last.json()) as { run: ImportLastRun | null; error?: string };
       if (last.ok && !lastBody.error) setImportLastRun(lastBody.run);
       await loadRows();
     } catch (err) {
@@ -2870,10 +2903,27 @@ export default function HomeFormazionePage() {
               Import massivo su template fisso: download modello, compila, carica, verifica preview, commit.
             </p>
             {importLastRun ? (
-              <p className="mt-2 text-xs text-slate-500">
-                Ultimo import: {formatDateTimeIt(importLastRun.createdAt)}
-                {importLastRun.importedByName ? ` · ${importLastRun.importedByName}` : ""} · {importLastRun.fileName}
-              </p>
+              <div className="mt-2 flex flex-col gap-2 text-xs text-slate-500">
+                <p>
+                  Ultimo import: {formatDateTimeIt(importLastRun.createdAt)}
+                  {importLastRun.importedByName ? ` · ${importLastRun.importedByName}` : ""} · {importLastRun.fileName}
+                  {typeof importLastRun.processedRows === "number" && typeof importLastRun.totalRows === "number"
+                    ? ` · ${importLastRun.processedRows}/${importLastRun.totalRows}`
+                    : ""}
+                </p>
+                {typeof importLastRun.errorRows === "number" && importLastRun.errorRows > 0 ? (
+                  <div>
+                    <button
+                      type="button"
+                      disabled={importLoading || importUndoLoading || isDownloadingImportReport}
+                      onClick={() => void downloadFrom(`/api/import-runs/errors?importRunId=${encodeURIComponent(importLastRun.id)}`)}
+                      className="rounded-lg border border-[var(--brand-line)] bg-white px-3 py-1.5 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Scarica report errori
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button

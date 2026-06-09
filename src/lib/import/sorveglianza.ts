@@ -77,6 +77,32 @@ export type SurveillanceImportResult = {
   message: string;
 };
 
+async function insertImportRunErrors(args: {
+  supabase: SupabaseClient;
+  importRunId: string;
+  errors: SurveillanceImportErrorRow[];
+}) {
+  const { supabase, importRunId, errors } = args;
+  if (!importRunId) return;
+  if (errors.length === 0) return;
+
+  for (const part of chunk(errors, 500)) {
+    const { error } = await supabase.from("import_run_errors").insert(
+      part.map((row) => ({
+        import_run_id: importRunId,
+        row_number: Number.isFinite(row.rowNumber) ? row.rowNumber : 0,
+        matricola: row.matricola || null,
+        tax_code: row.taxCode || null,
+        last_name: row.lastName || null,
+        first_name: row.firstName || null,
+        error_type: row.errorType || "error",
+        error_message: row.errorMessage || "Errore import.",
+      })),
+    );
+    if (error) throw new Error(error.message);
+  }
+}
+
 export type ExistingMedicalSurveillanceRow = {
   employee_id: number;
   requires_visit: boolean;
@@ -298,6 +324,9 @@ export async function processMedicalSurveillanceImport({
       .from("medical_surveillance_records")
       .upsert(safeRowsToUpsert, { onConflict: "employee_id" });
     if (error) {
+      if (importRunId) {
+        await insertImportRunErrors({ supabase, importRunId, errors });
+      }
       return {
         mode,
         summary: {
@@ -332,6 +361,10 @@ export async function processMedicalSurveillanceImport({
     mode === "commit"
       ? `Import completato: ${matchedEmployees} righe associate ad anagrafica e salvate.${duplicateRowsCollapsed > 0 ? ` (Duplicati consolidati: ${duplicateRowsCollapsed})` : ""}`
       : `Anteprima completata: ${matchedEmployees} righe associabili ad anagrafica.${duplicateRowsCollapsed > 0 ? ` (Duplicati consolidati: ${duplicateRowsCollapsed})` : ""}`;
+
+  if (mode === "commit" && importRunId) {
+    await insertImportRunErrors({ supabase, importRunId, errors });
+  }
 
   return {
     mode,

@@ -106,11 +106,38 @@ export type LegacyCommitResult = {
     committedRows: number;
     skippedDaFareRows: number;
     skippedMissingStartDateRows: number;
+    issueRows: number;
   };
   message: string;
 };
 
 const SENTINEL_UNLIMITED_YEARS = new Set([2069, 2099]);
+
+async function insertImportRunErrors(args: {
+  supabase: SupabaseClient;
+  importRunId: string;
+  issues: LegacyPreviewIssue[];
+}) {
+  const { supabase, importRunId, issues } = args;
+  if (!importRunId) return;
+  if (issues.length === 0) return;
+
+  for (const part of chunkArray(issues, 500)) {
+    const { error } = await supabase.from("import_run_errors").insert(
+      part.map((issue) => ({
+        import_run_id: importRunId,
+        row_number: Number.isFinite(issue.rowNumber) ? issue.rowNumber : 0,
+        matricola: issue.matricola || null,
+        tax_code: null,
+        last_name: issue.cognome || null,
+        first_name: issue.nome || null,
+        error_type: issue.issueType || "error",
+        error_message: issue.message || "Errore import formazione legacy.",
+      })),
+    );
+    if (error) throw new Error(error.message);
+  }
+}
 
 export async function previewLegacyTrainingImport({
   fileBuffer,
@@ -309,6 +336,9 @@ export async function commitLegacyTrainingImport({
   importRunId,
 }: LegacyCommitParams): Promise<LegacyCommitResult> {
   const preview = await previewLegacyTrainingImport({ fileBuffer, supabase });
+  if (importRunId) {
+    await insertImportRunErrors({ supabase, importRunId, issues: preview.issues });
+  }
   const parsedRows = parseLegacyWorkbook(fileBuffer);
   const [employees, courses] = await Promise.all([
     fetchAllEmployees(supabase),
@@ -477,6 +507,7 @@ export async function commitLegacyTrainingImport({
       committedRows: payload.length,
       skippedDaFareRows,
       skippedMissingStartDateRows,
+      issueRows: preview.issues.length,
     },
     message: "Commit legacy completato (solo dipendenti in anagrafica attiva).",
   };

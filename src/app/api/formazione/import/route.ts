@@ -75,6 +75,7 @@ export async function POST(request: Request) {
             missingEmployees?: number;
             missingCourses?: number;
             missingStartDateRows?: number;
+            issueRows?: number;
           }
         | undefined;
       if (importRunId) {
@@ -84,9 +85,11 @@ export async function POST(request: Request) {
             total_rows: typeof summary?.totalRows === "number" ? summary.totalRows : 0,
             processed_rows: typeof summary?.committedRows === "number" ? summary.committedRows : 0,
             error_rows:
-              (typeof summary?.missingEmployees === "number" ? summary.missingEmployees : 0) +
-              (typeof summary?.missingCourses === "number" ? summary.missingCourses : 0) +
-              (typeof summary?.missingStartDateRows === "number" ? summary.missingStartDateRows : 0),
+              typeof summary?.issueRows === "number"
+                ? summary.issueRows
+                : (typeof summary?.missingEmployees === "number" ? summary.missingEmployees : 0) +
+                  (typeof summary?.missingCourses === "number" ? summary.missingCourses : 0) +
+                  (typeof summary?.missingStartDateRows === "number" ? summary.missingStartDateRows : 0),
             status: "completed",
           })
           .eq("id", importRunId);

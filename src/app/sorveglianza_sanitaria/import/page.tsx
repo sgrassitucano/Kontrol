@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type {
   SurveillanceImportErrorRow,
@@ -24,6 +24,9 @@ type LastImportRun = {
   status: string;
   createdAt: string;
   importedByName: string | null;
+  totalRows?: number;
+  processedRows?: number;
+  errorRows?: number;
 };
 
 function formatDateTimeIt(value: string) {
@@ -36,6 +39,7 @@ export default function SorveglianzaImportPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isUndoing, setIsUndoing] = useState(false);
+  const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [serverError, setServerError] = useState<string>("");
   const [undoMessage, setUndoMessage] = useState<string>("");
   const [result, setResult] = useState<ImportResponse | null>(null);
@@ -43,6 +47,26 @@ export default function SorveglianzaImportPage() {
   const [lastRun, setLastRun] = useState<LastImportRun | null>(null);
   const progressTimerRef = useRef<number | null>(null);
   const runTokenRef = useRef(0);
+
+  const downloadFrom = useCallback(async (url: string) => {
+    setIsDownloadingReport(true);
+    try {
+      const response = await fetch(url, { method: "GET" });
+      if (!response.ok) throw new Error("Errore download report.");
+      const blob = await response.blob();
+      const disp = response.headers.get("content-disposition") ?? "";
+      const match = disp.match(/filename=\"([^\"]+)\"/i);
+      const filename = match?.[1] ?? "report.csv";
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } finally {
+      setIsDownloadingReport(false);
+    }
+  }, []);
 
   const counters = useMemo(() => {
     if (!result) {
@@ -185,10 +209,27 @@ export default function SorveglianzaImportPage() {
         description="Scarica il modello, compilalo e poi fai upload: anteprima e commit del tracciato sorveglianza (visita SI/NO, scadenza, limitazioni, note)."
       >
         {lastRun ? (
-          <p className="mt-2 text-xs text-slate-500">
-            Ultimo import: {formatDateTimeIt(lastRun.createdAt)}
-            {lastRun.importedByName ? ` · ${lastRun.importedByName}` : ""} · {lastRun.fileName}
-          </p>
+          <div className="mt-2 flex flex-col gap-2 text-xs text-slate-500">
+            <p>
+              Ultimo import: {formatDateTimeIt(lastRun.createdAt)}
+              {lastRun.importedByName ? ` · ${lastRun.importedByName}` : ""} · {lastRun.fileName}
+              {typeof lastRun.processedRows === "number" && typeof lastRun.totalRows === "number"
+                ? ` · ${lastRun.processedRows}/${lastRun.totalRows}`
+                : ""}
+            </p>
+            {typeof lastRun.errorRows === "number" && lastRun.errorRows > 0 ? (
+              <div>
+                <button
+                  type="button"
+                  disabled={isLoading || isUndoing || isDownloadingReport}
+                  onClick={() => void downloadFrom(`/api/import-runs/errors?importRunId=${encodeURIComponent(lastRun.id)}`)}
+                  className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Scarica report errori
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </ModuleHeader>
 
