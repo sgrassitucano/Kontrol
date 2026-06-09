@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeJobCode } from "@/lib/training/normalize";
 import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
@@ -207,6 +207,7 @@ export default function HomeFormazionePage() {
   const [excludedByScopeEmployees, setExcludedByScopeEmployees] = useState(0);
   const [frozenEmployees, setFrozenEmployees] = useState(0);
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [showExcludedEmployees, setShowExcludedEmployees] = useState(false);
   const [simulationDate, setSimulationDate] = useState(() => getDefaultSimulationDate());
   const [simulationDateDraft, setSimulationDateDraft] = useState(() =>
@@ -254,6 +255,7 @@ export default function HomeFormazionePage() {
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const syncingRef = useRef(false);
+  const loadRowsAbortRef = useRef<AbortController | null>(null);
   const [tableScrollWidth, setTableScrollWidth] = useState(FORMAZIONE_TABLE_WIDTH);
   const [dashboardCategoryFilter, setDashboardCategoryFilter] = useState<"base" | "operativi" | null>(null);
   const [dashboardStateFilter, setDashboardStateFilter] = useState<WorkerCourseRow["stato"][] | null>(null);
@@ -399,6 +401,9 @@ export default function HomeFormazionePage() {
   const loadRows = useCallback(async (dateOverride?: string) => {
     setIsLoading(true);
     setError("");
+    loadRowsAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadRowsAbortRef.current = controller;
     try {
       const params = new URLSearchParams();
       params.set("date", dateOverride ?? simulationDate);
@@ -406,7 +411,7 @@ export default function HomeFormazionePage() {
 
       params.set("panel", "formazione");
       if (showExcludedEmployees) params.set("includeExcluded", "1");
-      const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`);
+      const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`, { signal: controller.signal });
       const body = (await response.json()) as {
         rows?: WorkerCourseRow[];
         error?: string;
@@ -437,6 +442,7 @@ export default function HomeFormazionePage() {
       setExcludedByScopeEmployees(body.excludedByScopeEmployees ?? 0);
       setFrozenEmployees(body.frozenEmployees ?? 0);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(
         err instanceof Error ? err.message : "Errore caricamento formazione lavoratori.",
       );
@@ -487,10 +493,7 @@ export default function HomeFormazionePage() {
   );
 
   useEffect(() => {
-    const id = setTimeout(() => {
-      void loadRows();
-    }, 0);
-    return () => clearTimeout(id);
+    void loadRows();
   }, [loadRows]);
 
   const loadWorkerDetail = useCallback(
@@ -775,7 +778,7 @@ export default function HomeFormazionePage() {
   }
 
   const rowsForFacets = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return rows.filter((row) => {
       if (dashboardCategoryFilter) {
         const isBase = isDashboardBaseCode(row.corsoCode);
@@ -830,7 +833,7 @@ export default function HomeFormazionePage() {
     dashboardCategoryFilter,
     dashboardStateFilter,
     rows,
-    search,
+    deferredSearch,
   ]);
 
   const filteredRows = useMemo(() => {

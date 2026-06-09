@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardCard, KpiCard, KpiGrid, ModuleHeader } from "@/components/module-ui";
 import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
 import { isoToItDate } from "@/lib/it-date";
@@ -63,6 +63,7 @@ export default function HomeSorveglianzaPage() {
   const [exporting, setExporting] = useState(false);
 
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [extendedSearch, setExtendedSearch] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [includeExcluded, setIncludeExcluded] = useState(false);
@@ -151,14 +152,20 @@ export default function HomeSorveglianzaPage() {
   const [detailProvider, setDetailProvider] = useState("");
   const [detailSaving, setDetailSaving] = useState(false);
 
+  const loadRowsAbortRef = useRef<AbortController | null>(null);
+  const loadDetailAbortRef = useRef<AbortController | null>(null);
+
   const loadRows = useCallback(async () => {
     setIsLoading(true);
     setError("");
+    loadRowsAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadRowsAbortRef.current = controller;
     try {
       const params = new URLSearchParams();
       params.set("expiringDays", String(expiringDays));
       if (includeExcluded) params.set("includeExcluded", "1");
-      const response = await fetch(`/api/sorveglianza_sanitaria/lavoratori?${params.toString()}`);
+      const response = await fetch(`/api/sorveglianza_sanitaria/lavoratori?${params.toString()}`, { signal: controller.signal });
       const body = (await response.json()) as ApiResponse;
       if (!response.ok || body.error) {
         throw new Error(body.error ?? "Errore caricamento sorveglianza sanitaria.");
@@ -179,6 +186,7 @@ export default function HomeSorveglianzaPage() {
         },
       });
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Errore caricamento sorveglianza sanitaria.");
     } finally {
       setIsLoading(false);
@@ -190,7 +198,7 @@ export default function HomeSorveglianzaPage() {
   }, [loadRows]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return rows.filter((row) => {
       if (statusFilter === "critico") {
         if (!(row.stato === "scaduto" || row.stato === "da fare")) return false;
@@ -217,7 +225,7 @@ export default function HomeSorveglianzaPage() {
         : [row.matricola, row.cognome, row.nome].join(" ").toLowerCase();
       return searchable.includes(q);
     });
-  }, [rows, search, statusFilter, extendedSearch]);
+  }, [rows, deferredSearch, statusFilter, extendedSearch]);
 
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "cognome", dir: "asc" });
 
@@ -313,8 +321,11 @@ export default function HomeSorveglianzaPage() {
   const loadWorkerDetail = useCallback(async (employeeId: number) => {
     setWorkerDetailLoading(true);
     setWorkerDetailError("");
+    loadDetailAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadDetailAbortRef.current = controller;
     try {
-      const response = await fetch(`/api/sorveglianza_sanitaria/lavoratore?employeeId=${employeeId}`);
+      const response = await fetch(`/api/sorveglianza_sanitaria/lavoratore?employeeId=${employeeId}`, { signal: controller.signal });
       const body = (await response.json()) as { error?: string };
       if (!response.ok || body.error) throw new Error(body.error ?? "Errore caricamento lavoratore.");
       const typed = body as typeof workerDetail;
@@ -337,6 +348,7 @@ export default function HomeSorveglianzaPage() {
       setDetailPlanned(Boolean(record?.is_planned));
       setDetailProvider(String((typed?.record ?? null)?.provider ?? "").trim());
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setWorkerDetailError(err instanceof Error ? err.message : "Errore caricamento lavoratore.");
     } finally {
       setWorkerDetailLoading(false);
@@ -396,6 +408,18 @@ export default function HomeSorveglianzaPage() {
     loadWorkerDetail,
     workerDetailId,
   ]);
+
+  const workerOptions = useMemo(
+    () =>
+      rows.map((r) => ({
+        workerId: r.workerId,
+        matricola: r.matricola,
+        fullName: `${r.cognome} ${r.nome}`.trim(),
+        cantiere: r.cantiere,
+        sottocantiere: r.sottocantiere,
+      })),
+    [rows],
+  );
 
   return (
     <div className="space-y-4">
@@ -792,13 +816,7 @@ export default function HomeSorveglianzaPage() {
         selectedWorkerIds={selectedWorkerIds}
         toggleWorkerSelection={toggleWorkerSelection}
         clearSelection={clearSelection}
-        workerOptions={rows.map((r) => ({
-          workerId: r.workerId,
-          matricola: r.matricola,
-          fullName: `${r.cognome} ${r.nome}`.trim(),
-          cantiere: r.cantiere,
-          sottocantiere: r.sottocantiere,
-        }))}
+        workerOptions={workerOptions}
         onSaved={async () => {
           setEventModalOpen(false);
           clearSelection();
