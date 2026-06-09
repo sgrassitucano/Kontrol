@@ -77,6 +77,55 @@ export type SurveillanceImportResult = {
   message: string;
 };
 
+export type ExistingMedicalSurveillanceRow = {
+  employee_id: number;
+  requires_visit: boolean;
+  next_due_date: string | null;
+  limitations: string | null;
+  notes: string | null;
+};
+
+export type MedicalSurveillanceUpsertRow = {
+  employee_id: number;
+  requires_visit: boolean;
+  next_due_date?: string | null;
+  limitations?: string | null;
+  notes?: string | null;
+  created_by: string | null;
+};
+
+export function makeMedicalSurveillanceUpsertsSafe(args: {
+  rows: MedicalSurveillanceUpsertRow[];
+  existingByEmployeeId: Map<number, ExistingMedicalSurveillanceRow>;
+}) {
+  let skippedOlderDueDates = 0;
+  const safeRows = args.rows.map((row) => {
+    const existing = args.existingByEmployeeId.get(row.employee_id) ?? null;
+    const out: MedicalSurveillanceUpsertRow = { ...row };
+
+    if (!out.requires_visit) {
+      out.next_due_date = null;
+    } else if (!out.next_due_date) {
+      delete out.next_due_date;
+    } else if (existing?.next_due_date && out.next_due_date <= existing.next_due_date) {
+      delete out.next_due_date;
+      skippedOlderDueDates += 1;
+    }
+
+    const candLimitations = String(out.limitations ?? "").trim();
+    if (!candLimitations) delete out.limitations;
+    else if (!out.next_due_date && String(existing?.limitations ?? "").trim()) delete out.limitations;
+
+    const candNotes = String(out.notes ?? "").trim();
+    if (!candNotes) delete out.notes;
+    else if (!out.next_due_date && String(existing?.notes ?? "").trim()) delete out.notes;
+
+    return out;
+  });
+
+  return { rows: safeRows, skippedOlderDueDates };
+}
+
 export async function processMedicalSurveillanceImport({
   fileBuffer,
   mode,
@@ -161,7 +210,7 @@ export async function processMedicalSurveillanceImport({
   });
 
   const chosen = Array.from(chosenByEmployeeId.values());
-  const rowsToUpsert = chosen.map((c) => c.upsert);
+  const rowsToUpsert = chosen.map((c) => c.upsert) as MedicalSurveillanceUpsertRow[];
   const matchedEmployees = rowsToUpsert.length;
   const duplicateRowsCollapsed = Math.max(0, matchedRowOccurrences - matchedEmployees);
 
@@ -178,16 +227,7 @@ export async function processMedicalSurveillanceImport({
   let safeRowsToUpsert = rowsToUpsert;
   if (mode === "commit" && rowsToUpsert.length > 0) {
     const employeeIds = rowsToUpsert.map((r) => r.employee_id);
-    const existingByEmployeeId = new Map<
-      number,
-      {
-        employee_id: number;
-        requires_visit: boolean;
-        next_due_date: string | null;
-        limitations: string | null;
-        notes: string | null;
-      }
-    >();
+    const existingByEmployeeId = new Map<number, ExistingMedicalSurveillanceRow>();
 
     for (const part of chunk(employeeIds, 500)) {
       const { data, error } = await supabase
@@ -196,33 +236,13 @@ export async function processMedicalSurveillanceImport({
         .in("employee_id", part);
       if (error) throw new Error(error.message);
       (data ?? []).forEach((row) => {
-        existingByEmployeeId.set(row.employee_id, row);
+        existingByEmployeeId.set((row as ExistingMedicalSurveillanceRow).employee_id, row as ExistingMedicalSurveillanceRow);
       });
     }
 
-    safeRowsToUpsert = rowsToUpsert.map((row) => {
-      const existing = existingByEmployeeId.get(row.employee_id) ?? null;
-      const out: typeof row = { ...row };
-
-      if (!out.requires_visit) {
-        out.next_due_date = null;
-      } else if (!out.next_due_date) {
-        delete out.next_due_date;
-      } else if (existing?.next_due_date && out.next_due_date <= existing.next_due_date) {
-        delete out.next_due_date;
-        skippedOlderDueDates += 1;
-      }
-
-      const candLimitations = String(out.limitations ?? "").trim();
-      if (!candLimitations) delete out.limitations;
-      else if (!out.next_due_date && String(existing?.limitations ?? "").trim()) delete out.limitations;
-
-      const candNotes = String(out.notes ?? "").trim();
-      if (!candNotes) delete out.notes;
-      else if (!out.next_due_date && String(existing?.notes ?? "").trim()) delete out.notes;
-
-      return out;
-    });
+    const safe = makeMedicalSurveillanceUpsertsSafe({ rows: rowsToUpsert, existingByEmployeeId });
+    safeRowsToUpsert = safe.rows;
+    skippedOlderDueDates = safe.skippedOlderDueDates;
 
     if (skippedOlderDueDates > 0) {
       errors.push({
@@ -388,7 +408,7 @@ function parseBooleanSiNo(value: string) {
   return null;
 }
 
-function parseDateToIso(value: unknown) {
+export function parseDateToIso(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
   }
