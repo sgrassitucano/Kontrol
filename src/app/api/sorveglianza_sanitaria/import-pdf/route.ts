@@ -287,7 +287,57 @@ function collapseUpsertsByEmployeeId(
     map.set(r.employee_id, { page: Math.max(existing.page, r.page), upsert: out });
   });
 
-  return Array.from(map.values()).map((x) => x.upsert);
+  return Array.from(map.values());
+}
+
+async function makePdfImportUpsertsSafe(args: {
+  supabase: SupabaseClient;
+  rows: Array<{
+    page: number;
+    upsert: { employee_id: number; created_by: string | null; next_due_date?: string | null; limitations?: string | null };
+  }>;
+}) {
+  const { supabase, rows } = args;
+  const employeeIds = Array.from(new Set(rows.map((r) => r.upsert.employee_id))).filter((n) => Number.isFinite(n) && n > 0);
+  const existingByEmployeeId = new Map<number, { next_due_date: string | null; limitations: string | null }>();
+
+  const chunkSize = 500;
+  for (let i = 0; i < employeeIds.length; i += chunkSize) {
+    const part = employeeIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from("medical_surveillance_records")
+      .select("employee_id,next_due_date,limitations")
+      .in("employee_id", part);
+    if (error) throw new Error(error.message);
+    ((data ?? []) as Array<{ employee_id: number; next_due_date: string | null; limitations: string | null }>).forEach((r) => {
+      existingByEmployeeId.set(r.employee_id, { next_due_date: r.next_due_date ?? null, limitations: r.limitations ?? null });
+    });
+  }
+
+  let skippedOlderDueDates = 0;
+  const safeRows: typeof rows = [];
+
+  rows.forEach((row) => {
+    const existing = existingByEmployeeId.get(row.upsert.employee_id) ?? { next_due_date: null, limitations: null };
+    const out = { ...row.upsert };
+
+    const candDue = out.next_due_date ?? null;
+    const prevDue = existing.next_due_date ?? null;
+    if (candDue && prevDue && candDue <= prevDue) {
+      delete out.next_due_date;
+      skippedOlderDueDates += 1;
+    }
+
+    const candLim = String(out.limitations ?? "").trim();
+    const prevLim = String(existing.limitations ?? "").trim();
+    if (!candLim) delete out.limitations;
+    else if (!out.next_due_date && prevLim) delete out.limitations;
+
+    if (!out.next_due_date && !out.limitations) return;
+    safeRows.push({ page: row.page, upsert: out });
+  });
+
+  return { rows: safeRows, skippedOlderDueDates };
 }
 
 export async function POST(request: Request) {
@@ -407,7 +457,9 @@ export async function POST(request: Request) {
         }
       });
 
-      const rowsToUpsert = collapseUpsertsByEmployeeId(rowsToUpsertWithMeta);
+      const collapsed = collapseUpsertsByEmployeeId(rowsToUpsertWithMeta);
+      const safe = await makePdfImportUpsertsSafe({ supabase: auth.supabase, rows: collapsed });
+      const rowsToUpsert = safe.rows.map((r) => r.upsert);
       matchedEmployees = rowsToUpsert.length;
       dueDateFound = rowsToUpsert.filter((r) => Boolean(r.next_due_date)).length;
       limitationsFound = rowsToUpsert.filter((r) => Boolean(String(r.limitations ?? "").trim())).length;
@@ -448,7 +500,10 @@ export async function POST(request: Request) {
         summary,
         previewRows: [],
         errors: errors.slice(0, 200),
-        message: `Import PDF completato: aggiornati ${updatedRecords} lavoratori.`,
+        message:
+          safe.skippedOlderDueDates > 0
+            ? `Import PDF completato: aggiornati ${updatedRecords} lavoratori. Saltate ${safe.skippedOlderDueDates} scadenze più vecchie.`
+            : `Import PDF completato: aggiornati ${updatedRecords} lavoratori.`,
       };
       return NextResponse.json(response);
     }
@@ -620,7 +675,9 @@ export async function POST(request: Request) {
       }
     });
 
-    const rowsToUpsert = collapseUpsertsByEmployeeId(rowsToUpsertWithMeta);
+    const collapsed = collapseUpsertsByEmployeeId(rowsToUpsertWithMeta);
+    const safe = await makePdfImportUpsertsSafe({ supabase: auth.supabase, rows: collapsed });
+    const rowsToUpsert = safe.rows.map((r) => r.upsert);
 
     if (mode === "commit" && rowsToUpsert.length > 0) {
       const { error } = await auth.supabase
@@ -645,7 +702,9 @@ export async function POST(request: Request) {
 
     const message =
       mode === "commit"
-        ? `Import PDF completato: aggiornati ${updatedRecords} lavoratori.`
+        ? safe.skippedOlderDueDates > 0
+          ? `Import PDF completato: aggiornati ${updatedRecords} lavoratori. Saltate ${safe.skippedOlderDueDates} scadenze più vecchie.`
+          : `Import PDF completato: aggiornati ${updatedRecords} lavoratori.`
         : `Anteprima PDF completata: ${matchedEmployees} pagine associate.`;
 
     if (mode === "commit") {
