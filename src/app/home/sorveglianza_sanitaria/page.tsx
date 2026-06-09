@@ -63,6 +63,7 @@ export default function HomeSorveglianzaPage() {
   const [exporting, setExporting] = useState(false);
 
   const [search, setSearch] = useState("");
+  const [extendedSearch, setExtendedSearch] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [includeExcluded, setIncludeExcluded] = useState(false);
   const [expiringDays, setExpiringDays] = useState(30);
@@ -197,24 +198,26 @@ export default function HomeSorveglianzaPage() {
         return false;
       }
       if (!q) return true;
-      const searchable = [
-        row.matricola,
-        row.cognome,
-        row.nome,
-        row.mansione,
-        row.cantiere,
-        row.sottocantiere,
-        row.responsabile,
-        row.referente,
-        row.medico,
-        row.limitazioni,
-        row.note,
-      ]
-        .join(" ")
-        .toLowerCase();
+      const searchable = extendedSearch
+        ? [
+            row.matricola,
+            row.cognome,
+            row.nome,
+            row.mansione,
+            row.cantiere,
+            row.sottocantiere,
+            row.responsabile,
+            row.referente,
+            row.medico,
+            row.limitazioni,
+            row.note,
+          ]
+            .join(" ")
+            .toLowerCase()
+        : [row.matricola, row.cognome, row.nome].join(" ").toLowerCase();
       return searchable.includes(q);
     });
-  }, [rows, search, statusFilter]);
+  }, [rows, search, statusFilter, extendedSearch]);
 
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "cognome", dir: "asc" });
 
@@ -595,9 +598,17 @@ export default function HomeSorveglianzaPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Ricerca: cognome, mansione, cantiere, medico"
+                placeholder={extendedSearch ? "Ricerca estesa" : "Ricerca dipendente (matricola, cognome, nome)"}
                 className="w-[320px] max-w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
               />
+              <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={extendedSearch}
+                  onChange={(event) => setExtendedSearch(event.target.checked)}
+                />
+                Ricerca estesa
+              </label>
               <select
                 value={String(expiringDays)}
                 onChange={(event) => setExpiringDays(Number(event.target.value))}
