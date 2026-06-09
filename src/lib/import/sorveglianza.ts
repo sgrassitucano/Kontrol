@@ -96,9 +96,9 @@ export async function processMedicalSurveillanceImport({
       upsert: {
         employee_id: number;
         requires_visit: boolean;
-        next_due_date: string | null;
-        limitations: string | null;
-        notes: string | null;
+        next_due_date?: string | null;
+        limitations?: string | null;
+        notes?: string | null;
         created_by: string | null;
       };
     }
@@ -174,33 +174,76 @@ export async function processMedicalSurveillanceImport({
     if (c.upsert.requires_visit && !c.upsert.next_due_date) dueDateMissing += 1;
   });
 
+  let skippedOlderDueDates = 0;
+  let safeRowsToUpsert = rowsToUpsert;
   if (mode === "commit" && rowsToUpsert.length > 0) {
-    if (importRunId) {
-      const employeeIds = rowsToUpsert.map((r) => r.employee_id);
-      const existingByEmployeeId = new Map<
-        number,
-        {
-          employee_id: number;
-          requires_visit: boolean;
-          next_due_date: string | null;
-          limitations: string | null;
-          notes: string | null;
-        }
-      >();
+    const employeeIds = rowsToUpsert.map((r) => r.employee_id);
+    const existingByEmployeeId = new Map<
+      number,
+      {
+        employee_id: number;
+        requires_visit: boolean;
+        next_due_date: string | null;
+        limitations: string | null;
+        notes: string | null;
+      }
+    >();
 
-      for (const part of chunk(employeeIds, 500)) {
-        const { data, error } = await supabase
-          .from("medical_surveillance_records")
-          .select("employee_id,requires_visit,next_due_date,limitations,notes")
-          .in("employee_id", part);
-        if (error) throw new Error(error.message);
-        (data ?? []).forEach((row) => {
-          existingByEmployeeId.set(row.employee_id, row);
-        });
+    for (const part of chunk(employeeIds, 500)) {
+      const { data, error } = await supabase
+        .from("medical_surveillance_records")
+        .select("employee_id,requires_visit,next_due_date,limitations,notes")
+        .in("employee_id", part);
+      if (error) throw new Error(error.message);
+      (data ?? []).forEach((row) => {
+        existingByEmployeeId.set(row.employee_id, row);
+      });
+    }
+
+    safeRowsToUpsert = rowsToUpsert.map((row) => {
+      const existing = existingByEmployeeId.get(row.employee_id) ?? null;
+      const out: typeof row = { ...row };
+
+      if (!out.requires_visit) {
+        out.next_due_date = null;
+      } else if (!out.next_due_date) {
+        delete out.next_due_date;
+      } else if (existing?.next_due_date && out.next_due_date <= existing.next_due_date) {
+        delete out.next_due_date;
+        skippedOlderDueDates += 1;
       }
 
-      const changes = rowsToUpsert.map((row) => {
+      const candLimitations = String(out.limitations ?? "").trim();
+      if (!candLimitations) delete out.limitations;
+      else if (!out.next_due_date && String(existing?.limitations ?? "").trim()) delete out.limitations;
+
+      const candNotes = String(out.notes ?? "").trim();
+      if (!candNotes) delete out.notes;
+      else if (!out.next_due_date && String(existing?.notes ?? "").trim()) delete out.notes;
+
+      return out;
+    });
+
+    if (skippedOlderDueDates > 0) {
+      errors.push({
+        rowNumber: 0,
+        matricola: "",
+        taxCode: "",
+        lastName: "",
+        firstName: "",
+        errorType: "skipped_older_due_date",
+        errorMessage: `Saltate ${skippedOlderDueDates} scadenze più vecchie rispetto a quelle già presenti.`,
+      });
+    }
+
+    if (importRunId) {
+      const changes = safeRowsToUpsert.map((row) => {
         const before = existingByEmployeeId.get(row.employee_id) ?? null;
+        const afterNextDueDate =
+          row.next_due_date === undefined ? before?.next_due_date ?? null : (row.next_due_date ?? null);
+        const afterLimitations =
+          row.limitations === undefined ? before?.limitations ?? null : (row.limitations ?? null);
+        const afterNotes = row.notes === undefined ? before?.notes ?? null : (row.notes ?? null);
         return {
           import_run_id: importRunId,
           table_name: "medical_surveillance_records",
@@ -218,9 +261,9 @@ export async function processMedicalSurveillanceImport({
           after_row: {
             employee_id: row.employee_id,
             requires_visit: row.requires_visit,
-            next_due_date: row.next_due_date,
-            limitations: row.limitations,
-            notes: row.notes,
+            next_due_date: afterNextDueDate,
+            limitations: afterLimitations,
+            notes: afterNotes,
           },
         };
       });
@@ -233,7 +276,7 @@ export async function processMedicalSurveillanceImport({
 
     const { error } = await supabase
       .from("medical_surveillance_records")
-      .upsert(rowsToUpsert, { onConflict: "employee_id" });
+      .upsert(safeRowsToUpsert, { onConflict: "employee_id" });
     if (error) {
       return {
         mode,
@@ -403,9 +446,6 @@ function parseDateToIso(value: unknown) {
     const mm = String(mmNum).padStart(2, "0");
     return `${year}-${mm}-${dd}`;
   }
-
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
 
   return null;
 }
