@@ -289,6 +289,45 @@ create policy "import_run_undos_insert_by_module"
     )
   );
 
+drop policy if exists "import_run_errors_read_management_only" on public.import_run_errors;
+drop policy if exists "import_run_errors_read_by_module" on public.import_run_errors;
+create policy "import_run_errors_read_by_module"
+  on public.import_run_errors
+  for select
+  using (
+    exists (
+      select 1
+      from public.import_runs r
+      where r.id = import_run_id
+        and (
+          public.has_module_access('gestione')
+          or (r.source = 'formazione_legacy' and public.has_module_access('formazione'))
+          or (r.source in ('sorveglianza', 'sorveglianza_pdf') and public.has_module_access('sorveglianza'))
+        )
+    )
+  );
+
+drop policy if exists "import_run_errors_write_management_only" on public.import_run_errors;
+drop policy if exists "import_run_errors_insert_by_module" on public.import_run_errors;
+create policy "import_run_errors_insert_by_module"
+  on public.import_run_errors
+  for insert
+  with check (
+    exists (
+      select 1
+      from public.import_runs r
+      where r.id = import_run_id
+        and (
+          public.has_module_access('gestione', true)
+          or (r.source = 'formazione_legacy' and public.has_module_access('formazione', true))
+          or (r.source in ('sorveglianza', 'sorveglianza_pdf') and public.has_module_access('sorveglianza', true))
+        )
+    )
+  );
+
+revoke usage on schema internal from anon;
+revoke execute on all functions in schema internal from anon;
+
 alter table public.employees
   add column if not exists sex text,
   add column if not exists birth_province text,
@@ -297,6 +336,52 @@ alter table public.employees
   add column if not exists residence_city text,
   add column if not exists residence_province text,
   add column if not exists residence_belfiore_code text;
+
+-- Normalizzazione preventiva per evitare che i nuovi constraint falliscano su dati storici sporchi.
+update public.employees
+set sex = upper(nullif(trim(sex), ''))
+where sex is not null;
+
+update public.employees
+set sex = null
+where sex is not null
+  and sex not in ('M', 'F');
+
+update public.employees
+set birth_province = upper(nullif(trim(birth_province), ''))
+where birth_province is not null;
+
+update public.employees
+set birth_province = null
+where birth_province is not null
+  and birth_province !~ '^[A-Z]{2}$';
+
+update public.employees
+set residence_province = upper(nullif(trim(residence_province), ''))
+where residence_province is not null;
+
+update public.employees
+set residence_province = null
+where residence_province is not null
+  and residence_province !~ '^[A-Z]{2}$';
+
+update public.employees
+set residence_postal_code = nullif(regexp_replace(coalesce(residence_postal_code, ''), '[^0-9]', '', 'g'), '')
+where residence_postal_code is not null;
+
+update public.employees
+set residence_postal_code = null
+where residence_postal_code is not null
+  and residence_postal_code !~ '^[0-9]{5}$';
+
+update public.employees
+set residence_belfiore_code = upper(nullif(trim(residence_belfiore_code), ''))
+where residence_belfiore_code is not null;
+
+update public.employees
+set residence_belfiore_code = null
+where residence_belfiore_code is not null
+  and residence_belfiore_code !~ '^[A-Z][0-9]{3}$';
 
 alter table public.employees
   drop constraint if exists employees_sex_check,
