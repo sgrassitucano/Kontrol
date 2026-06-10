@@ -289,7 +289,7 @@ export function collapseUpsertsByEmployeeId(
   return Array.from(map.values());
 }
 
-async function makePdfImportUpsertsSafe(args: {
+export async function makePdfImportUpsertsSafe(args: {
   supabase: SupabaseClient;
   rows: Array<{
     page: number;
@@ -339,7 +339,7 @@ async function makePdfImportUpsertsSafe(args: {
   return { rows: safeRows, skippedOlderDueDates };
 }
 
-async function insertImportRunErrors(args: {
+export async function insertImportRunErrors(args: {
   supabase: SupabaseClient;
   importRunId: string;
   errors: PdfImportErrorRow[];
