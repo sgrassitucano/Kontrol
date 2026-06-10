@@ -1164,3 +1164,58 @@ create policy "turni_site_month_targets_delete_management_only"
   on public.turni_site_month_targets
   for delete
   using (public.has_module_access('gestione', true));
+
+drop policy if exists "training_employee_courses_write_management_only" on public.training_employee_courses;
+drop policy if exists "training_employee_courses_write_formazione" on public.training_employee_courses;
+drop policy if exists "training_employee_courses_insert_by_scope" on public.training_employee_courses;
+drop policy if exists "training_employee_courses_update_by_scope" on public.training_employee_courses;
+drop policy if exists "training_employee_courses_delete_management_only" on public.training_employee_courses;
+
+create policy "training_employee_courses_insert_by_scope"
+  on public.training_employee_courses
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "training_employee_courses_update_by_scope"
+  on public.training_employee_courses
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "training_employee_courses_delete_management_only"
+  on public.training_employee_courses
+  for delete
+  using (public.has_module_access('gestione', true));
