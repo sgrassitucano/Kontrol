@@ -534,7 +534,11 @@ security definer
 set search_path = public
 as $$
 declare
-  has_access boolean;
+  has_turni_write boolean;
+  has_gestione_write boolean;
+  employee_responsible_code text;
+  employee_referral text;
+  has_employee_scope boolean;
   shift_start timestamptz;
   shift_end timestamptz;
   item jsonb;
@@ -542,16 +546,28 @@ declare
   b_end timestamptz;
   prev_end timestamptz;
 begin
-  select public.has_module_access('turni', true) into has_access;
-  if not has_access then
-    raise exception 'Accesso negato.' using errcode = '42501';
+  select public.has_module_access('gestione', true) into has_gestione_write;
+  if not has_gestione_write then
+    select public.has_module_access('turni', true) into has_turni_write;
+    if not has_turni_write then
+      raise exception 'Accesso negato.' using errcode = '42501';
+    end if;
   end if;
 
-  select s.start_at, s.end_at into shift_start, shift_end
+  select s.start_at, s.end_at, e.responsible_code, e.referral
+  into shift_start, shift_end, employee_responsible_code, employee_referral
   from public.turni_employee_shifts s
+  join public.employees e on e.id = s.employee_id
   where s.id = internal.turni_replace_shift_breaks.shift_id;
   if shift_start is null or shift_end is null then
     raise exception 'Turno non trovato.' using errcode = 'P0002';
+  end if;
+
+  if not has_gestione_write then
+    select public.can_access_employee(employee_responsible_code, employee_referral) into has_employee_scope;
+    if not has_employee_scope then
+      raise exception 'Accesso negato.' using errcode = '42501';
+    end if;
   end if;
 
   perform internal.turni_assert_month_not_locked(shift_start);
