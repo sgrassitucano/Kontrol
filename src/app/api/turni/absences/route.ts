@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,25 @@ function toDayEndIso(isoDate: string) {
   const d = new Date(`${isoDate}T23:59:59`);
   if (!Number.isFinite(d.getTime())) throw new Error("Data non valida.");
   return d.toISOString();
+}
+
+function monthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function ensureNotLocked(supabase: SupabaseClient, date: Date) {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const { data, error } = await supabase
+    .from("turni_month_locks")
+    .select("id")
+    .eq("year", year)
+    .eq("month", month)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  if ((data ?? []).length > 0) {
+    throw new Error(`Mese bloccato: ${String(month).padStart(2, "0")}/${year}.`);
+  }
 }
 
 export async function GET(request: Request) {
@@ -102,6 +122,26 @@ export async function POST(request: Request) {
     const startAt = toDayStartIso(startDate);
     const endAt = toDayEndIso(endDate);
 
+    const startDateObj = new Date(startAt);
+    const endDateObj = new Date(endAt);
+    const months = new Set([monthKey(startDateObj), monthKey(endDateObj)]);
+    for (const m of months) {
+      const [y, mm] = m.split("-").map((x) => Number(x));
+      await ensureNotLocked(supabase, new Date(`${y}-${String(mm).padStart(2, "0")}-01T00:00:00`));
+    }
+
+    const { data: overlapsData, error: overlapsError } = await supabase
+      .from("turni_employee_absences")
+      .select("id")
+      .eq("employee_id", employeeId)
+      .lt("start_at", endAt)
+      .gt("end_at", startAt)
+      .limit(1);
+    if (overlapsError) throw new Error(overlapsError.message);
+    if ((overlapsData ?? []).length > 0) {
+      return NextResponse.json({ error: "Esiste già un'assenza che si sovrappone al periodo selezionato." }, { status: 409 });
+    }
+
     const { data, error } = await supabase
       .from("turni_employee_absences")
       .insert({
@@ -135,6 +175,16 @@ export async function DELETE(request: Request) {
     if (!Number.isFinite(absenceId)) return NextResponse.json({ error: "absenceId non valido." }, { status: 400 });
 
     const supabase = auth.supabase;
+    const { data: current, error: currentError } = await supabase
+      .from("turni_employee_absences")
+      .select("start_at,end_at")
+      .eq("id", absenceId)
+      .single();
+    if (currentError) throw new Error(currentError.message);
+
+    await ensureNotLocked(supabase, new Date((current as { start_at: string }).start_at));
+    await ensureNotLocked(supabase, new Date((current as { end_at: string }).end_at));
+
     const { error } = await supabase.from("turni_employee_absences").delete().eq("id", absenceId);
     if (error) throw new Error(error.message);
     return NextResponse.json({ ok: true });
@@ -145,4 +195,3 @@ export async function DELETE(request: Request) {
     );
   }
 }
-

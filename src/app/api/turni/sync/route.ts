@@ -8,6 +8,22 @@ type Mode = "employee" | "site";
 type ShiftState = "planned" | "actual" | "cancelled";
 type AbsenceType = "ferie" | "malattia" | "permesso" | "infortunio" | "altro";
 
+export function pickAbsenceForShift(
+  absences: Array<{ id: number; absence_type: AbsenceType; start_at: string; end_at: string; note: string | null }>,
+  startAt: string,
+  endAt: string,
+) {
+  const ordered = [...absences].sort((a, b) => {
+    const cmp = String(a.start_at).localeCompare(String(b.start_at));
+    if (cmp !== 0) return cmp;
+    return a.id - b.id;
+  });
+  for (const a of ordered) {
+    if (overlaps(startAt, endAt, a.start_at, a.end_at)) return a;
+  }
+  return null;
+}
+
 function normalizeText(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -182,7 +198,7 @@ async function syncEmployeeRange(params: {
       const endAt = end.toISOString();
       const key = `${employeeId}:${slot.site_id}:${slot.sub_site_id ?? ""}:${startAt}:${endAt}`;
 
-      const absence = absences.find((a) => overlaps(startAt, endAt, a.start_at, a.end_at));
+      const absence = pickAbsenceForShift(absences, startAt, endAt);
       const state: ShiftState = absence ? "cancelled" : "planned";
       const note = absence
         ? normalizeText(`${absence.absence_type}${absence.note ? `: ${absence.note}` : ""}`) || null

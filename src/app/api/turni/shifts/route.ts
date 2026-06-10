@@ -59,6 +59,38 @@ function isQuarterHour(date: Date) {
   return date.getSeconds() === 0 && date.getMilliseconds() === 0 && date.getMinutes() % 15 === 0;
 }
 
+function normalizeAndValidateBreaks(args: {
+  breaks: unknown;
+  shiftStart: Date;
+  shiftEnd: Date;
+}) {
+  const { breaks, shiftStart, shiftEnd } = args;
+  if (!Array.isArray(breaks)) return [] as Array<{ start: Date; end: Date }>;
+
+  const parsed = breaks
+    .map((b) => ({
+      start: new Date((b as { startAt?: unknown }).startAt as string),
+      end: new Date((b as { endAt?: unknown }).endAt as string),
+    }))
+    .filter((b) => Number.isFinite(b.start.getTime()) && Number.isFinite(b.end.getTime()));
+
+  for (const b of parsed) {
+    if (b.end <= b.start) throw new ClientError("Pausa non valida (fine <= inizio).");
+    if (!isQuarterHour(b.start) || !isQuarterHour(b.end)) throw new ClientError("Pause ammesse solo a quarti d'ora.");
+    if (b.start < shiftStart || b.end > shiftEnd) throw new ClientError("Le pause devono stare dentro l'orario del turno.");
+  }
+
+  parsed.sort((a, b) => a.start.getTime() - b.start.getTime());
+  for (let i = 1; i < parsed.length; i += 1) {
+    const prev = parsed[i - 1];
+    const cur = parsed[i];
+    if (!prev || !cur) continue;
+    if (cur.start < prev.end) throw new ClientError("Le pause non possono sovrapporsi.");
+  }
+
+  return parsed;
+}
+
 function monthKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -277,6 +309,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Orari ammessi solo a quarti d'ora." }, { status: 400 });
     }
 
+    const normalizedBreaks = normalizeAndValidateBreaks({ breaks: body.breaks, shiftStart: startAt, shiftEnd: endAt });
+
     const months = new Set([monthKey(startAt), monthKey(endAt)]);
     for (const m of months) {
       const [y, mm] = m.split("-").map((x) => Number(x));
@@ -306,11 +340,7 @@ export async function POST(request: Request) {
     if (insertError) throw new Error(insertError.message);
     const shiftId = (inserted as { id: number }).id;
 
-    const breaks = Array.isArray(body.breaks) ? body.breaks : [];
-    const payload = breaks
-      .map((b) => ({ start: new Date(b.startAt), end: new Date(b.endAt) }))
-      .filter((b) => Number.isFinite(b.start.getTime()) && Number.isFinite(b.end.getTime()))
-      .map((b) => ({
+    const payload = normalizedBreaks.map((b) => ({
         shift_id: shiftId,
         break_start_at: b.start.toISOString(),
         break_end_at: b.end.toISOString(),
@@ -399,6 +429,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Orari ammessi solo a quarti d'ora." }, { status: 400 });
     }
 
+    const normalizedBreaks = Array.isArray(body.breaks)
+      ? normalizeAndValidateBreaks({ breaks: body.breaks, shiftStart: nextStart, shiftEnd: nextEnd })
+      : [];
+
     const months = new Set([monthKey(nextStart), monthKey(nextEnd), monthKey(currentStart), monthKey(currentEnd)]);
     for (const m of months) {
       const [y, mm] = m.split("-").map((x) => Number(x));
@@ -422,10 +456,7 @@ export async function PATCH(request: Request) {
     if (Array.isArray(body.breaks)) {
       const { error: delError } = await supabase.from("turni_shift_breaks").delete().eq("shift_id", shiftId);
       if (delError) throw new Error(delError.message);
-      const payload = body.breaks
-        .map((b) => ({ start: new Date(b.startAt), end: new Date(b.endAt) }))
-        .filter((b) => Number.isFinite(b.start.getTime()) && Number.isFinite(b.end.getTime()))
-        .map((b) => ({
+      const payload = normalizedBreaks.map((b) => ({
           shift_id: shiftId,
           break_start_at: b.start.toISOString(),
           break_end_at: b.end.toISOString(),
