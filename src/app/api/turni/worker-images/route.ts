@@ -158,6 +158,13 @@ function parseYearMonth(value: string | null) {
   return { y, m };
 }
 
+function parsePositiveIntParam(value: string | null) {
+  if (!value) return null;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
 function monthRangeUtc(year: number, month: number) {
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
   const next = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
@@ -356,6 +363,11 @@ export async function GET(request: Request) {
       (url.searchParams.get("includeCancelled") ?? "1").toLowerCase() === "true" ||
       (url.searchParams.get("includeCancelled") ?? "1") === "1";
 
+    const maxEmployeesDefault = mode === "month" ? 200 : 300;
+    const maxShiftsDefault = mode === "month" ? 20000 : 8000;
+    const maxEmployees = Math.min(parsePositiveIntParam(url.searchParams.get("maxEmployees")) ?? maxEmployeesDefault, 500);
+    const maxShifts = Math.min(parsePositiveIntParam(url.searchParams.get("maxShifts")) ?? maxShiftsDefault, 50000);
+
     const siteIdParam = url.searchParams.get("siteId");
     const subSiteIdParam = url.searchParams.get("subSiteId");
     const legacySiteId = siteIdParam ? Number(siteIdParam) : null;
@@ -421,6 +433,9 @@ export async function GET(request: Request) {
     if (allowedEmployeeIds && allowedEmployeeIds.length === 0) {
       return NextResponse.json({ error: "Nessun lavoratore corrispondente ai filtri." }, { status: 400 });
     }
+    if (allowedEmployeeIds && allowedEmployeeIds.length > maxEmployees) {
+      return NextResponse.json({ error: `Troppi lavoratori selezionati (${allowedEmployeeIds.length}). Riduci i filtri.` }, { status: 400 });
+    }
 
     let q = supabase
       .from("turni_employee_shifts")
@@ -430,7 +445,8 @@ export async function GET(request: Request) {
       .lt("start_at", endIso)
       .gt("end_at", startIso)
       .order("employee_id")
-      .order("start_at");
+      .order("start_at")
+      .limit(maxShifts + 1);
 
     if (!includeCancelled) q = q.neq("state", "cancelled");
     if (allowedEmployeeIds && allowedEmployeeIds.length > 0) q = q.in("employee_id", allowedEmployeeIds);
@@ -441,6 +457,9 @@ export async function GET(request: Request) {
 
     const { data, error } = await q;
     if (error) throw new Error(error.message);
+    if ((data ?? []).length > maxShifts) {
+      return NextResponse.json({ error: `Troppi turni per export (>${maxShifts}). Restringi filtri o periodo.` }, { status: 400 });
+    }
     const shifts = (data ?? []) as ShiftRow[];
     const byEmployee = new Map<number, ShiftRow[]>();
     shifts.forEach((s) => {
@@ -448,6 +467,9 @@ export async function GET(request: Request) {
       list.push(s);
       byEmployee.set(s.employee_id, list);
     });
+    if (byEmployee.size > maxEmployees) {
+      return NextResponse.json({ error: `Troppi lavoratori per export (${byEmployee.size}). Restringi i filtri.` }, { status: 400 });
+    }
     const zip = new JSZip();
     let count = 0;
 
@@ -459,8 +481,15 @@ export async function GET(request: Request) {
       if (mode === "week") {
         const weekStartIso = startIso.slice(0, 10);
         const weekDays = Array.from({ length: 7 }, (_, i) => addDaysIso(weekStartIso, i));
+        const byDay = new Map<string, ShiftRow[]>();
+        list.forEach((s) => {
+          const day = s.start_at.slice(0, 10);
+          const existing = byDay.get(day) ?? [];
+          existing.push(s);
+          byDay.set(day, existing);
+        });
         const rowsByDay = weekDays.map((dayIso) => {
-          const dayShifts = list.filter((s) => s.start_at.slice(0, 10) === dayIso);
+          const dayShifts = byDay.get(dayIso) ?? [];
           const lines = dayShifts.map((s) => {
             const startTime = formatTime(s.start_at);
             const endTime = formatTime(s.end_at);
@@ -496,8 +525,15 @@ export async function GET(request: Request) {
       } else {
         const monthStartIso = `${monthLabel}-01`;
         const grid = buildMonthGrid(monthStartIso);
+        const byDay = new Map<string, ShiftRow[]>();
+        list.forEach((s) => {
+          const day = s.start_at.slice(0, 10);
+          const existing = byDay.get(day) ?? [];
+          existing.push(s);
+          byDay.set(day, existing);
+        });
         const cells = grid.cells.map((c) => {
-          const dayShifts = list.filter((s) => s.start_at.slice(0, 10) === c.iso);
+          const dayShifts = byDay.get(c.iso) ?? [];
           const tone =
             dayShifts.some((s) => s.state === "cancelled")
               ? ("cancelled" as const)
