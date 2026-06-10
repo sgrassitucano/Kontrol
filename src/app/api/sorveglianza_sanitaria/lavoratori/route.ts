@@ -25,6 +25,13 @@ function normalizeProvider(value: string | null | undefined) {
   return v;
 }
 
+function parseLimitParam(value: string | null, fallback = 500) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, 2000);
+}
+
 type SurveillanceRow = {
   employee_id: number;
   provider: string | null;
@@ -161,6 +168,7 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const query = (url.searchParams.get("q") ?? "").toLowerCase().trim();
+    const limit = parseLimitParam(url.searchParams.get("limit"), query ? 200 : 500);
     const expiringDays = Number(url.searchParams.get("expiringDays") ?? "30");
     const dateParam = url.searchParams.get("date");
     const includeExcluded = url.searchParams.get("includeExcluded") === "1";
@@ -182,16 +190,20 @@ export async function GET(request: Request) {
 
     const dataSupabase = auth.supabase;
 
-    const [employees, surveillanceRows, freezeRows, jobRules, scopeRules, providerAssignments, employeeExclusions, employeeOverrides] =
-      await Promise.all([
+    const [employees, jobRules, scopeRules, providerAssignments] = await Promise.all([
       fetchAllEmployees(dataSupabase),
-      fetchAllSurveillanceRows(dataSupabase),
-      fetchAllFreezes(dataSupabase),
       fetchAllJobRules(dataSupabase),
       fetchAllScopeRules(dataSupabase),
       fetchAllProviderAssignments(dataSupabase),
-      fetchAllEmployeeExclusions(dataSupabase),
-      fetchAllEmployeeOverrides(dataSupabase),
+    ]);
+
+    const employeeIds = employees.map((e) => e.id);
+
+    const [surveillanceRows, freezeRows, employeeExclusions, employeeOverrides] = await Promise.all([
+      fetchSurveillanceRowsForEmployees(dataSupabase, employeeIds),
+      fetchFreezesForEmployees(dataSupabase, employeeIds),
+      fetchEmployeeExclusionsForEmployees(dataSupabase, employeeIds),
+      fetchEmployeeOverridesForEmployees(dataSupabase, employeeIds),
     ]);
 
     const surveillanceByEmployeeId = new Map<number, SurveillanceRow>();
@@ -231,6 +243,16 @@ export async function GET(request: Request) {
     let frozenEmployees = 0;
 
     const rows: WorkerSurveillanceRow[] = [];
+    let totalRows = 0;
+    const counts = {
+      idoneo: 0,
+      inScadenza: 0,
+      scaduto: 0,
+      daFare: 0,
+      programmato: 0,
+      sospeso: 0,
+      escluso: 0,
+    };
     for (const employee of employees) {
       const freeze = activeFreezeByEmployeeId.get(employee.id);
       const isExcludedFreeze = freeze?.freeze_status === "maternita" || freeze?.freeze_status === "distacco_sindacale";
@@ -311,33 +333,24 @@ export async function GET(request: Request) {
         if (!searchable.includes(query)) continue;
       }
 
-      rows.push(row);
-    }
-
-    const counts = {
-      idoneo: 0,
-      inScadenza: 0,
-      scaduto: 0,
-      daFare: 0,
-      programmato: 0,
-      sospeso: 0,
-      escluso: 0,
-    };
-    rows.forEach((r) => {
-      if (r.stato === "idoneo") counts.idoneo += 1;
-      else if (r.stato === "in scadenza") counts.inScadenza += 1;
-      else if (r.stato === "scaduto") counts.scaduto += 1;
-      else if (r.stato === "da fare") counts.daFare += 1;
-      else if (r.stato === "programmato") counts.programmato += 1;
-      else if (r.stato === "sospeso") counts.sospeso += 1;
+      totalRows += 1;
+      if (row.stato === "idoneo") counts.idoneo += 1;
+      else if (row.stato === "in scadenza") counts.inScadenza += 1;
+      else if (row.stato === "scaduto") counts.scaduto += 1;
+      else if (row.stato === "da fare") counts.daFare += 1;
+      else if (row.stato === "programmato") counts.programmato += 1;
+      else if (row.stato === "sospeso") counts.sospeso += 1;
       else counts.escluso += 1;
-    });
+      if (rows.length < limit) rows.push(row);
+    }
 
     rows.sort((a, b) => a.cognome.localeCompare(b.cognome) || a.nome.localeCompare(b.nome));
 
     return NextResponse.json({
       rows,
-      totalRows: rows.length,
+      limit,
+      truncated: totalRows > rows.length,
+      totalRows,
       totalActiveEmployees: employees.length,
       excludedByRule,
       frozenEmployees,
@@ -378,48 +391,32 @@ async function fetchAllEmployees(supabase: SupabaseClient) {
   return allRows;
 }
 
-async function fetchAllSurveillanceRows(supabase: SupabaseClient) {
-  const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const allRows: SurveillanceRow[] = [];
-
-  while (hasMore) {
-    const to = from + pageSize - 1;
+async function fetchSurveillanceRowsForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const rows: SurveillanceRow[] = [];
+  for (let i = 0; i < employeeIds.length; i += 500) {
+    const part = employeeIds.slice(i, i + 500);
     const { data, error } = await supabase
       .from("medical_surveillance_records")
       .select("employee_id,provider,is_planned,next_due_date,limitations,notes")
-      .range(from, to);
+      .in("employee_id", part);
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as SurveillanceRow[];
-    allRows.push(...rows);
-    if (rows.length < pageSize) hasMore = false;
-    else from += pageSize;
+    rows.push(...((data ?? []) as SurveillanceRow[]));
   }
-
-  return allRows;
+  return rows;
 }
 
-async function fetchAllFreezes(supabase: SupabaseClient) {
-  const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const allRows: FreezeRow[] = [];
-
-  while (hasMore) {
-    const to = from + pageSize - 1;
+async function fetchFreezesForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const rows: FreezeRow[] = [];
+  for (let i = 0; i < employeeIds.length; i += 500) {
+    const part = employeeIds.slice(i, i + 500);
     const { data, error } = await supabase
       .from("employee_freeze_periods")
       .select("employee_id,freeze_status,start_date,end_date")
-      .range(from, to);
+      .in("employee_id", part);
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as FreezeRow[];
-    allRows.push(...rows);
-    if (rows.length < pageSize) hasMore = false;
-    else from += pageSize;
+    rows.push(...((data ?? []) as FreezeRow[]));
   }
-
-  return allRows;
+  return rows;
 }
 
 async function fetchAllJobRules(supabase: SupabaseClient) {
@@ -446,20 +443,32 @@ async function fetchAllProviderAssignments(supabase: SupabaseClient) {
   return (data ?? []) as ProviderAssignmentRow[];
 }
 
-async function fetchAllEmployeeExclusions(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from("medical_surveillance_employee_exclusions")
-    .select("employee_id,is_active")
-    .eq("is_active", true);
-  if (error) return [] as EmployeeExclusionRow[];
-  return (data ?? []) as EmployeeExclusionRow[];
+async function fetchEmployeeExclusionsForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const rows: EmployeeExclusionRow[] = [];
+  for (let i = 0; i < employeeIds.length; i += 500) {
+    const part = employeeIds.slice(i, i + 500);
+    const { data, error } = await supabase
+      .from("medical_surveillance_employee_exclusions")
+      .select("employee_id,is_active")
+      .eq("is_active", true)
+      .in("employee_id", part);
+    if (error) return [] as EmployeeExclusionRow[];
+    rows.push(...((data ?? []) as EmployeeExclusionRow[]));
+  }
+  return rows;
 }
 
-async function fetchAllEmployeeOverrides(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from("medical_surveillance_employee_overrides")
-    .select("employee_id,requires_visit,is_active")
-    .eq("is_active", true);
-  if (error) return [] as EmployeeOverrideRow[];
-  return (data ?? []) as EmployeeOverrideRow[];
+async function fetchEmployeeOverridesForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const rows: EmployeeOverrideRow[] = [];
+  for (let i = 0; i < employeeIds.length; i += 500) {
+    const part = employeeIds.slice(i, i + 500);
+    const { data, error } = await supabase
+      .from("medical_surveillance_employee_overrides")
+      .select("employee_id,requires_visit,is_active")
+      .eq("is_active", true)
+      .in("employee_id", part);
+    if (error) return [] as EmployeeOverrideRow[];
+    rows.push(...((data ?? []) as EmployeeOverrideRow[]));
+  }
+  return rows;
 }
