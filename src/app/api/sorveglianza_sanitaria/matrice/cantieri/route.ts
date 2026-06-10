@@ -14,6 +14,10 @@ type RuleRow = {
   note: string | null;
 };
 
+const MAX_SITES = 5000;
+const MAX_SUBSITES = 10000;
+const MAX_RULES = 20000;
+
 export async function GET() {
   const auth = await requireAnyModuleAccess(["gestione", "sorveglianza"], false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -132,21 +136,29 @@ export async function DELETE(request: Request) {
 }
 
 async function fetchAllSites(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("sites").select("id,display_name").order("display_name");
+  const { data, error } = await supabase.from("sites").select("id,display_name").order("display_name").limit(MAX_SITES + 1);
   if (error) throw new Error(error.message);
+  if ((data ?? []).length > MAX_SITES) throw new Error("Troppi cantieri. Riduci il dataset o applica paginazione.");
   return (data ?? []) as SiteRow[];
 }
 
 async function fetchAllSubSites(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("sub_sites").select("id,site_id,display_name").order("display_name");
+  const { data, error } = await supabase
+    .from("sub_sites")
+    .select("id,site_id,display_name")
+    .order("display_name")
+    .limit(MAX_SUBSITES + 1);
   if (error) throw new Error(error.message);
+  if ((data ?? []).length > MAX_SUBSITES) throw new Error("Troppi sottocantieri. Riduci il dataset o applica paginazione.");
   return (data ?? []) as SubSiteRow[];
 }
 
 async function fetchAllRules(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("medical_surveillance_scope_rules")
-    .select("scope_type,site_id,sub_site_id,requires_visit,note");
+    .select("scope_type,site_id,sub_site_id,requires_visit,note")
+    .limit(MAX_RULES + 1);
   if (error) throw new Error(error.message);
+  if ((data ?? []).length > MAX_RULES) throw new Error("Troppe regole cantieri. Riduci il dataset o applica paginazione.");
   return (data ?? []) as RuleRow[];
 }
