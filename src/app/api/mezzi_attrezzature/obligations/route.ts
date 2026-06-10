@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -51,13 +52,49 @@ function extractDisplayName(value: unknown) {
   return "-";
 }
 
-function computeStatus(nextDueDate: string | null, thresholdDate: Date) {
+function normalizeIsoDate(value: unknown) {
+  const s = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00.000Z`);
+  if (!Number.isFinite(d.getTime())) return null;
+  return s;
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function computeObligationStatus(args: { nextDueDate: string | null; thresholdIsoDate: string }) {
+  const nextDueDate = normalizeIsoDate(args.nextDueDate);
   if (!nextDueDate) return "da impostare" as const;
-  const due = new Date(nextDueDate);
-  const today = new Date();
-  if (due < today) return "scaduto" as const;
-  if (due <= thresholdDate) return "in scadenza" as const;
+  const todayIso = todayIsoDate();
+  if (nextDueDate < todayIso) return "scaduto" as const;
+  if (nextDueDate <= args.thresholdIsoDate) return "in scadenza" as const;
   return "ok" as const;
+}
+
+async function completeObligationAtomic(args: {
+  supabase: SupabaseClient;
+  obligationId: number;
+  doneDate: string;
+  nextDueDate: string | null;
+  note: string | null;
+  documentRef: string | null;
+  vendor: string | null;
+}) {
+  const { supabase, ...payload } = args;
+  const { error } = await supabase.rpc("fleet_complete_obligation", {
+    obligation_id: payload.obligationId,
+    done_date: payload.doneDate,
+    next_due_date: payload.nextDueDate,
+    note: payload.note,
+    document_ref: payload.documentRef,
+    vendor: payload.vendor,
+  });
+  if (!error) return { usedRpc: true as const };
+  const msg = String((error as { message?: unknown } | null)?.message ?? "");
+  if (!/fleet_complete_obligation/i.test(msg)) throw new Error(msg || "Errore registrazione verifica.");
+  return { usedRpc: false as const };
 }
 
 export async function GET(request: Request) {
@@ -80,9 +117,8 @@ export async function GET(request: Request) {
     if (error) throw new Error(error.message);
 
     const thresholdDate = new Date();
-    thresholdDate.setDate(
-      thresholdDate.getDate() + (Number.isFinite(dueInDays) ? dueInDays : 30),
-    );
+    thresholdDate.setDate(thresholdDate.getDate() + (Number.isFinite(dueInDays) ? dueInDays : 30));
+    const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
 
     const rows = (data ?? []) as ObligationDbRow[];
 
@@ -92,7 +128,7 @@ export async function GET(request: Request) {
         const type = firstOrNull(
           row.fleet_obligation_types as ObligationTypeJoinRow | ObligationTypeJoinRow[] | null,
         );
-        const status = computeStatus(row.next_due_date, thresholdDate);
+        const status = computeObligationStatus({ nextDueDate: row.next_due_date, thresholdIsoDate });
 
         return {
           obligationId: row.id,
@@ -126,8 +162,7 @@ export async function GET(request: Request) {
       .filter((row) => includeMissing || row.nextDueDate !== null)
       .filter((row) => {
         if (!row.nextDueDate) return true;
-        const due = new Date(row.nextDueDate);
-        return due <= thresholdDate;
+        return row.nextDueDate <= thresholdIsoDate;
       })
       .sort((a, b) => {
         const aKey = a.nextDueDate ?? "9999-12-31";
@@ -162,7 +197,7 @@ export async function PATCH(request: Request) {
     }
 
     const payload = {
-      next_due_date: body.nextDueDate ?? null,
+      next_due_date: body.nextDueDate ? normalizeIsoDate(body.nextDueDate) : null,
       vendor: typeof body.vendor === "string" ? body.vendor : null,
       notes: typeof body.notes === "string" ? body.notes : null,
     };
@@ -197,29 +232,40 @@ export async function POST(request: Request) {
       vendor?: string;
     };
 
-    if (!body.obligationId || !body.doneDate) {
+    const doneDate = normalizeIsoDate(body.doneDate);
+    const nextDueDate = body.nextDueDate ? normalizeIsoDate(body.nextDueDate) : null;
+    if (!body.obligationId || !doneDate) {
       return NextResponse.json({ error: "Dati mancanti." }, { status: 400 });
     }
 
-    const { error: eventError } = await supabase
-      .from("fleet_obligation_events")
-      .insert({
+    const rpcRes = await completeObligationAtomic({
+      supabase,
+      obligationId: body.obligationId,
+      doneDate,
+      nextDueDate,
+      note: body.note ?? null,
+      documentRef: body.documentRef ?? null,
+      vendor: body.vendor ?? null,
+    });
+    if (!rpcRes.usedRpc) {
+      const { error: eventError } = await supabase.from("fleet_obligation_events").insert({
         asset_obligation_id: body.obligationId,
-        event_date: body.doneDate,
+        event_date: doneDate,
         note: body.note ?? null,
         document_ref: body.documentRef ?? null,
       });
-    if (eventError) throw new Error(eventError.message);
+      if (eventError) throw new Error(eventError.message);
 
-    const { error: updateError } = await supabase
-      .from("fleet_asset_obligations")
-      .update({
-        last_done_date: body.doneDate,
-        next_due_date: body.nextDueDate ?? null,
-        vendor: body.vendor ?? null,
-      })
-      .eq("id", body.obligationId);
-    if (updateError) throw new Error(updateError.message);
+      const { error: updateError } = await supabase
+        .from("fleet_asset_obligations")
+        .update({
+          last_done_date: doneDate,
+          next_due_date: nextDueDate,
+          vendor: body.vendor ?? null,
+        })
+        .eq("id", body.obligationId);
+      if (updateError) throw new Error(updateError.message);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

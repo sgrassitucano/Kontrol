@@ -644,3 +644,148 @@ begin
   end if;
 end
 $$;
+
+create or replace function internal.fleet_complete_obligation(
+  obligation_id bigint,
+  done_date date,
+  next_due_date date,
+  note text,
+  document_ref text,
+  vendor text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  has_access boolean;
+  obligation_exists boolean;
+begin
+  select public.has_module_access('mezzi_attrezzature', true) into has_access;
+  if not has_access then
+    raise exception 'Accesso negato.' using errcode = '42501';
+  end if;
+
+  select exists(select 1 from public.fleet_asset_obligations o where o.id = internal.fleet_complete_obligation.obligation_id)
+  into obligation_exists;
+  if not obligation_exists then
+    raise exception 'Obbligo non trovato.' using errcode = 'P0002';
+  end if;
+
+  insert into public.fleet_obligation_events(asset_obligation_id, event_date, note, document_ref)
+  values (internal.fleet_complete_obligation.obligation_id, internal.fleet_complete_obligation.done_date, note, document_ref);
+
+  update public.fleet_asset_obligations
+  set last_done_date = internal.fleet_complete_obligation.done_date,
+      next_due_date = internal.fleet_complete_obligation.next_due_date,
+      vendor = internal.fleet_complete_obligation.vendor
+  where id = internal.fleet_complete_obligation.obligation_id;
+end;
+$$;
+
+create or replace function public.fleet_complete_obligation(
+  obligation_id bigint,
+  done_date date,
+  next_due_date date,
+  note text,
+  document_ref text,
+  vendor text
+)
+returns void
+language sql
+security invoker
+set search_path = public
+as $$
+  select internal.fleet_complete_obligation(obligation_id, done_date, next_due_date, note, document_ref, vendor);
+$$;
+
+drop policy if exists "fleet_assets_write" on public.fleet_assets;
+drop policy if exists "fleet_assets_insert" on public.fleet_assets;
+drop policy if exists "fleet_assets_update" on public.fleet_assets;
+drop policy if exists "fleet_assets_delete_management_only" on public.fleet_assets;
+
+create policy "fleet_assets_insert"
+  on public.fleet_assets
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_assets_update"
+  on public.fleet_assets
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_assets_delete_management_only"
+  on public.fleet_assets
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "fleet_obligation_types_write" on public.fleet_obligation_types;
+drop policy if exists "fleet_obligation_types_insert" on public.fleet_obligation_types;
+drop policy if exists "fleet_obligation_types_update" on public.fleet_obligation_types;
+drop policy if exists "fleet_obligation_types_delete_management_only" on public.fleet_obligation_types;
+
+create policy "fleet_obligation_types_insert"
+  on public.fleet_obligation_types
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_obligation_types_update"
+  on public.fleet_obligation_types
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_obligation_types_delete_management_only"
+  on public.fleet_obligation_types
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "fleet_asset_obligations_write" on public.fleet_asset_obligations;
+drop policy if exists "fleet_asset_obligations_insert" on public.fleet_asset_obligations;
+drop policy if exists "fleet_asset_obligations_update" on public.fleet_asset_obligations;
+drop policy if exists "fleet_asset_obligations_delete_management_only" on public.fleet_asset_obligations;
+
+create policy "fleet_asset_obligations_insert"
+  on public.fleet_asset_obligations
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_asset_obligations_update"
+  on public.fleet_asset_obligations
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_asset_obligations_delete_management_only"
+  on public.fleet_asset_obligations
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "fleet_obligation_events_write" on public.fleet_obligation_events;
+drop policy if exists "fleet_obligation_events_insert" on public.fleet_obligation_events;
+drop policy if exists "fleet_obligation_events_update" on public.fleet_obligation_events;
+drop policy if exists "fleet_obligation_events_delete_management_only" on public.fleet_obligation_events;
+
+create policy "fleet_obligation_events_insert"
+  on public.fleet_obligation_events
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_obligation_events_update"
+  on public.fleet_obligation_events
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('mezzi_attrezzature', true));
+
+create policy "fleet_obligation_events_delete_management_only"
+  on public.fleet_obligation_events
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "fleet_asset_assignments_delete" on public.fleet_asset_assignments;
+create policy "fleet_asset_assignments_delete"
+  on public.fleet_asset_assignments
+  for delete
+  using (public.has_module_access('gestione', true));
