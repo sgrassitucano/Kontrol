@@ -120,6 +120,7 @@ async function syncEmployeeRange(params: {
       .from("turni_employee_absences")
       .select("id,absence_type,start_at,end_at,note")
       .eq("employee_id", employeeId)
+      .neq("state", "cancelled")
       .lt("start_at", endAtRange.toISOString())
       .gt("end_at", startAtRange.toISOString()),
     supabase

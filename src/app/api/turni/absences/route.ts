@@ -70,6 +70,7 @@ export async function GET(request: Request) {
       .from("turni_employee_absences")
       .select("id,absence_type,start_at,end_at,note,created_by,created_at")
       .eq("employee_id", employeeId)
+      .neq("state", "cancelled")
       .lt("start_at", endAt.toISOString())
       .gt("end_at", startAt.toISOString())
       .order("start_at");
@@ -134,6 +135,7 @@ export async function POST(request: Request) {
       .from("turni_employee_absences")
       .select("id")
       .eq("employee_id", employeeId)
+      .neq("state", "cancelled")
       .lt("start_at", endAt)
       .gt("end_at", startAt)
       .limit(1);
@@ -177,15 +179,22 @@ export async function DELETE(request: Request) {
     const supabase = auth.supabase;
     const { data: current, error: currentError } = await supabase
       .from("turni_employee_absences")
-      .select("start_at,end_at")
+      .select("start_at,end_at,state")
       .eq("id", absenceId)
       .single();
     if (currentError) throw new Error(currentError.message);
 
+    if ((current as { state: string }).state === "cancelled") {
+      return NextResponse.json({ ok: true });
+    }
+
     await ensureNotLocked(supabase, new Date((current as { start_at: string }).start_at));
     await ensureNotLocked(supabase, new Date((current as { end_at: string }).end_at));
 
-    const { error } = await supabase.from("turni_employee_absences").delete().eq("id", absenceId);
+    const { error } = await supabase
+      .from("turni_employee_absences")
+      .update({ state: "cancelled" })
+      .eq("id", absenceId);
     if (error) throw new Error(error.message);
     return NextResponse.json({ ok: true });
   } catch (err) {

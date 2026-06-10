@@ -1622,3 +1622,106 @@ set search_path = public
 as $$
   select internal.turni_replace_employee_template_slots(template_id, slots);
 $$;
+
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'turni_absence_state') then
+    create type public.turni_absence_state as enum ('active', 'cancelled');
+  end if;
+end
+$$;
+
+alter table public.turni_employee_absences
+  add column if not exists state public.turni_absence_state;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'turni_employee_absences'
+      and column_name = 'state'
+  ) then
+    alter table public.turni_employee_absences
+      alter column state set default 'active'::public.turni_absence_state;
+    update public.turni_employee_absences
+    set state = 'active'::public.turni_absence_state
+    where state is null;
+    alter table public.turni_employee_absences
+      alter column state set not null;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'turni_employee_absences_no_overlap') then
+    alter table public.turni_employee_absences drop constraint turni_employee_absences_no_overlap;
+  end if;
+  if exists (select 1 from pg_class where relname = 'turni_employee_absences_no_overlap') then
+    execute 'drop index if exists public.turni_employee_absences_no_overlap';
+  end if;
+  alter table public.turni_employee_absences
+    add constraint turni_employee_absences_no_overlap
+    exclude using gist (
+      employee_id with =,
+      tstzrange(start_at, end_at, '[)') with &&
+    )
+    where (state <> 'cancelled');
+end
+$$;
+
+drop policy if exists "turni_employee_absences_write_by_scope" on public.turni_employee_absences;
+drop policy if exists "turni_employee_absences_insert_by_scope" on public.turni_employee_absences;
+drop policy if exists "turni_employee_absences_update_by_scope" on public.turni_employee_absences;
+drop policy if exists "turni_employee_absences_delete_management_only" on public.turni_employee_absences;
+
+create policy "turni_employee_absences_insert_by_scope"
+  on public.turni_employee_absences
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_absences_update_by_scope"
+  on public.turni_employee_absences
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_absences_delete_management_only"
+  on public.turni_employee_absences
+  for delete
+  using (public.has_module_access('gestione', true));
