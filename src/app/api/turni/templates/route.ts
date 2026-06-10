@@ -265,9 +265,6 @@ export async function PATCH(request: Request) {
     }
 
     if (Array.isArray(body.slots)) {
-      const { error: deleteError } = await supabase.from("turni_site_template_slots").delete().eq("template_id", templateId);
-      if (deleteError) throw new Error(deleteError.message);
-
       const siteId = (templateMeta as { site_id: number }).site_id;
       const subSiteId = (templateMeta as { sub_site_id: number | null }).sub_site_id;
       const _validated = await resolveValidatedSubSiteIdForTemplate(supabase, siteId, subSiteId);
@@ -275,9 +272,8 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: "Template incoerente con il perimetro selezionato." }, { status: 400 });
       }
 
-      const payload = body.slots
+      const slotsPayload = body.slots
         .map((s) => ({
-          template_id: templateId,
           weekday: Number(s.weekday),
           start_time: parseTime(s.startTime),
           end_time: parseTime(s.endTime),
@@ -285,10 +281,11 @@ export async function PATCH(request: Request) {
         }))
         .filter((s) => Number.isFinite(s.weekday) && s.start_time && s.end_time);
 
-      if (payload.length > 0) {
-        const { error: insertSlotsError } = await supabase.from("turni_site_template_slots").insert(payload);
-        if (insertSlotsError) throw new Error(insertSlotsError.message);
-      }
+      const { error: replaceError } = await supabase.rpc("turni_replace_site_template_slots", {
+        template_id: templateId,
+        slots: slotsPayload,
+      });
+      if (replaceError) throw new Error(replaceError.message);
     }
 
     return NextResponse.json({ ok: true });

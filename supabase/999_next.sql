@@ -1219,3 +1219,406 @@ create policy "training_employee_courses_delete_management_only"
   on public.training_employee_courses
   for delete
   using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_site_template_slots_read" on public.turni_site_template_slots;
+drop policy if exists "turni_site_template_slots_write" on public.turni_site_template_slots;
+drop policy if exists "turni_site_template_slots_insert" on public.turni_site_template_slots;
+drop policy if exists "turni_site_template_slots_update" on public.turni_site_template_slots;
+drop policy if exists "turni_site_template_slots_delete_management_only" on public.turni_site_template_slots;
+
+create policy "turni_site_template_slots_read"
+  on public.turni_site_template_slots
+  for select
+  using (public.has_module_access('gestione') or public.has_module_access('turni'));
+
+create policy "turni_site_template_slots_insert"
+  on public.turni_site_template_slots
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('turni', true));
+
+create policy "turni_site_template_slots_update"
+  on public.turni_site_template_slots
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('turni', true));
+
+create policy "turni_site_template_slots_delete_management_only"
+  on public.turni_site_template_slots
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_employee_templates_read" on public.turni_employee_templates;
+drop policy if exists "turni_employee_templates_write" on public.turni_employee_templates;
+drop policy if exists "turni_employee_templates_insert_by_scope" on public.turni_employee_templates;
+drop policy if exists "turni_employee_templates_update_by_scope" on public.turni_employee_templates;
+drop policy if exists "turni_employee_templates_delete_management_only" on public.turni_employee_templates;
+
+create policy "turni_employee_templates_read_by_scope"
+  on public.turni_employee_templates
+  for select
+  using (
+    public.has_module_access('gestione')
+    or (
+      public.has_module_access('turni')
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_templates_insert_by_scope"
+  on public.turni_employee_templates
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_templates_update_by_scope"
+  on public.turni_employee_templates
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_templates_delete_management_only"
+  on public.turni_employee_templates
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_employee_template_slots_read" on public.turni_employee_template_slots;
+drop policy if exists "turni_employee_template_slots_write" on public.turni_employee_template_slots;
+drop policy if exists "turni_employee_template_slots_insert_by_scope" on public.turni_employee_template_slots;
+drop policy if exists "turni_employee_template_slots_update_by_scope" on public.turni_employee_template_slots;
+drop policy if exists "turni_employee_template_slots_delete_management_only" on public.turni_employee_template_slots;
+
+create policy "turni_employee_template_slots_read_by_scope"
+  on public.turni_employee_template_slots
+  for select
+  using (
+    public.has_module_access('gestione')
+    or (
+      public.has_module_access('turni')
+      and exists (
+        select 1
+        from public.turni_employee_templates t
+        join public.employees e on e.id = t.employee_id
+        where t.id = template_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_template_slots_insert_by_scope"
+  on public.turni_employee_template_slots
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.turni_employee_templates t
+        join public.employees e on e.id = t.employee_id
+        where t.id = template_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_template_slots_update_by_scope"
+  on public.turni_employee_template_slots
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.turni_employee_templates t
+        join public.employees e on e.id = t.employee_id
+        where t.id = template_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.turni_employee_templates t
+        join public.employees e on e.id = t.employee_id
+        where t.id = template_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_template_slots_delete_management_only"
+  on public.turni_employee_template_slots
+  for delete
+  using (public.has_module_access('gestione', true));
+
+create or replace function internal.turni_replace_site_template_slots(
+  template_id bigint,
+  slots jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  has_turni_write boolean;
+  has_gestione_write boolean;
+  has_scope boolean;
+  template_site_id bigint;
+  template_sub_site_id bigint;
+  item jsonb;
+  v_weekday integer;
+  v_start time;
+  v_end time;
+  v_break_minutes integer;
+begin
+  select public.has_module_access('gestione', true) into has_gestione_write;
+  if not has_gestione_write then
+    select public.has_module_access('turni', true) into has_turni_write;
+    if not has_turni_write then
+      raise exception 'Accesso negato.' using errcode = '42501';
+    end if;
+  end if;
+
+  select t.site_id, t.sub_site_id
+  into template_site_id, template_sub_site_id
+  from public.turni_site_templates t
+  where t.id = internal.turni_replace_site_template_slots.template_id;
+  if template_site_id is null then
+    raise exception 'Template non trovato.' using errcode = 'P0002';
+  end if;
+
+  if not has_gestione_write then
+    if template_sub_site_id is null then
+      select public.can_access_site(template_site_id) into has_scope;
+    else
+      select public.can_access_sub_site(template_sub_site_id) into has_scope;
+    end if;
+    if not has_scope then
+      raise exception 'Accesso negato.' using errcode = '42501';
+    end if;
+  end if;
+
+  if slots is null or jsonb_typeof(slots) <> 'array' then
+    slots := '[]'::jsonb;
+  end if;
+
+  create temporary table if not exists tmp_turni_site_template_slots (
+    weekday integer not null,
+    start_time time not null,
+    end_time time not null,
+    break_minutes integer not null
+  ) on commit drop;
+
+  delete from tmp_turni_site_template_slots;
+
+  for item in select value from jsonb_array_elements(slots) as value loop
+    begin
+      v_weekday := (item->>'weekday')::int;
+      v_start := (item->>'start_time')::time;
+      v_end := (item->>'end_time')::time;
+      v_break_minutes := coalesce((item->>'break_minutes')::int, 0);
+    exception when others then
+      raise exception 'Slot non valido.' using errcode = '22000';
+    end;
+
+    if v_weekday < 0 or v_weekday > 6 then
+      raise exception 'Slot non valido (weekday).' using errcode = '22000';
+    end if;
+    if v_end <= v_start then
+      raise exception 'Slot non valido (orari).' using errcode = '22000';
+    end if;
+    if v_break_minutes < 0 or (v_break_minutes % 15) <> 0 then
+      raise exception 'Slot non valido (break_minutes).' using errcode = '22000';
+    end if;
+
+    insert into tmp_turni_site_template_slots(weekday, start_time, end_time, break_minutes)
+    values (v_weekday, v_start, v_end, v_break_minutes);
+  end loop;
+
+  delete from public.turni_site_template_slots s
+  where s.template_id = internal.turni_replace_site_template_slots.template_id;
+
+  insert into public.turni_site_template_slots(template_id, weekday, start_time, end_time, break_minutes)
+  select internal.turni_replace_site_template_slots.template_id, t.weekday, t.start_time, t.end_time, t.break_minutes
+  from tmp_turni_site_template_slots t;
+end;
+$$;
+
+create or replace function public.turni_replace_site_template_slots(
+  template_id bigint,
+  slots jsonb
+)
+returns void
+language sql
+security invoker
+set search_path = public
+as $$
+  select internal.turni_replace_site_template_slots(template_id, slots);
+$$;
+
+create or replace function internal.turni_replace_employee_template_slots(
+  template_id bigint,
+  slots jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  has_turni_write boolean;
+  has_gestione_write boolean;
+  employee_responsible_code text;
+  employee_referral text;
+  has_employee_scope boolean;
+  item jsonb;
+  v_weekday integer;
+  v_site_id bigint;
+  v_sub_site_id bigint;
+  v_start time;
+  v_end time;
+  v_break_minutes integer;
+begin
+  select public.has_module_access('gestione', true) into has_gestione_write;
+  if not has_gestione_write then
+    select public.has_module_access('turni', true) into has_turni_write;
+    if not has_turni_write then
+      raise exception 'Accesso negato.' using errcode = '42501';
+    end if;
+  end if;
+
+  select e.responsible_code, e.referral
+  into employee_responsible_code, employee_referral
+  from public.turni_employee_templates t
+  join public.employees e on e.id = t.employee_id
+  where t.id = internal.turni_replace_employee_template_slots.template_id;
+  if employee_responsible_code is null then
+    raise exception 'Template non trovato.' using errcode = 'P0002';
+  end if;
+
+  if not has_gestione_write then
+    select public.can_access_employee(employee_responsible_code, employee_referral) into has_employee_scope;
+    if not has_employee_scope then
+      raise exception 'Accesso negato.' using errcode = '42501';
+    end if;
+  end if;
+
+  if slots is null or jsonb_typeof(slots) <> 'array' then
+    slots := '[]'::jsonb;
+  end if;
+
+  create temporary table if not exists tmp_turni_employee_template_slots (
+    weekday integer not null,
+    site_id bigint not null,
+    sub_site_id bigint,
+    start_time time not null,
+    end_time time not null,
+    break_minutes integer not null
+  ) on commit drop;
+
+  delete from tmp_turni_employee_template_slots;
+
+  for item in select value from jsonb_array_elements(slots) as value loop
+    begin
+      v_weekday := (item->>'weekday')::int;
+      v_site_id := (item->>'site_id')::bigint;
+      v_sub_site_id := (item->>'sub_site_id')::bigint;
+      v_start := (item->>'start_time')::time;
+      v_end := (item->>'end_time')::time;
+      v_break_minutes := coalesce((item->>'break_minutes')::int, 0);
+    exception when others then
+      raise exception 'Slot non valido.' using errcode = '22000';
+    end;
+
+    if v_weekday < 0 or v_weekday > 6 then
+      raise exception 'Slot non valido (weekday).' using errcode = '22000';
+    end if;
+    if v_end <= v_start then
+      raise exception 'Slot non valido (orari).' using errcode = '22000';
+    end if;
+    if v_break_minutes < 0 or (v_break_minutes % 15) <> 0 then
+      raise exception 'Slot non valido (break_minutes).' using errcode = '22000';
+    end if;
+
+    insert into tmp_turni_employee_template_slots(weekday, site_id, sub_site_id, start_time, end_time, break_minutes)
+    values (v_weekday, v_site_id, v_sub_site_id, v_start, v_end, v_break_minutes);
+  end loop;
+
+  delete from public.turni_employee_template_slots s
+  where s.template_id = internal.turni_replace_employee_template_slots.template_id;
+
+  insert into public.turni_employee_template_slots(
+    template_id,
+    weekday,
+    site_id,
+    sub_site_id,
+    start_time,
+    end_time,
+    break_minutes
+  )
+  select
+    internal.turni_replace_employee_template_slots.template_id,
+    t.weekday,
+    t.site_id,
+    t.sub_site_id,
+    t.start_time,
+    t.end_time,
+    t.break_minutes
+  from tmp_turni_employee_template_slots t;
+end;
+$$;
+
+create or replace function public.turni_replace_employee_template_slots(
+  template_id bigint,
+  slots jsonb
+)
+returns void
+language sql
+security invoker
+set search_path = public
+as $$
+  select internal.turni_replace_employee_template_slots(template_id, slots);
+$$;

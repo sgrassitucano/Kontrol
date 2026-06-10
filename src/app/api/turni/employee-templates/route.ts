@@ -258,9 +258,7 @@ export async function PATCH(request: Request) {
     }
 
     if (Array.isArray(body.slots)) {
-      const { error: delError } = await supabase.from("turni_employee_template_slots").delete().eq("template_id", templateId);
-      if (delError) throw new Error(delError.message);
-      const payload = [];
+      const slotsPayload = [];
       for (const s of body.slots) {
         const weekday = Number(s.weekday);
         const siteId = Number(s.siteId);
@@ -270,8 +268,7 @@ export async function PATCH(request: Request) {
         const endTime = parseTime(s.endTime);
         if (!startTime || !endTime) continue;
         const subSiteId = await resolveValidatedSubSiteId(supabase, siteId, s.subSiteId);
-        payload.push({
-          template_id: templateId,
+        slotsPayload.push({
           weekday,
           site_id: siteId,
           sub_site_id: subSiteId,
@@ -280,10 +277,12 @@ export async function PATCH(request: Request) {
           break_minutes: typeof s.breakMinutes === "number" ? s.breakMinutes : 0,
         });
       }
-      if (payload.length > 0) {
-        const { error: slotsError } = await supabase.from("turni_employee_template_slots").insert(payload);
-        if (slotsError) throw new Error(slotsError.message);
-      }
+
+      const { error: replaceError } = await supabase.rpc("turni_replace_employee_template_slots", {
+        template_id: templateId,
+        slots: slotsPayload,
+      });
+      if (replaceError) throw new Error(replaceError.message);
     }
 
     return NextResponse.json({ ok: true });
@@ -294,4 +293,3 @@ export async function PATCH(request: Request) {
     );
   }
 }
-
