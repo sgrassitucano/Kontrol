@@ -91,6 +91,29 @@ function normalizeAndValidateBreaks(args: {
   return parsed;
 }
 
+async function replaceBreaksAtomic(args: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  shiftId: number;
+  breaks: Array<{ start: Date; end: Date }>;
+}) {
+  const { supabase, shiftId, breaks } = args;
+  const payload = breaks.map((b) => ({
+    start_at: b.start.toISOString(),
+    end_at: b.end.toISOString(),
+  }));
+
+  const { error } = await supabase.rpc("turni_replace_shift_breaks", {
+    shift_id: shiftId,
+    breaks: payload,
+  });
+  if (!error) return { usedRpc: true as const };
+  const msg = String((error as { message?: unknown } | null)?.message ?? "");
+  if (!/turni_replace_shift_breaks/i.test(msg)) {
+    throw new Error(msg || "Errore aggiornamento pause.");
+  }
+  return { usedRpc: false as const };
+}
+
 function monthKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -347,8 +370,14 @@ export async function POST(request: Request) {
       }));
 
     if (payload.length > 0) {
-      const { error: breaksError } = await supabase.from("turni_shift_breaks").insert(payload);
-      if (breaksError) throw new Error(breaksError.message);
+      const rpcRes = await replaceBreaksAtomic({ supabase, shiftId, breaks: normalizedBreaks });
+      if (!rpcRes.usedRpc) {
+        const { error: breaksError } = await supabase.from("turni_shift_breaks").insert(payload);
+        if (breaksError) {
+          await supabase.from("turni_employee_shifts").delete().eq("id", shiftId);
+          throw new Error(breaksError.message);
+        }
+      }
     }
 
     return NextResponse.json({ id: shiftId });
@@ -454,16 +483,19 @@ export async function PATCH(request: Request) {
     }
 
     if (Array.isArray(body.breaks)) {
-      const { error: delError } = await supabase.from("turni_shift_breaks").delete().eq("shift_id", shiftId);
-      if (delError) throw new Error(delError.message);
-      const payload = normalizedBreaks.map((b) => ({
+      const rpcRes = await replaceBreaksAtomic({ supabase, shiftId, breaks: normalizedBreaks });
+      if (!rpcRes.usedRpc) {
+        const { error: delError } = await supabase.from("turni_shift_breaks").delete().eq("shift_id", shiftId);
+        if (delError) throw new Error(delError.message);
+        const payload = normalizedBreaks.map((b) => ({
           shift_id: shiftId,
           break_start_at: b.start.toISOString(),
           break_end_at: b.end.toISOString(),
         }));
-      if (payload.length > 0) {
-        const { error: insertError } = await supabase.from("turni_shift_breaks").insert(payload);
-        if (insertError) throw new Error(insertError.message);
+        if (payload.length > 0) {
+          const { error: insertError } = await supabase.from("turni_shift_breaks").insert(payload);
+          if (insertError) throw new Error(insertError.message);
+        }
       }
     }
 

@@ -404,3 +404,213 @@ alter table public.employees
   add constraint employees_residence_belfiore_check check (residence_belfiore_code is null or residence_belfiore_code ~ '^[A-Z][0-9]{3}$');
 
 select pg_notify('pgrst','reload schema');
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'turni_employee_absences_no_overlap') then
+    null;
+  else
+    if exists (select 1 from pg_class where relname = 'turni_employee_absences_no_overlap') then
+      execute 'drop index if exists public.turni_employee_absences_no_overlap';
+    end if;
+    alter table public.turni_employee_absences
+      add constraint turni_employee_absences_no_overlap
+      exclude using gist (
+        employee_id with =,
+        tstzrange(start_at, end_at, '[)') with &&
+      );
+  end if;
+end
+$$;
+
+create or replace function internal.turni_assert_month_not_locked(target_at timestamptz)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  y integer;
+  m integer;
+  locked_count integer;
+begin
+  y := extract(year from target_at)::int;
+  m := extract(month from target_at)::int;
+  select count(*) into locked_count
+  from public.turni_month_locks
+  where year = y and month = m;
+  if locked_count > 0 then
+    raise exception 'Mese bloccato: %/%', lpad(m::text, 2, '0'), y using errcode = 'P0001';
+  end if;
+end;
+$$;
+
+create or replace function public.turni_assert_month_not_locked(target_at timestamptz)
+returns void
+language sql
+security invoker
+set search_path = public
+as $$
+  select internal.turni_assert_month_not_locked(target_at);
+$$;
+
+create or replace function internal.turni_enforce_month_lock_for_ranges()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    perform internal.turni_assert_month_not_locked(new.start_at);
+    perform internal.turni_assert_month_not_locked(new.end_at);
+    return new;
+  elsif tg_op = 'UPDATE' then
+    perform internal.turni_assert_month_not_locked(old.start_at);
+    perform internal.turni_assert_month_not_locked(old.end_at);
+    perform internal.turni_assert_month_not_locked(new.start_at);
+    perform internal.turni_assert_month_not_locked(new.end_at);
+    return new;
+  else
+    perform internal.turni_assert_month_not_locked(old.start_at);
+    perform internal.turni_assert_month_not_locked(old.end_at);
+    return old;
+  end if;
+end;
+$$;
+
+create or replace function internal.turni_enforce_month_lock_for_breaks()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  start_at timestamptz;
+  end_at timestamptz;
+begin
+  if tg_op = 'INSERT' then
+    start_at := new.break_start_at;
+    end_at := new.break_end_at;
+    perform internal.turni_assert_month_not_locked(start_at);
+    perform internal.turni_assert_month_not_locked(end_at);
+    return new;
+  elsif tg_op = 'UPDATE' then
+    perform internal.turni_assert_month_not_locked(old.break_start_at);
+    perform internal.turni_assert_month_not_locked(old.break_end_at);
+    perform internal.turni_assert_month_not_locked(new.break_start_at);
+    perform internal.turni_assert_month_not_locked(new.break_end_at);
+    return new;
+  else
+    perform internal.turni_assert_month_not_locked(old.break_start_at);
+    perform internal.turni_assert_month_not_locked(old.break_end_at);
+    return old;
+  end if;
+end;
+$$;
+
+drop trigger if exists turni_employee_shifts_enforce_month_lock on public.turni_employee_shifts;
+create trigger turni_employee_shifts_enforce_month_lock
+  before insert or update or delete on public.turni_employee_shifts
+  for each row execute procedure internal.turni_enforce_month_lock_for_ranges();
+
+drop trigger if exists turni_employee_absences_enforce_month_lock on public.turni_employee_absences;
+create trigger turni_employee_absences_enforce_month_lock
+  before insert or update or delete on public.turni_employee_absences
+  for each row execute procedure internal.turni_enforce_month_lock_for_ranges();
+
+drop trigger if exists turni_shift_breaks_enforce_month_lock on public.turni_shift_breaks;
+create trigger turni_shift_breaks_enforce_month_lock
+  before insert or update or delete on public.turni_shift_breaks
+  for each row execute procedure internal.turni_enforce_month_lock_for_breaks();
+
+create or replace function internal.turni_replace_shift_breaks(
+  shift_id bigint,
+  breaks jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  has_access boolean;
+  shift_start timestamptz;
+  shift_end timestamptz;
+  item jsonb;
+  b_start timestamptz;
+  b_end timestamptz;
+  prev_end timestamptz;
+begin
+  select public.has_module_access('turni', true) into has_access;
+  if not has_access then
+    raise exception 'Accesso negato.' using errcode = '42501';
+  end if;
+
+  select s.start_at, s.end_at into shift_start, shift_end
+  from public.turni_employee_shifts s
+  where s.id = internal.turni_replace_shift_breaks.shift_id;
+  if shift_start is null or shift_end is null then
+    raise exception 'Turno non trovato.' using errcode = 'P0002';
+  end if;
+
+  perform internal.turni_assert_month_not_locked(shift_start);
+  perform internal.turni_assert_month_not_locked(shift_end);
+
+  if breaks is null or jsonb_typeof(breaks) <> 'array' then
+    breaks := '[]'::jsonb;
+  end if;
+
+  create temporary table if not exists tmp_turni_breaks (
+    start_at timestamptz not null,
+    end_at timestamptz not null
+  ) on commit drop;
+
+  delete from tmp_turni_breaks;
+
+  for item in select value from jsonb_array_elements(breaks) as value loop
+    b_start := (item->>'start_at')::timestamptz;
+    b_end := (item->>'end_at')::timestamptz;
+    if b_end <= b_start then
+      raise exception 'Pausa non valida (fine <= inizio).' using errcode = '22000';
+    end if;
+    if extract(second from b_start) <> 0 or extract(second from b_end) <> 0
+      or (extract(minute from b_start)::int % 15) <> 0
+      or (extract(minute from b_end)::int % 15) <> 0 then
+      raise exception 'Pause ammesse solo a quarti d''ora.' using errcode = '22000';
+    end if;
+    if b_start < shift_start or b_end > shift_end then
+      raise exception 'Le pause devono stare dentro l''orario del turno.' using errcode = '22000';
+    end if;
+    insert into tmp_turni_breaks(start_at, end_at) values (b_start, b_end);
+  end loop;
+
+  prev_end := null;
+  for b_start, b_end in
+    select t.start_at, t.end_at from tmp_turni_breaks t order by t.start_at
+  loop
+    if prev_end is not null and b_start < prev_end then
+      raise exception 'Le pause non possono sovrapporsi.' using errcode = '22000';
+    end if;
+    prev_end := b_end;
+  end loop;
+
+  delete from public.turni_shift_breaks b where b.shift_id = internal.turni_replace_shift_breaks.shift_id;
+
+  insert into public.turni_shift_breaks(shift_id, break_start_at, break_end_at)
+  select internal.turni_replace_shift_breaks.shift_id, t.start_at, t.end_at
+  from tmp_turni_breaks t;
+end;
+$$;
+
+create or replace function public.turni_replace_shift_breaks(
+  shift_id bigint,
+  breaks jsonb
+)
+returns void
+language sql
+security invoker
+set search_path = public
+as $$
+  select internal.turni_replace_shift_breaks(shift_id, breaks);
+$$;
