@@ -866,3 +866,96 @@ drop trigger if exists dpi_items_block_deactivation on public.dpi_items;
 create trigger dpi_items_block_deactivation
   before update on public.dpi_items
   for each row execute procedure internal.dpi_items_block_deactivation();
+
+drop policy if exists "dpi_items_insert_management_only" on public.dpi_items;
+drop policy if exists "dpi_items_update_management_only" on public.dpi_items;
+drop policy if exists "dpi_items_delete_management_only" on public.dpi_items;
+
+create policy "dpi_items_insert_management_only"
+  on public.dpi_items
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('dpi', true));
+
+create policy "dpi_items_update_management_only"
+  on public.dpi_items
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('dpi', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('dpi', true));
+
+create policy "dpi_items_delete_management_only"
+  on public.dpi_items
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "dpi_matrix_rules_insert_management_only" on public.dpi_matrix_rules;
+drop policy if exists "dpi_matrix_rules_update_management_only" on public.dpi_matrix_rules;
+drop policy if exists "dpi_matrix_rules_delete_management_only" on public.dpi_matrix_rules;
+
+create policy "dpi_matrix_rules_insert_management_only"
+  on public.dpi_matrix_rules
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('dpi', true));
+
+create policy "dpi_matrix_rules_update_management_only"
+  on public.dpi_matrix_rules
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('dpi', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('dpi', true));
+
+create policy "dpi_matrix_rules_delete_management_only"
+  on public.dpi_matrix_rules
+  for delete
+  using (public.has_module_access('gestione', true) or public.has_module_access('dpi', true));
+
+drop policy if exists "dpi_employee_items_insert_management_only" on public.dpi_employee_items;
+drop policy if exists "dpi_employee_items_update_management_only" on public.dpi_employee_items;
+drop policy if exists "dpi_employee_items_delete_management_only" on public.dpi_employee_items;
+
+create policy "dpi_employee_items_insert_management_only"
+  on public.dpi_employee_items
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('dpi', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "dpi_employee_items_update_management_only"
+  on public.dpi_employee_items
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('dpi', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('dpi', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "dpi_employee_items_delete_management_only"
+  on public.dpi_employee_items
+  for delete
+  using (public.has_module_access('gestione', true));
