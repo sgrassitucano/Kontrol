@@ -28,6 +28,10 @@
 - Se export per sistemi esterni: rigenera l’export e valida 2 righe EBAFOS e 2 righe PIATTAFORMA.
 
 ## Prima di un deploy
+- Applica su Supabase la patch cumulativa DB: `supabase/999_next.sql` (una sola volta per ambiente).
+- Verifica che le RPC richieste dai moduli operativi siano presenti (se mancano alcuni endpoint tornano errore):
+  - `turni_replace_shift_breaks`
+  - `fleet_complete_obligation`
 - Esegui `npm run lint`
 - Esegui `npm run build`
 - Esegui `npm test`
@@ -35,4 +39,4 @@
 ## Rollback (se qualcosa va storto)
 - Import Sorveglianza/Anagrafica/Formazione legacy: usa la funzione Undo dall’ultimo import run (dove disponibile).
 - Se il problema riguarda date/parse: reimporta il file corretto (l’import è progettato per convergere sul dato più recente).
-
+- Se un endpoint inizia a dare 403 dopo patch DB: è quasi sempre una policy RLS più stretta; controlla che l’utente abbia il modulo giusto e lo scope corretto (responsabile/referente).
