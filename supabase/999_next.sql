@@ -789,3 +789,80 @@ create policy "fleet_asset_assignments_delete"
   on public.fleet_asset_assignments
   for delete
   using (public.has_module_access('gestione', true));
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'dpi_employee_items_no_delivered_and_planned') then
+    null;
+  else
+    alter table public.dpi_employee_items
+      add constraint dpi_employee_items_no_delivered_and_planned
+      check (not (delivered_date is not null and planned_date is not null)) not valid;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'dpi_employee_items_next_check_requires_delivery') then
+    null;
+  else
+    alter table public.dpi_employee_items
+      add constraint dpi_employee_items_next_check_requires_delivery
+      check (next_check_date is null or delivered_date is not null) not valid;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'dpi_employee_items_next_check_after_delivery') then
+    null;
+  else
+    alter table public.dpi_employee_items
+      add constraint dpi_employee_items_next_check_after_delivery
+      check (delivered_date is null or next_check_date is null or next_check_date >= delivered_date) not valid;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'dpi_employee_items_last_check_before_next') then
+    null;
+  else
+    alter table public.dpi_employee_items
+      add constraint dpi_employee_items_last_check_before_next
+      check (last_check_date is null or next_check_date is null or last_check_date <= next_check_date) not valid;
+  end if;
+end
+$$;
+
+create or replace function internal.dpi_items_block_deactivation()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rules_count integer;
+  rows_count integer;
+begin
+  if tg_op <> 'UPDATE' then
+    return new;
+  end if;
+  if old.is_active = true and new.is_active = false then
+    select count(*) into rules_count from public.dpi_matrix_rules r where r.dpi_id = old.id;
+    select count(*) into rows_count from public.dpi_employee_items e where e.dpi_id = old.id;
+    if rules_count > 0 or rows_count > 0 then
+      raise exception 'Impossibile disattivare DPI: esistono collegamenti (regole matrice=% , righe lavoratori=%).', rules_count, rows_count using errcode = 'P0001';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists dpi_items_block_deactivation on public.dpi_items;
+create trigger dpi_items_block_deactivation
+  before update on public.dpi_items
+  for each row execute procedure internal.dpi_items_block_deactivation();

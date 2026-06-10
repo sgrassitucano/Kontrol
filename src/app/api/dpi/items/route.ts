@@ -151,6 +151,26 @@ export async function PATCH(request: Request) {
       payload.control_type = body.controlType.trim() || null;
     }
     if (typeof body.isActive === "boolean") {
+      if (body.isActive === false) {
+        const [{ count: rulesCount, error: rulesError }, { count: empCount, error: empError }] = await Promise.all([
+          supabase.from("dpi_matrix_rules").select("id", { count: "exact", head: true }).eq("dpi_id", id),
+          supabase.from("dpi_employee_items").select("employee_id", { count: "exact", head: true }).eq("dpi_id", id),
+        ]);
+        if (rulesError) throw new Error(rulesError.message);
+        if (empError) throw new Error(empError.message);
+        const rules = typeof rulesCount === "number" ? rulesCount : 0;
+        const rows = typeof empCount === "number" ? empCount : 0;
+        if (rules > 0 || rows > 0) {
+          return NextResponse.json(
+            {
+              error:
+                "Impossibile disattivare: esistono regole matrice o consegne collegate. Rimuovi prima le regole/righe collegate.",
+              details: { matrixRules: rules, employeeRows: rows },
+            },
+            { status: 409 },
+          );
+        }
+      }
       payload.is_active = body.isActive;
     }
 

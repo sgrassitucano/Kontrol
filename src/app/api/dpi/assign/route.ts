@@ -4,6 +4,18 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+function normalizeIsoDate(value: unknown) {
+  const s = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00.000Z`);
+  if (!Number.isFinite(d.getTime())) return null;
+  return s;
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function isMissingRelationError(error: unknown) {
   if (!(error instanceof Error)) return false;
   return /relation .*dpi_/i.test(error.message) && /does not exist/i.test(error.message);
@@ -54,6 +66,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    const deliveredDate = body.deliveredDate ? normalizeIsoDate(body.deliveredDate) : null;
+    const plannedDate = body.plannedDate ? normalizeIsoDate(body.plannedDate) : null;
+    const nextCheckDate = body.nextCheckDate ? normalizeIsoDate(body.nextCheckDate) : null;
+
     const { data: employeeData, error: employeeError } = await supabase
       .from("employees")
       .select("id,job_title")
@@ -100,19 +116,26 @@ export async function POST(request: Request) {
         ? {
             employee_id: employeeId,
             dpi_id: dpiId,
-            delivered_date: body.deliveredDate ?? new Date().toISOString().slice(0, 10),
+            delivered_date: deliveredDate ?? todayIsoDate(),
             planned_date: null,
-            next_check_date: body.nextCheckDate ?? null,
+            next_check_date: nextCheckDate,
             note: typeof body.note === "string" ? body.note : null,
           }
         : {
             employee_id: employeeId,
             dpi_id: dpiId,
             delivered_date: null,
-            planned_date: body.plannedDate ?? new Date().toISOString().slice(0, 10),
-            next_check_date: body.nextCheckDate ?? null,
+            planned_date: plannedDate ?? todayIsoDate(),
+            next_check_date: null,
             note: typeof body.note === "string" ? body.note : null,
           };
+
+    if (payload.delivered_date && payload.next_check_date && payload.next_check_date < payload.delivered_date) {
+      return NextResponse.json(
+        { error: "Data prossimo controllo non valida (precedente alla consegna)." },
+        { status: 400 },
+      );
+    }
 
     const { error: upsertError } = await supabase
       .from("dpi_employee_items")

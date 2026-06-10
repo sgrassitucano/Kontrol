@@ -45,6 +45,21 @@ type EmployeeDpiRow = {
   note: string | null;
 };
 
+function normalizeIsoDate(value: unknown) {
+  const s = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00.000Z`);
+  if (!Number.isFinite(d.getTime())) return null;
+  return s;
+}
+
+function addDaysIso(baseIso: string, days: number) {
+  const base = new Date(`${baseIso}T00:00:00.000Z`);
+  if (!Number.isFinite(base.getTime())) return null;
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
 function extractDisplayName(value: unknown) {
   if (!value) return "-";
   if (Array.isArray(value)) {
@@ -57,27 +72,23 @@ function extractDisplayName(value: unknown) {
   return "-";
 }
 
-function computeState({
-  deliveredDate,
-  plannedDate,
-  nextCheckDate,
-  today,
-  thresholdDate,
-}: {
+export function computeDpiState(args: {
   deliveredDate: string | null;
   plannedDate: string | null;
   nextCheckDate: string | null;
-  today: Date;
-  thresholdDate: Date;
+  todayIsoDate: string;
+  thresholdIsoDate: string;
 }): DpiState {
+  const deliveredDate = normalizeIsoDate(args.deliveredDate);
+  const plannedDate = normalizeIsoDate(args.plannedDate);
+  const nextCheckDate = normalizeIsoDate(args.nextCheckDate);
   if (!deliveredDate) {
     if (plannedDate) return "programmato";
     return "da consegnare";
   }
   if (!nextCheckDate) return "consegnato";
-  const due = new Date(nextCheckDate);
-  if (due < today) return "scaduto";
-  if (due <= thresholdDate) return "da verificare";
+  if (nextCheckDate < args.todayIsoDate) return "scaduto";
+  if (nextCheckDate <= args.thresholdIsoDate) return "da verificare";
   return "idoneo";
 }
 
@@ -98,11 +109,11 @@ export async function GET(request: Request) {
     const employeeId = employeeIdParam ? Number(employeeIdParam) : null;
     const simulationDate = (url.searchParams.get("date") ?? "").trim();
 
-    const today = simulationDate ? new Date(simulationDate) : new Date();
-    const thresholdDate = new Date(today);
-    thresholdDate.setDate(
-      thresholdDate.getDate() + (Number.isFinite(expiringDays) ? expiringDays : 30),
-    );
+    const todayIsoDate = normalizeIsoDate(simulationDate) ?? new Date().toISOString().slice(0, 10);
+    const thresholdIsoDate =
+      addDaysIso(todayIsoDate, Number.isFinite(expiringDays) ? expiringDays : 30) ??
+      addDaysIso(todayIsoDate, 30) ??
+      todayIsoDate;
 
     const supabase = auth.supabase;
     const employees = await fetchEmployees(supabase, employeeId);
@@ -187,12 +198,12 @@ export async function GET(request: Request) {
 
         const delivery = deliveryByKey.get(`${employee.id}:${dpiId}`) ?? null;
 
-        const stato = computeState({
+        const stato = computeDpiState({
           deliveredDate: delivery?.delivered_date ?? null,
           plannedDate: delivery?.planned_date ?? null,
           nextCheckDate: delivery?.next_check_date ?? null,
-          today,
-          thresholdDate,
+          todayIsoDate,
+          thresholdIsoDate,
         });
 
         const row = {
