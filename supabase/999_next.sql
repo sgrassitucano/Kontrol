@@ -1725,3 +1725,60 @@ create policy "turni_employee_absences_delete_management_only"
   on public.turni_employee_absences
   for delete
   using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_shift_breaks_write_by_scope" on public.turni_shift_breaks;
+drop policy if exists "turni_shift_breaks_insert_by_scope" on public.turni_shift_breaks;
+drop policy if exists "turni_shift_breaks_update_by_scope" on public.turni_shift_breaks;
+drop policy if exists "turni_shift_breaks_delete_management_only" on public.turni_shift_breaks;
+
+create policy "turni_shift_breaks_insert_by_scope"
+  on public.turni_shift_breaks
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.turni_employee_shifts s
+        join public.employees e on e.id = s.employee_id
+        where s.id = shift_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_shift_breaks_update_by_scope"
+  on public.turni_shift_breaks
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.turni_employee_shifts s
+        join public.employees e on e.id = s.employee_id
+        where s.id = shift_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.turni_employee_shifts s
+        join public.employees e on e.id = s.employee_id
+        where s.id = shift_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_shift_breaks_delete_management_only"
+  on public.turni_shift_breaks
+  for delete
+  using (public.has_module_access('gestione', true));

@@ -8,6 +8,7 @@ type ShiftState = "planned" | "actual" | "cancelled";
 type ShiftSource = "template" | "manual" | "import";
 
 class ClientError extends Error {}
+class MissingRpcError extends Error {}
 
 type ShiftRow = {
   id: number;
@@ -106,12 +107,15 @@ async function replaceBreaksAtomic(args: {
     shift_id: shiftId,
     breaks: payload,
   });
-  if (!error) return { usedRpc: true as const };
+  if (!error) return;
   const msg = String((error as { message?: unknown } | null)?.message ?? "");
-  if (!/turni_replace_shift_breaks/i.test(msg)) {
+  if (/turni_replace_shift_breaks/i.test(msg)) {
+    throw new MissingRpcError("RPC turni_replace_shift_breaks non disponibile. Applicare patch DB.");
+  }
+  if (msg) {
     throw new Error(msg || "Errore aggiornamento pause.");
   }
-  return { usedRpc: false as const };
+  throw new Error("Errore aggiornamento pause.");
 }
 
 function monthKey(date: Date) {
@@ -363,26 +367,18 @@ export async function POST(request: Request) {
     if (insertError) throw new Error(insertError.message);
     const shiftId = (inserted as { id: number }).id;
 
-    const payload = normalizedBreaks.map((b) => ({
-        shift_id: shiftId,
-        break_start_at: b.start.toISOString(),
-        break_end_at: b.end.toISOString(),
-      }));
-
-    if (payload.length > 0) {
-      const rpcRes = await replaceBreaksAtomic({ supabase, shiftId, breaks: normalizedBreaks });
-      if (!rpcRes.usedRpc) {
-        const { error: breaksError } = await supabase.from("turni_shift_breaks").insert(payload);
-        if (breaksError) {
-          await supabase.from("turni_employee_shifts").update({ state: "cancelled" }).eq("id", shiftId);
-          throw new Error(breaksError.message);
-        }
+    if (normalizedBreaks.length > 0) {
+      try {
+        await replaceBreaksAtomic({ supabase, shiftId, breaks: normalizedBreaks });
+      } catch (err) {
+        await supabase.from("turni_employee_shifts").update({ state: "cancelled" }).eq("id", shiftId);
+        throw err;
       }
     }
 
     return NextResponse.json({ id: shiftId });
   } catch (err) {
-    const status = err instanceof ClientError ? 400 : 500;
+    const status = err instanceof ClientError ? 400 : err instanceof MissingRpcError ? 503 : 500;
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore creazione turno." },
       { status },
@@ -483,25 +479,12 @@ export async function PATCH(request: Request) {
     }
 
     if (Array.isArray(body.breaks)) {
-      const rpcRes = await replaceBreaksAtomic({ supabase, shiftId, breaks: normalizedBreaks });
-      if (!rpcRes.usedRpc) {
-        const { error: delError } = await supabase.from("turni_shift_breaks").delete().eq("shift_id", shiftId);
-        if (delError) throw new Error(delError.message);
-        const payload = normalizedBreaks.map((b) => ({
-          shift_id: shiftId,
-          break_start_at: b.start.toISOString(),
-          break_end_at: b.end.toISOString(),
-        }));
-        if (payload.length > 0) {
-          const { error: insertError } = await supabase.from("turni_shift_breaks").insert(payload);
-          if (insertError) throw new Error(insertError.message);
-        }
-      }
+      await replaceBreaksAtomic({ supabase, shiftId, breaks: normalizedBreaks });
     }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    const status = err instanceof ClientError ? 400 : 500;
+    const status = err instanceof ClientError ? 400 : err instanceof MissingRpcError ? 503 : 500;
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore aggiornamento turno." },
       { status },
