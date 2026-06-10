@@ -959,3 +959,57 @@ create policy "dpi_employee_items_delete_management_only"
   on public.dpi_employee_items
   for delete
   using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_employee_shifts_write_by_scope" on public.turni_employee_shifts;
+drop policy if exists "turni_employee_shifts_insert_by_scope" on public.turni_employee_shifts;
+drop policy if exists "turni_employee_shifts_update_by_scope" on public.turni_employee_shifts;
+drop policy if exists "turni_employee_shifts_delete_management_only" on public.turni_employee_shifts;
+
+create policy "turni_employee_shifts_insert_by_scope"
+  on public.turni_employee_shifts
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_shifts_update_by_scope"
+  on public.turni_employee_shifts
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_shifts_delete_management_only"
+  on public.turni_employee_shifts
+  for delete
+  using (public.has_module_access('gestione', true));

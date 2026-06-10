@@ -374,7 +374,7 @@ export async function POST(request: Request) {
       if (!rpcRes.usedRpc) {
         const { error: breaksError } = await supabase.from("turni_shift_breaks").insert(payload);
         if (breaksError) {
-          await supabase.from("turni_employee_shifts").delete().eq("id", shiftId);
+          await supabase.from("turni_employee_shifts").update({ state: "cancelled" }).eq("id", shiftId);
           throw new Error(breaksError.message);
         }
       }

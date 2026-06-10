@@ -265,7 +265,7 @@ async function syncEmployeeRange(params: {
     const chunkSize = 200;
     for (let i = 0; i < ids.length; i += chunkSize) {
       const chunk = ids.slice(i, i + chunkSize);
-      const { error } = await supabase.from("turni_employee_shifts").delete().in("id", chunk);
+      const { error } = await supabase.from("turni_employee_shifts").update({ state: "cancelled" }).in("id", chunk);
       if (error) throw new Error(error.message);
       deleted += chunk.length;
     }
