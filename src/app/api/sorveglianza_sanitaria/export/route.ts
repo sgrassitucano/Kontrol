@@ -253,11 +253,13 @@ async function fetchAllScopeRules(supabase: SupabaseClient) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from("medical_surveillance_scope_rules")
-      .select("scope_type,site_id,sub_site_id,requires_visit")
+      .select("*")
       .order("id")
       .range(from, to);
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as ScopeRuleRow[];
+    const rows = ((data ?? []) as Array<ScopeRuleRow & { is_active?: boolean | null }>).filter(
+      (row) => row.is_active !== false,
+    );
     allRows.push(...rows);
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;

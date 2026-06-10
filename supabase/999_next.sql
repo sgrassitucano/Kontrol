@@ -1890,3 +1890,52 @@ create policy "medical_surveillance_records_delete_management_only"
   on public.medical_surveillance_records
   for delete
   using (public.has_module_access('gestione', true));
+
+drop policy if exists "training_matrix_rules_write_management_only" on public.training_matrix_rules;
+drop policy if exists "training_matrix_rules_insert_management_only" on public.training_matrix_rules;
+drop policy if exists "training_matrix_rules_update_management_only" on public.training_matrix_rules;
+drop policy if exists "training_matrix_rules_delete_management_only" on public.training_matrix_rules;
+
+create policy "training_matrix_rules_insert_management_only"
+  on public.training_matrix_rules
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "training_matrix_rules_update_management_only"
+  on public.training_matrix_rules
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "training_matrix_rules_delete_management_only"
+  on public.training_matrix_rules
+  for delete
+  using (public.has_module_access('gestione', true));
+
+alter table public.medical_surveillance_scope_rules
+  add column if not exists is_active boolean not null default true;
+
+update public.medical_surveillance_scope_rules
+set is_active = true
+where is_active is null;
+
+drop policy if exists "medical_surveillance_scope_rules_write" on public.medical_surveillance_scope_rules;
+drop policy if exists "medical_surveillance_scope_rules_insert_management_only" on public.medical_surveillance_scope_rules;
+drop policy if exists "medical_surveillance_scope_rules_update_management_only" on public.medical_surveillance_scope_rules;
+drop policy if exists "medical_surveillance_scope_rules_delete_management_only" on public.medical_surveillance_scope_rules;
+
+create policy "medical_surveillance_scope_rules_insert_management_only"
+  on public.medical_surveillance_scope_rules
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "medical_surveillance_scope_rules_update_management_only"
+  on public.medical_surveillance_scope_rules
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "medical_surveillance_scope_rules_delete_management_only"
+  on public.medical_surveillance_scope_rules
+  for delete
+  using (public.has_module_access('gestione', true));

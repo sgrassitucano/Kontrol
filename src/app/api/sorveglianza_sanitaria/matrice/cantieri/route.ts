@@ -12,11 +12,16 @@ type RuleRow = {
   sub_site_id: number | null;
   requires_visit: boolean;
   note: string | null;
+  is_active?: boolean | null;
 };
 
 const MAX_SITES = 5000;
 const MAX_SUBSITES = 10000;
 const MAX_RULES = 20000;
+
+function isMissingIsActiveColumnError(message: string) {
+  return /is_active/i.test(message);
+}
 
 export async function GET() {
   const auth = await requireAnyModuleAccess(["gestione", "sorveglianza"], false);
@@ -71,19 +76,44 @@ export async function PATCH(request: Request) {
 
     const payload =
       scopeType === "site"
-        ? { scope_type: "site" as const, site_id: siteId, sub_site_id: null, requires_visit: requiresVisit, note, created_by: auth.userId }
+        ? {
+            scope_type: "site" as const,
+            site_id: siteId,
+            sub_site_id: null,
+            requires_visit: requiresVisit,
+            note,
+            is_active: true,
+            created_by: auth.userId,
+          }
         : {
             scope_type: "sub_site" as const,
             site_id: null,
             sub_site_id: subSiteId,
             requires_visit: requiresVisit,
             note,
+            is_active: true,
             created_by: auth.userId,
           };
 
-    const { error } = await auth.supabase
+    let { error } = await auth.supabase
       .from("medical_surveillance_scope_rules")
       .upsert(payload, { onConflict: "scope_type,site_id,sub_site_id" });
+    if (error && isMissingIsActiveColumnError(error.message)) {
+      const fallbackPayload =
+        scopeType === "site"
+          ? { scope_type: "site" as const, site_id: siteId, sub_site_id: null, requires_visit: requiresVisit, note, created_by: auth.userId }
+          : {
+              scope_type: "sub_site" as const,
+              site_id: null,
+              sub_site_id: subSiteId,
+              requires_visit: requiresVisit,
+              note,
+              created_by: auth.userId,
+            };
+      ({ error } = await auth.supabase
+        .from("medical_surveillance_scope_rules")
+        .upsert(fallbackPayload, { onConflict: "scope_type,site_id,sub_site_id" }));
+    }
     if (error) throw new Error(error.message);
 
     return NextResponse.json({ ok: true });
@@ -107,23 +137,39 @@ export async function DELETE(request: Request) {
 
     if (scopeType === "site") {
       if (!siteId) return NextResponse.json({ error: "siteId non valido." }, { status: 400 });
-      const { error } = await auth.supabase
+      let { error } = await auth.supabase
         .from("medical_surveillance_scope_rules")
-        .delete()
+        .update({ is_active: false })
         .eq("scope_type", "site")
         .eq("site_id", siteId)
         .is("sub_site_id", null);
+      if (error && isMissingIsActiveColumnError(error.message)) {
+        ({ error } = await auth.supabase
+          .from("medical_surveillance_scope_rules")
+          .delete()
+          .eq("scope_type", "site")
+          .eq("site_id", siteId)
+          .is("sub_site_id", null));
+      }
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true });
     }
 
     if (!subSiteId) return NextResponse.json({ error: "subSiteId non valido." }, { status: 400 });
-    const { error } = await auth.supabase
+    let { error } = await auth.supabase
       .from("medical_surveillance_scope_rules")
-      .delete()
+      .update({ is_active: false })
       .eq("scope_type", "sub_site")
       .eq("sub_site_id", subSiteId)
       .is("site_id", null);
+    if (error && isMissingIsActiveColumnError(error.message)) {
+      ({ error } = await auth.supabase
+        .from("medical_surveillance_scope_rules")
+        .delete()
+        .eq("scope_type", "sub_site")
+        .eq("sub_site_id", subSiteId)
+        .is("site_id", null));
+    }
     if (error) throw new Error(error.message);
 
     return NextResponse.json({ ok: true });
@@ -156,9 +202,10 @@ async function fetchAllSubSites(supabase: SupabaseClient) {
 async function fetchAllRules(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("medical_surveillance_scope_rules")
-    .select("scope_type,site_id,sub_site_id,requires_visit,note")
+    .select("*")
     .limit(MAX_RULES + 1);
   if (error) throw new Error(error.message);
-  if ((data ?? []).length > MAX_RULES) throw new Error("Troppe regole cantieri. Riduci il dataset o applica paginazione.");
-  return (data ?? []) as RuleRow[];
+  const rows = ((data ?? []) as RuleRow[]).filter((row) => row.is_active !== false);
+  if (rows.length > MAX_RULES) throw new Error("Troppe regole cantieri. Riduci il dataset o applica paginazione.");
+  return rows;
 }

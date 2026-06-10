@@ -83,12 +83,12 @@ export async function POST() {
       if (linksError) return NextResponse.json({ error: linksError.message }, { status: 500 });
     }
 
-    const { error: deleteError } = await auth.supabase
+    const { error: disableError } = await auth.supabase
       .from("training_matrix_rules")
-      .delete()
+      .update({ is_required: false, source: "baseline" })
       .eq("source", "baseline")
       .in("scope_type", ["baseline", "job"]);
-    if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    if (disableError) return NextResponse.json({ error: disableError.message }, { status: 500 });
 
     const baselinePayload = ["FORM_BASE", "FORM_SPEC_BASSO"]
       .map((code) => {

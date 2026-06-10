@@ -439,9 +439,11 @@ async function fetchAllJobRules(supabase: SupabaseClient) {
 async function fetchAllScopeRules(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("medical_surveillance_scope_rules")
-    .select("scope_type,site_id,sub_site_id,requires_visit");
+    .select("*");
   if (error) return [] as ScopeRuleRow[];
-  return (data ?? []) as ScopeRuleRow[];
+  return ((data ?? []) as Array<ScopeRuleRow & { is_active?: boolean | null }>).filter(
+    (row) => row.is_active !== false,
+  );
 }
 
 async function fetchAllProviderAssignments(supabase: SupabaseClient) {

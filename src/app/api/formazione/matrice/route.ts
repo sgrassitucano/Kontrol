@@ -58,6 +58,7 @@ export async function GET(request: Request) {
     const flags = new Set<string>();
     const cellSources: Record<string, "baseline" | "manual"> = {};
     (rules ?? []).forEach((rule) => {
+      if (!rule.is_required) return;
       const scopeKey =
         scopeType === "job"
           ? rule.job_code_norm
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
     } else {
       let query = supabase
         .from("training_matrix_rules")
-        .delete()
+        .update({ is_required: false, source: "manual" })
         .eq("scope_type", body.scopeType)
         .eq("course_id", body.courseId)
         .is("employee_id", null);
