@@ -46,6 +46,13 @@ function parseIsoDate(value: unknown) {
   return v;
 }
 
+function parseLimitParam(value: string | null, fallback = 500) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, 1000);
+}
+
 async function resolveValidatedSubSiteId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   siteId: number,
@@ -101,6 +108,7 @@ export async function GET(request: Request) {
     const siteIdParam = url.searchParams.get("siteId");
     const subSiteIdParam = url.searchParams.get("subSiteId");
     const employeeIdParam = url.searchParams.get("employeeId");
+    const limit = parseLimitParam(url.searchParams.get("limit"));
     const siteId = siteIdParam ? Number(siteIdParam) : null;
     const subSiteId = subSiteIdParam ? Number(subSiteIdParam) : null;
     const employeeId = employeeIdParam ? Number(employeeIdParam) : null;
@@ -111,7 +119,8 @@ export async function GET(request: Request) {
       .select(
         "id,employee_id,site_id,sub_site_id,start_date,end_date,note,employees(id,matricola,first_name,last_name),sites(id,display_name)",
       )
-      .order("start_date", { ascending: false });
+      .order("start_date", { ascending: false })
+      .limit(limit + 1);
 
     if (typeof siteId === "number" && Number.isFinite(siteId)) query = query.eq("site_id", siteId);
     if (typeof subSiteId === "number" && Number.isFinite(subSiteId)) query = query.eq("sub_site_id", subSiteId);
@@ -119,7 +128,8 @@ export async function GET(request: Request) {
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as AssignmentRow[];
+    const rows = ((data ?? []) as AssignmentRow[]).slice(0, limit);
+    const truncated = (data ?? []).length > limit;
 
     const subSiteIds = Array.from(new Set(rows.map((r) => r.sub_site_id).filter((v): v is number => typeof v === "number")));
     const subSitesById = new Map<number, string>();
@@ -135,6 +145,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
+      limit,
+      truncated,
       rows: rows.map((r) => ({
         id: r.id,
         employeeId: r.employee_id,

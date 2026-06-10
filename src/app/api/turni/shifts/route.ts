@@ -122,6 +122,13 @@ function monthKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function parseLimitParam(value: string | null, fallback = 500) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, 1000);
+}
+
 async function resolveValidatedSubSiteId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   siteId: number,
@@ -192,6 +199,7 @@ export async function GET(request: Request) {
     const siteIdParam = url.searchParams.get("siteId");
     const subSiteIdParam = url.searchParams.get("subSiteId");
     const employeeIdParam = url.searchParams.get("employeeId");
+    const limit = parseLimitParam(url.searchParams.get("limit"));
     const startDate = parseIsoDate(url.searchParams.get("startDate"));
     const endDate = parseIsoDate(url.searchParams.get("endDate"));
 
@@ -208,6 +216,10 @@ export async function GET(request: Request) {
     if (!Number.isFinite(startAt.getTime()) || !Number.isFinite(endAt.getTime())) {
       return NextResponse.json({ error: "Range date non valido." }, { status: 400 });
     }
+    const maxSpanMs = 1000 * 60 * 60 * 24 * 62;
+    if (endAt.getTime() - startAt.getTime() > maxSpanMs) {
+      return NextResponse.json({ error: "Intervallo troppo ampio. Massimo 62 giorni." }, { status: 400 });
+    }
 
     const supabase = auth.supabase;
     let query = supabase
@@ -217,7 +229,8 @@ export async function GET(request: Request) {
       )
       .lt("start_at", endAt.toISOString())
       .gt("end_at", startAt.toISOString())
-      .order("start_at");
+      .order("start_at")
+      .limit(limit + 1);
 
     if (typeof siteId === "number" && Number.isFinite(siteId)) query = query.eq("site_id", siteId);
     if (typeof subSiteId === "number" && Number.isFinite(subSiteId)) query = query.eq("sub_site_id", subSiteId);
@@ -225,7 +238,8 @@ export async function GET(request: Request) {
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
-    const shifts = (data ?? []) as ShiftRow[];
+    const shifts = ((data ?? []) as ShiftRow[]).slice(0, limit);
+    const truncated = (data ?? []).length > limit;
 
     const subSiteIds = Array.from(new Set(shifts.map((s) => s.sub_site_id).filter((v): v is number => typeof v === "number")));
     const subSitesById = new Map<number, string>();
@@ -273,6 +287,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
+      limit,
+      truncated,
       rows: shifts.map((s) => ({
         id: s.id,
         employeeId: s.employee_id,
