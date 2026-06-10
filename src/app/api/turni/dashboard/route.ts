@@ -59,6 +59,15 @@ type BreakRow = {
   break_end_at: string;
 };
 
+const MAX_SITES = 5000;
+const MAX_EMPLOYEES = 10000;
+const MAX_ASSIGNMENTS = 50000;
+const MAX_TEMPLATES = 20000;
+const MAX_TEMPLATE_SLOTS = 50000;
+const MAX_SHIFTS = 50000;
+const MAX_BREAKS = 100000;
+const QUERY_CHUNK_SIZE = 500;
+
 function extractDisplayName(value: unknown, fallback = "-") {
   if (!value) return fallback;
   if (Array.isArray(value)) {
@@ -149,35 +158,35 @@ function pickTemplateForDate(templates: TemplateRow[], dateIso: string) {
 }
 
 async function fetchSites(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
-  const { data, error } = await supabase.from("sites").select("id,display_name").order("display_name");
+  const { data, error } = await supabase
+    .from("sites")
+    .select("id,display_name")
+    .order("display_name")
+    .limit(MAX_SITES + 1);
   if (error) throw new Error(error.message);
-  return (data ?? []) as SiteRow[];
+  const rows = (data ?? []) as SiteRow[];
+  if (rows.length > MAX_SITES) {
+    throw new Error("Troppi cantieri per dashboard turni. Riduci il dataset o applica paginazione.");
+  }
+  return rows;
 }
 
 async function fetchEmployees(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
-  const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const all: EmployeeRow[] = [];
-
-  while (hasMore) {
-    const to = from + pageSize - 1;
-    const { data, error } = await supabase
-      .from("employees")
-      .select(
-        "id,matricola,first_name,last_name,job_title,responsible_code,referral,site_id,sub_site_id,sites(display_name),sub_sites(display_name)",
-      )
-      .eq("status", "attivo")
-      .order("last_name")
-      .range(from, to);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as EmployeeRow[];
-    all.push(...rows);
-    if (rows.length < pageSize) hasMore = false;
-    else from += pageSize;
+  const { data, error } = await supabase
+    .from("employees")
+    .select(
+      "id,matricola,first_name,last_name,job_title,responsible_code,referral,site_id,sub_site_id,sites(display_name),sub_sites(display_name)",
+    )
+    .eq("status", "attivo")
+    .order("last_name")
+    .order("first_name")
+    .limit(MAX_EMPLOYEES + 1);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as EmployeeRow[];
+  if (rows.length > MAX_EMPLOYEES) {
+    throw new Error("Troppi lavoratori per dashboard turni. Riduci il dataset o applica paginazione.");
   }
-
-  return all;
+  return rows;
 }
 
 async function fetchAssignmentsInRange(
@@ -189,9 +198,14 @@ async function fetchAssignmentsInRange(
     .from("turni_employee_site_assignments")
     .select("employee_id,site_id,sub_site_id,start_date,end_date")
     .lte("start_date", endDate)
-    .or(`end_date.is.null,end_date.gte.${startDate}`);
+    .or(`end_date.is.null,end_date.gte.${startDate}`)
+    .limit(MAX_ASSIGNMENTS + 1);
   if (error) throw new Error(error.message);
-  return (data ?? []) as AssignmentRow[];
+  const rows = (data ?? []) as AssignmentRow[];
+  if (rows.length > MAX_ASSIGNMENTS) {
+    throw new Error("Troppi assegnamenti per dashboard turni. Restringi il periodo o il dataset.");
+  }
+  return rows;
 }
 
 async function fetchTemplatesForSites(
@@ -201,23 +215,40 @@ async function fetchTemplatesForSites(
   if (siteIds.length === 0) {
     return { templates: [] as TemplateRow[], slots: [] as TemplateSlotRow[] };
   }
-  const { data: templatesData, error: templatesError } = await supabase
-    .from("turni_site_templates")
-    .select("id,site_id,sub_site_id,valid_from,valid_to,is_active")
-    .eq("is_active", true)
-    .in("site_id", siteIds);
-  if (templatesError) throw new Error(templatesError.message);
-  const templates = (templatesData ?? []) as TemplateRow[];
+  const templates: TemplateRow[] = [];
+  for (let i = 0; i < siteIds.length; i += QUERY_CHUNK_SIZE) {
+    const chunk = siteIds.slice(i, i + QUERY_CHUNK_SIZE);
+    const { data: templatesData, error: templatesError } = await supabase
+      .from("turni_site_templates")
+      .select("id,site_id,sub_site_id,valid_from,valid_to,is_active")
+      .eq("is_active", true)
+      .in("site_id", chunk)
+      .limit(MAX_TEMPLATES + 1);
+    if (templatesError) throw new Error(templatesError.message);
+    templates.push(...((templatesData ?? []) as TemplateRow[]));
+    if (templates.length > MAX_TEMPLATES) {
+      throw new Error("Troppi template per dashboard turni. Restringi il dataset.");
+    }
+  }
   const templateIds = templates.map((t) => t.id);
   if (templateIds.length === 0) {
     return { templates, slots: [] as TemplateSlotRow[] };
   }
-  const { data: slotsData, error: slotsError } = await supabase
-    .from("turni_site_template_slots")
-    .select("template_id,weekday,start_time,end_time,break_minutes")
-    .in("template_id", templateIds);
-  if (slotsError) throw new Error(slotsError.message);
-  return { templates, slots: (slotsData ?? []) as TemplateSlotRow[] };
+  const slots: TemplateSlotRow[] = [];
+  for (let i = 0; i < templateIds.length; i += QUERY_CHUNK_SIZE) {
+    const chunk = templateIds.slice(i, i + QUERY_CHUNK_SIZE);
+    const { data: slotsData, error: slotsError } = await supabase
+      .from("turni_site_template_slots")
+      .select("template_id,weekday,start_time,end_time,break_minutes")
+      .in("template_id", chunk)
+      .limit(MAX_TEMPLATE_SLOTS + 1);
+    if (slotsError) throw new Error(slotsError.message);
+    slots.push(...((slotsData ?? []) as TemplateSlotRow[]));
+    if (slots.length > MAX_TEMPLATE_SLOTS) {
+      throw new Error("Troppi slot template per dashboard turni. Restringi il dataset.");
+    }
+  }
+  return { templates, slots };
 }
 
 async function fetchShiftsInMonth(
@@ -225,29 +256,20 @@ async function fetchShiftsInMonth(
   monthStartIso: string,
   nextMonthStartIso: string,
 ) {
-  const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const all: ShiftRow[] = [];
-
-  while (hasMore) {
-    const to = from + pageSize - 1;
-    const { data, error } = await supabase
-      .from("turni_employee_shifts")
-      .select("id,employee_id,site_id,sub_site_id,start_at,end_at,state")
-      .neq("state", "cancelled")
-      .lt("start_at", nextMonthStartIso)
-      .gt("end_at", monthStartIso)
-      .order("start_at")
-      .range(from, to);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as ShiftRow[];
-    all.push(...rows);
-    if (rows.length < pageSize) hasMore = false;
-    else from += pageSize;
+  const { data, error } = await supabase
+    .from("turni_employee_shifts")
+    .select("id,employee_id,site_id,sub_site_id,start_at,end_at,state")
+    .neq("state", "cancelled")
+    .lt("start_at", nextMonthStartIso)
+    .gt("end_at", monthStartIso)
+    .order("start_at")
+    .limit(MAX_SHIFTS + 1);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as ShiftRow[];
+  if (rows.length > MAX_SHIFTS) {
+    throw new Error("Troppi turni per dashboard mensile. Restringi il mese o applica filtri.");
   }
-
-  return all;
+  return rows;
 }
 
 async function fetchBreaksByShiftIds(
@@ -255,15 +277,20 @@ async function fetchBreaksByShiftIds(
   shiftIds: number[],
 ) {
   const map = new Map<number, BreakRow[]>();
-  const chunkSize = 500;
-  for (let i = 0; i < shiftIds.length; i += chunkSize) {
-    const chunk = shiftIds.slice(i, i + chunkSize);
+  let totalRows = 0;
+  for (let i = 0; i < shiftIds.length; i += QUERY_CHUNK_SIZE) {
+    const chunk = shiftIds.slice(i, i + QUERY_CHUNK_SIZE);
     const { data, error } = await supabase
       .from("turni_shift_breaks")
       .select("shift_id,break_start_at,break_end_at")
-      .in("shift_id", chunk);
+      .in("shift_id", chunk)
+      .limit(MAX_BREAKS + 1);
     if (error) throw new Error(error.message);
     for (const row of (data ?? []) as BreakRow[]) {
+      totalRows += 1;
+      if (totalRows > MAX_BREAKS) {
+        throw new Error("Troppe pause per dashboard turni. Restringi il dataset.");
+      }
       const list = map.get(row.shift_id);
       if (!list) map.set(row.shift_id, [row]);
       else list.push(row);
