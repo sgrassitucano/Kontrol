@@ -1013,3 +1013,138 @@ create policy "turni_employee_shifts_delete_management_only"
   on public.turni_employee_shifts
   for delete
   using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_site_templates_write" on public.turni_site_templates;
+drop policy if exists "turni_site_templates_insert" on public.turni_site_templates;
+drop policy if exists "turni_site_templates_update" on public.turni_site_templates;
+drop policy if exists "turni_site_templates_delete_management_only" on public.turni_site_templates;
+
+create policy "turni_site_templates_insert"
+  on public.turni_site_templates
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('turni', true));
+
+create policy "turni_site_templates_update"
+  on public.turni_site_templates
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('turni', true));
+
+create policy "turni_site_templates_delete_management_only"
+  on public.turni_site_templates
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_employee_site_assignments_write_by_scope" on public.turni_employee_site_assignments;
+drop policy if exists "turni_employee_site_assignments_insert_by_scope" on public.turni_employee_site_assignments;
+drop policy if exists "turni_employee_site_assignments_update_by_scope" on public.turni_employee_site_assignments;
+drop policy if exists "turni_employee_site_assignments_delete_management_only" on public.turni_employee_site_assignments;
+
+create policy "turni_employee_site_assignments_insert_by_scope"
+  on public.turni_employee_site_assignments
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_site_assignments_update_by_scope"
+  on public.turni_employee_site_assignments
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('turni', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "turni_employee_site_assignments_delete_management_only"
+  on public.turni_employee_site_assignments
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_month_locks_write" on public.turni_month_locks;
+drop policy if exists "turni_month_locks_insert" on public.turni_month_locks;
+drop policy if exists "turni_month_locks_update" on public.turni_month_locks;
+drop policy if exists "turni_month_locks_delete_management_only" on public.turni_month_locks;
+
+create policy "turni_month_locks_insert"
+  on public.turni_month_locks
+  for insert
+  with check (public.has_module_access('gestione', true) or public.has_module_access('turni', true));
+
+create policy "turni_month_locks_update"
+  on public.turni_month_locks
+  for update
+  using (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
+  with check (public.has_module_access('gestione', true) or public.has_module_access('turni', true));
+
+create policy "turni_month_locks_delete_management_only"
+  on public.turni_month_locks
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "turni_site_month_targets_write" on public.turni_site_month_targets;
+drop policy if exists "turni_site_month_targets_insert" on public.turni_site_month_targets;
+drop policy if exists "turni_site_month_targets_update" on public.turni_site_month_targets;
+drop policy if exists "turni_site_month_targets_delete_management_only" on public.turni_site_month_targets;
+
+create policy "turni_site_month_targets_insert"
+  on public.turni_site_month_targets
+  for insert
+  with check (
+    (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
+    and (
+      (sub_site_id is null and public.can_access_site(site_id))
+      or (sub_site_id is not null and public.can_access_sub_site(sub_site_id))
+    )
+  );
+
+create policy "turni_site_month_targets_update"
+  on public.turni_site_month_targets
+  for update
+  using (
+    (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
+    and (
+      (sub_site_id is null and public.can_access_site(site_id))
+      or (sub_site_id is not null and public.can_access_sub_site(sub_site_id))
+    )
+  )
+  with check (
+    (public.has_module_access('gestione', true) or public.has_module_access('turni', true))
+    and (
+      (sub_site_id is null and public.can_access_site(site_id))
+      or (sub_site_id is not null and public.can_access_sub_site(sub_site_id))
+    )
+  );
+
+create policy "turni_site_month_targets_delete_management_only"
+  on public.turni_site_month_targets
+  for delete
+  using (public.has_module_access('gestione', true));
