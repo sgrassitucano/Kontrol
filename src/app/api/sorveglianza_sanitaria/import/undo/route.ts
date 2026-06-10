@@ -11,7 +11,7 @@ import {
 export const runtime = "nodejs";
 
 export async function POST() {
-  const auth = await requireModuleAccess("sorveglianza", true);
+  const auth = await requireModuleAccess("gestione", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
@@ -134,4 +134,3 @@ export async function POST() {
     );
   }
 }
-

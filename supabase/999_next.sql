@@ -1782,3 +1782,111 @@ create policy "turni_shift_breaks_delete_management_only"
   on public.turni_shift_breaks
   for delete
   using (public.has_module_access('gestione', true));
+
+drop policy if exists "training_employee_course_exclusions_write_formazione" on public.training_employee_course_exclusions;
+drop policy if exists "training_employee_course_exclusions_insert_by_scope" on public.training_employee_course_exclusions;
+drop policy if exists "training_employee_course_exclusions_update_by_scope" on public.training_employee_course_exclusions;
+drop policy if exists "training_employee_course_exclusions_delete_management_only" on public.training_employee_course_exclusions;
+
+create policy "training_employee_course_exclusions_insert_by_scope"
+  on public.training_employee_course_exclusions
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "training_employee_course_exclusions_update_by_scope"
+  on public.training_employee_course_exclusions
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "training_employee_course_exclusions_delete_management_only"
+  on public.training_employee_course_exclusions
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "medical_surveillance_records_write_sorveglianza" on public.medical_surveillance_records;
+drop policy if exists "medical_surveillance_records_insert_by_scope" on public.medical_surveillance_records;
+drop policy if exists "medical_surveillance_records_update_by_scope" on public.medical_surveillance_records;
+drop policy if exists "medical_surveillance_records_delete_management_only" on public.medical_surveillance_records;
+
+create policy "medical_surveillance_records_insert_by_scope"
+  on public.medical_surveillance_records
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "medical_surveillance_records_update_by_scope"
+  on public.medical_surveillance_records
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "medical_surveillance_records_delete_management_only"
+  on public.medical_surveillance_records
+  for delete
+  using (public.has_module_access('gestione', true));

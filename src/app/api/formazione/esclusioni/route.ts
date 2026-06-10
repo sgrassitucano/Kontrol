@@ -195,7 +195,7 @@ export async function DELETE(request: Request) {
 
     const { error } = await auth.supabase
       .from("training_employee_course_exclusions")
-      .delete()
+      .update({ is_active: false })
       .eq("employee_id", employeeId)
       .eq("course_id", courseId);
     if (error) throw new Error(error.message);
