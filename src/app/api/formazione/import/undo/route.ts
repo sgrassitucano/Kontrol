@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
 import {
+  archiveImportUndoDeletedRows,
   fetchImportRunChanges,
   fetchLatestUndoableImportRun,
   markImportRunUndone,
+  MissingImportUndoArchiveError,
   pickComparableFields,
   shallowEqual,
 } from "@/lib/import/import-undo";
@@ -58,6 +60,10 @@ export async function POST() {
 
     const comparableFields = ["completion_date", "expiry_date"];
     const toDeleteByEmployeeId = new Map<number, number[]>();
+    const deletedRowArchives: Array<{
+      rowKey: Record<string, unknown>;
+      rowData: Record<string, unknown>;
+    }> = [];
     const toRestore: Array<{ employee_id: number; course_id: number; completion_date: string | null; expiry_date: string | null }> =
       [];
     let skippedChanged = 0;
@@ -77,6 +83,15 @@ export async function POST() {
           const list = toDeleteByEmployeeId.get(employeeId) ?? [];
           list.push(courseId);
           toDeleteByEmployeeId.set(employeeId, list);
+          deletedRowArchives.push({
+            rowKey: { employee_id: employeeId, course_id: courseId },
+            rowData: {
+              employee_id: current.employee_id,
+              course_id: current.course_id,
+              completion_date: current.completion_date,
+              expiry_date: current.expiry_date,
+            },
+          });
         } else {
           skippedChanged += 1;
         }
@@ -99,6 +114,14 @@ export async function POST() {
         completion_date: (before.completion_date as string | null) ?? null,
         expiry_date: (before.expiry_date as string | null) ?? null,
       });
+    });
+
+    await archiveImportUndoDeletedRows({
+      supabase: auth.supabase,
+      importRunId: run.id,
+      tableName: "training_employee_courses",
+      archivedBy: auth.userId,
+      rows: deletedRowArchives,
     });
 
     for (const [employeeId, allCourseIds] of toDeleteByEmployeeId.entries()) {
@@ -133,10 +156,12 @@ export async function POST() {
       skippedRows: skippedChanged,
     });
   } catch (err) {
+    if (err instanceof MissingImportUndoArchiveError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore annullamento import." },
       { status: 500 },
     );
   }
 }
-

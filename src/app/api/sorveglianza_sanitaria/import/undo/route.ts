@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
 import {
+  archiveImportUndoDeletedRows,
   fetchImportRunChanges,
   fetchLatestUndoableImportRun,
   markImportRunUndone,
+  MissingImportUndoArchiveError,
   pickComparableFields,
   shallowEqual,
 } from "@/lib/import/import-undo";
@@ -58,6 +60,10 @@ export async function POST() {
 
     const comparableFields = ["requires_visit", "next_due_date", "limitations", "notes"];
     const toDelete: number[] = [];
+    const deletedRowArchives: Array<{
+      rowKey: Record<string, unknown>;
+      rowData: Record<string, unknown>;
+    }> = [];
     const toRestore: Array<{
       employee_id: number;
       requires_visit: boolean;
@@ -78,6 +84,16 @@ export async function POST() {
       if (change.action === "insert") {
         if (current && shallowEqual(currentComparable, afterComparable)) {
           toDelete.push(employeeId);
+          deletedRowArchives.push({
+            rowKey: { employee_id: employeeId },
+            rowData: {
+              employee_id: current.employee_id,
+              requires_visit: current.requires_visit,
+              next_due_date: current.next_due_date,
+              limitations: current.limitations,
+              notes: current.notes,
+            },
+          });
         } else {
           skippedChanged += 1;
         }
@@ -101,6 +117,14 @@ export async function POST() {
         limitations: (before.limitations as string | null) ?? null,
         notes: (before.notes as string | null) ?? null,
       });
+    });
+
+    await archiveImportUndoDeletedRows({
+      supabase: auth.supabase,
+      importRunId: run.id,
+      tableName: "medical_surveillance_records",
+      archivedBy: auth.userId,
+      rows: deletedRowArchives,
     });
 
     for (let i = 0; i < toDelete.length; i += 500) {
@@ -128,6 +152,9 @@ export async function POST() {
       skippedRows: skippedChanged,
     });
   } catch (err) {
+    if (err instanceof MissingImportUndoArchiveError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore annullamento import." },
       { status: 500 },

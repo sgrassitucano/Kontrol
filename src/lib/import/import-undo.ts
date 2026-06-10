@@ -15,6 +15,8 @@ export type ImportRunChangeRow = {
   after_row: Record<string, unknown> | null;
 };
 
+export class MissingImportUndoArchiveError extends Error {}
+
 export async function fetchLatestUndoableImportRun(params: {
   supabase: SupabaseClient;
   sources: string[];
@@ -71,6 +73,40 @@ export async function markImportRunUndone(params: {
     undone_by: undoneBy,
   });
   if (error) throw new Error(error.message);
+}
+
+export async function archiveImportUndoDeletedRows(params: {
+  supabase: SupabaseClient;
+  importRunId: string;
+  tableName: string;
+  archivedBy: string | null;
+  rows: Array<{
+    rowKey: Record<string, unknown>;
+    rowData: Record<string, unknown>;
+  }>;
+}) {
+  const { supabase, importRunId, tableName, archivedBy, rows } = params;
+  if (rows.length === 0) return;
+
+  for (let i = 0; i < rows.length; i += 500) {
+    const part = rows.slice(i, i + 500);
+    const { error } = await supabase.from("import_undo_deleted_rows").insert(
+      part.map((row) => ({
+        import_run_id: importRunId,
+        table_name: tableName,
+        row_key: row.rowKey,
+        row_data: row.rowData,
+        archived_by: archivedBy,
+      })),
+    );
+    if (!error) continue;
+    if (/import_undo_deleted_rows/i.test(String(error.message ?? ""))) {
+      throw new MissingImportUndoArchiveError(
+        "Archivio undo import non disponibile. Applicare patch DB.",
+      );
+    }
+    throw new Error(error.message);
+  }
 }
 
 export function pickComparableFields<T extends Record<string, unknown>>(

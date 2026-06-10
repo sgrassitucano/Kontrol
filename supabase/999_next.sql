@@ -1939,3 +1939,30 @@ create policy "medical_surveillance_scope_rules_delete_management_only"
   on public.medical_surveillance_scope_rules
   for delete
   using (public.has_module_access('gestione', true));
+
+create table if not exists public.import_undo_deleted_rows (
+  id bigint generated always as identity primary key,
+  import_run_id uuid not null references public.import_runs(id) on delete cascade,
+  table_name text not null,
+  row_key jsonb not null,
+  row_data jsonb not null,
+  archived_by uuid references public.profiles(id),
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+create index if not exists import_undo_deleted_rows_import_run_id_idx
+  on public.import_undo_deleted_rows (import_run_id);
+
+alter table public.import_undo_deleted_rows enable row level security;
+
+drop policy if exists "import_undo_deleted_rows_read_management_only" on public.import_undo_deleted_rows;
+create policy "import_undo_deleted_rows_read_management_only"
+  on public.import_undo_deleted_rows
+  for select
+  using (public.has_module_access('gestione'));
+
+drop policy if exists "import_undo_deleted_rows_insert_management_only" on public.import_undo_deleted_rows;
+create policy "import_undo_deleted_rows_insert_management_only"
+  on public.import_undo_deleted_rows
+  for insert
+  with check (public.has_module_access('gestione', true));
