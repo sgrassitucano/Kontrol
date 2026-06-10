@@ -48,6 +48,20 @@ function extractDisplayName(value: unknown) {
   return "-";
 }
 
+function normalizeIsoDate(value: unknown) {
+  const s = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00.000Z`);
+  if (!Number.isFinite(d.getTime())) return null;
+  return s;
+}
+
+export function assetAssignmentOverlaps(args: { startA: string; endA: string | null; startB: string; endB: string | null }) {
+  const endAIso = args.endA ?? "9999-12-31";
+  const endBIso = args.endB ?? "9999-12-31";
+  return args.startA <= endBIso && args.startB <= endAIso;
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("mezzi_attrezzature", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -143,14 +157,28 @@ export async function POST(request: Request) {
       note?: string;
     };
 
-    if (!body.assetId || !body.employeeId || !body.startDate) {
+    const startDate = normalizeIsoDate(body.startDate);
+    if (!body.assetId || !body.employeeId || !startDate) {
       return NextResponse.json({ error: "Dati mancanti." }, { status: 400 });
+    }
+
+    const { data: overlapsData, error: overlapsError } = await supabase
+      .from("fleet_asset_assignments")
+      .select("id,start_date,end_date,employee_id")
+      .eq("asset_id", body.assetId)
+      .or(`end_date.is.null,end_date.gte.${startDate}`)
+      .limit(10);
+    if (overlapsError) throw new Error(overlapsError.message);
+    const overlaps = (overlapsData ?? []) as Array<{ id: number; start_date: string; end_date: string | null; employee_id: number }>;
+    const hasOverlap = overlaps.some((a) => assetAssignmentOverlaps({ startA: a.start_date, endA: a.end_date, startB: startDate, endB: null }));
+    if (hasOverlap) {
+      return NextResponse.json({ error: "Asset già assegnato nel periodo selezionato. Chiudi prima l'assegnazione attiva." }, { status: 409 });
     }
 
     const { error } = await supabase.from("fleet_asset_assignments").insert({
       asset_id: body.assetId,
       employee_id: body.employeeId,
-      start_date: body.startDate,
+      start_date: startDate,
       end_date: null,
       note: body.note ?? null,
     });
@@ -176,13 +204,14 @@ export async function PATCH(request: Request) {
       endDate: string;
     };
 
-    if (!body.assignmentId || !body.endDate) {
+    const endDate = normalizeIsoDate(body.endDate);
+    if (!body.assignmentId || !endDate) {
       return NextResponse.json({ error: "Dati mancanti." }, { status: 400 });
     }
 
     const { error } = await supabase
       .from("fleet_asset_assignments")
-      .update({ end_date: body.endDate })
+      .update({ end_date: endDate })
       .eq("id", body.assignmentId);
 
     if (error) throw new Error(error.message);

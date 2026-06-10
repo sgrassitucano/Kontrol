@@ -614,3 +614,33 @@ set search_path = public
 as $$
   select internal.turni_replace_shift_breaks(shift_id, breaks);
 $$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'fleet_asset_assignments_end_after_start') then
+    null;
+  else
+    alter table public.fleet_asset_assignments
+      add constraint fleet_asset_assignments_end_after_start
+      check (end_date is null or end_date >= start_date);
+  end if;
+end
+$$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'fleet_asset_assignments_no_overlap') then
+    null;
+  else
+    if exists (select 1 from pg_class where relname = 'fleet_asset_assignments_no_overlap') then
+      execute 'drop index if exists public.fleet_asset_assignments_no_overlap';
+    end if;
+    alter table public.fleet_asset_assignments
+      add constraint fleet_asset_assignments_no_overlap
+      exclude using gist (
+        asset_id with =,
+        daterange(start_date, coalesce(end_date + 1, 'infinity'::date), '[)') with &&
+      );
+  end if;
+end
+$$;
