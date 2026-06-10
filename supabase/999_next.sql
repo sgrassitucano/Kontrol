@@ -921,7 +921,7 @@ create policy "dpi_matrix_rules_update_management_only"
 create policy "dpi_matrix_rules_delete_management_only"
   on public.dpi_matrix_rules
   for delete
-  using (public.has_module_access('gestione', true) or public.has_module_access('dpi', true));
+  using (public.has_module_access('gestione', true));
 
 drop policy if exists "dpi_employee_items_insert_management_only" on public.dpi_employee_items;
 drop policy if exists "dpi_employee_items_update_management_only" on public.dpi_employee_items;

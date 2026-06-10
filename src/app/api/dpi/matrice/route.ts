@@ -135,7 +135,7 @@ export async function POST(request: Request) {
     } else {
       const { error } = await supabase
         .from("dpi_matrix_rules")
-        .delete()
+        .update({ is_required: false, source: "manual" })
         .eq("scope_type", "job")
         .eq("dpi_id", dpiId)
         .eq("job_code_norm", jobCodeNorm);
