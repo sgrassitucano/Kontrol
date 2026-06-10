@@ -32,6 +32,13 @@ function extractDisplayName(value: unknown) {
   return "-";
 }
 
+function parseLimitParam(value: string | null, fallback: number) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, 2000);
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("turni", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -39,6 +46,7 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const q = (url.searchParams.get("q") ?? "").toLowerCase().trim();
+    const limit = parseLimitParam(url.searchParams.get("limit"), q ? 200 : 500);
 
     const supabase = auth.supabase;
 
@@ -49,13 +57,32 @@ export async function GET(request: Request) {
     ] = await Promise.all([
       supabase.from("sites").select("id,display_name").order("display_name"),
       supabase.from("sub_sites").select("id,site_id,display_name").order("display_name"),
-      supabase
-        .from("employees")
-        .select(
-          "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,sites(display_name),sub_sites(display_name)",
-        )
-        .eq("status", "attivo")
-        .order("last_name"),
+      (() => {
+        let query = supabase
+          .from("employees")
+          .select(
+            "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,sites(display_name),sub_sites(display_name)",
+          )
+          .eq("status", "attivo")
+          .order("last_name")
+          .limit(limit);
+
+        if (q) {
+          const like = `%${q}%`;
+          query = query.or(
+            [
+              `matricola.ilike.${like}`,
+              `last_name.ilike.${like}`,
+              `first_name.ilike.${like}`,
+              `responsible_code.ilike.${like}`,
+              `referral.ilike.${like}`,
+              `job_title.ilike.${like}`,
+            ].join(","),
+          );
+        }
+
+        return query;
+      })(),
     ]);
 
     if (sitesError) throw new Error(sitesError.message);
@@ -81,28 +108,11 @@ export async function GET(request: Request) {
         siteId: s.site_id,
         label: s.display_name,
       }));
-    const filtered = q
-      ? employees.filter((e) => {
-          const searchable = [
-            e.matricola,
-            e.last_name,
-            e.first_name,
-            e.responsible_code,
-            e.referral ?? "",
-            e.job_title,
-            extractDisplayName(e.sites),
-            extractDisplayName(e.sub_sites),
-          ]
-            .join(" ")
-            .toLowerCase();
-          return searchable.includes(q);
-        })
-      : employees;
-
     return NextResponse.json({
+      limit,
       sites,
       subSites,
-      employees: filtered.map((e) => ({
+      employees: employees.map((e) => ({
         id: e.id,
         matricola: e.matricola,
         cognome: e.last_name,

@@ -34,7 +34,10 @@ export async function POST(request: Request) {
         providerByEmployeeId.set(employeeId, provider);
       });
     } else {
-      const records = await fetchRecords(auth.supabase);
+      const records = await fetchRecordsForEmployees(
+        auth.supabase,
+        employees.map((e) => e.id),
+      );
       records.forEach((row) => {
         const value = String(row.provider ?? "").trim();
         if (!value) return;
@@ -190,15 +193,35 @@ export async function POST(request: Request) {
 }
 
 async function fetchEmployees(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("employees").select("id,site_id,sub_site_id").eq("status", "attivo");
-  if (error) throw new Error(error.message);
-  return (data ?? []) as EmployeeRow[];
+  const rows: EmployeeRow[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("employees")
+      .select("id,site_id,sub_site_id")
+      .eq("status", "attivo")
+      .order("id")
+      .range(offset, offset + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const batch = (data ?? []) as EmployeeRow[];
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+  return rows;
 }
 
-async function fetchRecords(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("medical_surveillance_records").select("employee_id,provider");
-  if (error) throw new Error(error.message);
-  return (data ?? []) as RecordRow[];
+async function fetchRecordsForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const rows: RecordRow[] = [];
+  for (let i = 0; i < employeeIds.length; i += 500) {
+    const part = employeeIds.slice(i, i + 500);
+    const { data, error } = await supabase
+      .from("medical_surveillance_records")
+      .select("employee_id,provider")
+      .in("employee_id", part);
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as RecordRow[]));
+  }
+  return rows;
 }
 
 async function readOptionalFile(request: Request): Promise<File | null> {
