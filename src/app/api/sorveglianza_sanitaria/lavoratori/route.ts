@@ -32,6 +32,26 @@ function parseLimitParam(value: string | null, fallback = 500) {
   return Math.min(n, 2000);
 }
 
+function parseOffsetParam(value: string | null) {
+  if (!value) return 0;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
+const MAX_EMPLOYEES = 20000;
+const MAX_SURVEILLANCE_ROWS = 50000;
+const MAX_FREEZES = 50000;
+const MAX_JOB_RULES = 50000;
+const MAX_SCOPE_RULES = 50000;
+const MAX_PROVIDER_ASSIGNMENTS = 50000;
+const MAX_EMPLOYEE_EXCLUSIONS = 100000;
+const MAX_EMPLOYEE_OVERRIDES = 100000;
+
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
 type SurveillanceRow = {
   employee_id: number;
   provider: string | null;
@@ -175,6 +195,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const query = (url.searchParams.get("q") ?? "").toLowerCase().trim();
     const limit = parseLimitParam(url.searchParams.get("limit"), query ? 200 : 500);
+    const offset = parseOffsetParam(url.searchParams.get("offset"));
     const expiringDays = Number(url.searchParams.get("expiringDays") ?? "30");
     const dateParam = url.searchParams.get("date");
     const includeExcluded = url.searchParams.get("includeExcluded") === "1";
@@ -350,7 +371,7 @@ export async function GET(request: Request) {
       else if (row.stato === "programmato") counts.programmato += 1;
       else if (row.stato === "sospeso") counts.sospeso += 1;
       else counts.escluso += 1;
-      if (rows.length < limit) rows.push(row);
+      if (totalRows > offset && rows.length < limit) rows.push(row);
     }
 
     rows.sort((a, b) => a.cognome.localeCompare(b.cognome) || a.nome.localeCompare(b.nome));
@@ -358,7 +379,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       rows,
       limit,
-      truncated: totalRows > rows.length,
+      offset,
+      truncated: totalRows > offset + rows.length,
       totalRows,
       totalActiveEmployees: employees.length,
       excludedByRule,
@@ -367,6 +389,9 @@ export async function GET(request: Request) {
       counts,
     });
   } catch (error) {
+    if (error instanceof TooManyRowsError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Errore caricamento sorveglianza sanitaria." },
       { status: 500 },
@@ -393,6 +418,11 @@ async function fetchAllEmployees(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as EmployeeRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EMPLOYEES) {
+      throw new TooManyRowsError(
+        `Troppi lavoratori per sorveglianza sanitaria (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -410,6 +440,11 @@ async function fetchSurveillanceRowsForEmployees(supabase: SupabaseClient, emplo
       .in("employee_id", part);
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as SurveillanceRow[]));
+    if (rows.length > MAX_SURVEILLANCE_ROWS) {
+      throw new TooManyRowsError(
+        `Troppi record sorveglianza (> ${MAX_SURVEILLANCE_ROWS}). Restringi il dataset o applica filtri.`,
+      );
+    }
   }
   return rows;
 }
@@ -424,6 +459,9 @@ async function fetchFreezesForEmployees(supabase: SupabaseClient, employeeIds: n
       .in("employee_id", part);
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as FreezeRow[]));
+    if (rows.length > MAX_FREEZES) {
+      throw new TooManyRowsError(`Troppi periodi freeze (> ${MAX_FREEZES}). Restringi il dataset o applica paginazione.`);
+    }
   }
   return rows;
 }
@@ -431,27 +469,44 @@ async function fetchFreezesForEmployees(supabase: SupabaseClient, employeeIds: n
 async function fetchAllJobRules(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("medical_surveillance_job_rules")
-    .select("job_code_norm,always_exempt,exempt_below_weekly_minutes");
+    .select("job_code_norm,always_exempt,exempt_below_weekly_minutes")
+    .limit(MAX_JOB_RULES + 1);
   if (error) return [] as JobRuleRow[];
-  return (data ?? []) as JobRuleRow[];
+  const rows = (data ?? []) as JobRuleRow[];
+  if (rows.length > MAX_JOB_RULES) {
+    throw new TooManyRowsError(`Troppe regole mansione (> ${MAX_JOB_RULES}). Restringi il dataset o applica paginazione.`);
+  }
+  return rows;
 }
 
 async function fetchAllScopeRules(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("medical_surveillance_scope_rules")
-    .select("*");
+    .select("*")
+    .limit(MAX_SCOPE_RULES + 1);
   if (error) return [] as ScopeRuleRow[];
-  return ((data ?? []) as Array<ScopeRuleRow & { is_active?: boolean | null }>).filter(
+  const rows = ((data ?? []) as Array<ScopeRuleRow & { is_active?: boolean | null }>).filter(
     (row) => row.is_active !== false,
   );
+  if (rows.length > MAX_SCOPE_RULES) {
+    throw new TooManyRowsError(`Troppe regole scope (> ${MAX_SCOPE_RULES}). Restringi il dataset o applica paginazione.`);
+  }
+  return rows;
 }
 
 async function fetchAllProviderAssignments(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("medical_surveillance_provider_assignments")
-    .select("scope_type,site_id,sub_site_id,provider,is_active");
+    .select("scope_type,site_id,sub_site_id,provider,is_active")
+    .limit(MAX_PROVIDER_ASSIGNMENTS + 1);
   if (error) return [] as ProviderAssignmentRow[];
-  return (data ?? []) as ProviderAssignmentRow[];
+  const rows = (data ?? []) as ProviderAssignmentRow[];
+  if (rows.length > MAX_PROVIDER_ASSIGNMENTS) {
+    throw new TooManyRowsError(
+      `Troppe assegnazioni provider (> ${MAX_PROVIDER_ASSIGNMENTS}). Restringi il dataset o applica paginazione.`,
+    );
+  }
+  return rows;
 }
 
 async function fetchEmployeeExclusionsForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
@@ -465,6 +520,11 @@ async function fetchEmployeeExclusionsForEmployees(supabase: SupabaseClient, emp
       .in("employee_id", part);
     if (error) return [] as EmployeeExclusionRow[];
     rows.push(...((data ?? []) as EmployeeExclusionRow[]));
+    if (rows.length > MAX_EMPLOYEE_EXCLUSIONS) {
+      throw new TooManyRowsError(
+        `Troppe esclusioni lavoratori (> ${MAX_EMPLOYEE_EXCLUSIONS}). Restringi il dataset o applica paginazione.`,
+      );
+    }
   }
   return rows;
 }
@@ -480,6 +540,11 @@ async function fetchEmployeeOverridesForEmployees(supabase: SupabaseClient, empl
       .in("employee_id", part);
     if (error) return [] as EmployeeOverrideRow[];
     rows.push(...((data ?? []) as EmployeeOverrideRow[]));
+    if (rows.length > MAX_EMPLOYEE_OVERRIDES) {
+      throw new TooManyRowsError(
+        `Troppe override lavoratori (> ${MAX_EMPLOYEE_OVERRIDES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
   }
   return rows;
 }
