@@ -7,10 +7,28 @@ type ShiftState = "planned" | "actual" | "cancelled";
 type ShiftRow = { id: number; start_at: string; end_at: string; state: ShiftState };
 type BreakRow = { shift_id: number; break_start_at: string; break_end_at: string };
 
+const MAX_SHIFTS = 50000;
+const MAX_BREAKS = 100000;
+const IN_QUERY_CHUNK_SIZE = 500;
+
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
 function clampYearMonth(year: number, month: number) {
   if (!Number.isFinite(year) || year < 2000 || year > 2100) return null;
   if (!Number.isFinite(month) || month < 1 || month > 12) return null;
   return { year, month };
+}
+
+function chunkArray<T>(items: T[], chunkSize: number) {
+  if (items.length === 0) return [] as T[][];
+  const size = Math.max(1, Math.trunc(chunkSize));
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }
 
 function minutesBetween(aIso: string, bIso: string) {
@@ -47,26 +65,38 @@ export async function GET(request: Request) {
       .gte("start_at", start.toISOString())
       .lt("start_at", end.toISOString())
       .eq("site_id", siteId)
-      .neq("state", "cancelled");
+      .neq("state", "cancelled")
+      .limit(MAX_SHIFTS + 1);
     if (typeof subSiteId === "number" && Number.isFinite(subSiteId)) shiftsQuery = shiftsQuery.eq("sub_site_id", subSiteId);
     else shiftsQuery = shiftsQuery.is("sub_site_id", null);
 
     const { data: shiftsData, error: shiftsError } = await shiftsQuery;
     if (shiftsError) throw new Error(shiftsError.message);
     const shifts = (shiftsData ?? []) as ShiftRow[];
+    if (shifts.length > MAX_SHIFTS) {
+      throw new TooManyRowsError("Troppi turni per riepilogo mensile. Restringi il dataset o applica filtri.");
+    }
     const shiftIds = shifts.map((s) => s.id);
 
     const breaksByShiftId = new Map<number, BreakRow[]>();
     if (shiftIds.length > 0) {
-      const { data: breaksData, error: breaksError } = await auth.supabase
-        .from("turni_shift_breaks")
-        .select("shift_id,break_start_at,break_end_at")
-        .in("shift_id", shiftIds);
-      if (breaksError) throw new Error(breaksError.message);
-      for (const b of (breaksData ?? []) as BreakRow[]) {
-        const list = breaksByShiftId.get(b.shift_id) ?? [];
-        list.push(b);
-        breaksByShiftId.set(b.shift_id, list);
+      let totalBreaks = 0;
+      for (const chunk of chunkArray(shiftIds, IN_QUERY_CHUNK_SIZE)) {
+        const { data: breaksData, error: breaksError } = await auth.supabase
+          .from("turni_shift_breaks")
+          .select("shift_id,break_start_at,break_end_at")
+          .in("shift_id", chunk)
+          .limit(MAX_BREAKS + 1);
+        if (breaksError) throw new Error(breaksError.message);
+        for (const b of (breaksData ?? []) as BreakRow[]) {
+          totalBreaks += 1;
+          if (totalBreaks > MAX_BREAKS) {
+            throw new TooManyRowsError("Troppe pause per riepilogo mensile. Restringi il dataset o applica filtri.");
+          }
+          const list = breaksByShiftId.get(b.shift_id) ?? [];
+          list.push(b);
+          breaksByShiftId.set(b.shift_id, list);
+        }
       }
     }
 
@@ -105,10 +135,12 @@ export async function GET(request: Request) {
       diffActualVsPlanned: actualMinutes - plannedMinutes,
     });
   } catch (err) {
+    if (err instanceof TooManyRowsError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore riepilogo mese." },
       { status: 500 },
     );
   }
 }
-

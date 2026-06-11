@@ -64,6 +64,24 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+const DEFAULT_LIMIT = 5000;
+const MAX_LIMIT = 20000;
+const MAX_DUE_IN_DAYS = 365;
+
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+function parseDueInDaysParam(value: string | null, fallback = 30) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.min(n, MAX_DUE_IN_DAYS);
+}
+
 export function computeObligationStatus(args: { nextDueDate: string | null; thresholdIsoDate: string }) {
   const nextDueDate = normalizeIsoDate(args.nextDueDate);
   if (!nextDueDate) return "da impostare" as const;
@@ -103,74 +121,72 @@ export async function GET(request: Request) {
 
   try {
     const url = new URL(request.url);
-    const dueInDays = Number(url.searchParams.get("dueInDays") ?? "30");
+    const dueInDays = parseDueInDaysParam(url.searchParams.get("dueInDays"), 30);
     const includeMissing = (url.searchParams.get("includeMissing") ?? "1") === "1";
+    const limit = parseLimitParam(url.searchParams.get("limit"));
+
+    const thresholdDate = new Date();
+    thresholdDate.setDate(thresholdDate.getDate() + dueInDays);
+    const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
 
     const supabase = auth.supabase;
-    const { data, error } = await supabase
+    let query = supabase
       .from("fleet_asset_obligations")
       .select(
         "id,asset_id,last_done_date,next_due_date,vendor,notes,fleet_assets(id,asset_type,ownership_type,status,category,brand,model,plate,internal_code,serial_number,rental_end_date,sites(display_name),sub_sites(display_name)),fleet_obligation_types(id,code,label)",
       )
-      .order("id", { ascending: false });
+      .order("next_due_date", { ascending: true })
+      .order("id", { ascending: false })
+      .limit(limit + 1);
+    if (includeMissing) {
+      query = query.or(`next_due_date.is.null,next_due_date.lte.${thresholdIsoDate}`);
+    } else {
+      query = query.lte("next_due_date", thresholdIsoDate).not("next_due_date", "is", null);
+    }
 
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
 
-    const thresholdDate = new Date();
-    thresholdDate.setDate(thresholdDate.getDate() + (Number.isFinite(dueInDays) ? dueInDays : 30));
-    const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
+    const raw = (data ?? []) as ObligationDbRow[];
+    const truncated = raw.length > limit;
+    const rows = raw.slice(0, limit);
 
-    const rows = (data ?? []) as ObligationDbRow[];
+    const mapped = rows.map((row) => {
+      const asset = firstOrNull(row.fleet_assets as AssetJoinRow | AssetJoinRow[] | null);
+      const type = firstOrNull(row.fleet_obligation_types as ObligationTypeJoinRow | ObligationTypeJoinRow[] | null);
+      const status = computeObligationStatus({ nextDueDate: row.next_due_date, thresholdIsoDate });
 
-    const mapped = rows
-      .map((row) => {
-        const asset = firstOrNull(row.fleet_assets as AssetJoinRow | AssetJoinRow[] | null);
-        const type = firstOrNull(
-          row.fleet_obligation_types as ObligationTypeJoinRow | ObligationTypeJoinRow[] | null,
-        );
-        const status = computeObligationStatus({ nextDueDate: row.next_due_date, thresholdIsoDate });
+      return {
+        obligationId: row.id,
+        assetId: row.asset_id,
+        obligationCode: type?.code ?? "",
+        obligationLabel: type?.label ?? "",
+        lastDoneDate: row.last_done_date,
+        nextDueDate: row.next_due_date,
+        vendor: row.vendor ?? "",
+        notes: row.notes ?? "",
+        status: status as ObligationStatus,
+        asset: asset
+          ? {
+              id: asset.id,
+              assetType: asset.asset_type,
+              ownershipType: asset.ownership_type,
+              status: asset.status,
+              category: asset.category ?? "",
+              brand: asset.brand ?? "",
+              model: asset.model ?? "",
+              plate: asset.plate ?? "",
+              internalCode: asset.internal_code ?? "",
+              serialNumber: asset.serial_number ?? "",
+              rentalEndDate: asset.rental_end_date ?? null,
+              cantiere: extractDisplayName(asset.sites),
+              sottocantiere: extractDisplayName(asset.sub_sites),
+            }
+          : null,
+      };
+    });
 
-        return {
-          obligationId: row.id,
-          assetId: row.asset_id,
-          obligationCode: type?.code ?? "",
-          obligationLabel: type?.label ?? "",
-          lastDoneDate: row.last_done_date,
-          nextDueDate: row.next_due_date,
-          vendor: row.vendor ?? "",
-          notes: row.notes ?? "",
-          status: status as ObligationStatus,
-          asset: asset
-            ? {
-                id: asset.id,
-                assetType: asset.asset_type,
-                ownershipType: asset.ownership_type,
-                status: asset.status,
-                category: asset.category ?? "",
-                brand: asset.brand ?? "",
-                model: asset.model ?? "",
-                plate: asset.plate ?? "",
-                internalCode: asset.internal_code ?? "",
-                serialNumber: asset.serial_number ?? "",
-                rentalEndDate: asset.rental_end_date ?? null,
-                cantiere: extractDisplayName(asset.sites),
-                sottocantiere: extractDisplayName(asset.sub_sites),
-              }
-            : null,
-        };
-      })
-      .filter((row) => includeMissing || row.nextDueDate !== null)
-      .filter((row) => {
-        if (!row.nextDueDate) return true;
-        return row.nextDueDate <= thresholdIsoDate;
-      })
-      .sort((a, b) => {
-        const aKey = a.nextDueDate ?? "9999-12-31";
-        const bKey = b.nextDueDate ?? "9999-12-31";
-        return aKey.localeCompare(bKey);
-      });
-
-    return NextResponse.json({ rows: mapped, dueInDays: Number.isFinite(dueInDays) ? dueInDays : 30 });
+    return NextResponse.json({ dueInDays, limit, truncated, rows: mapped });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Errore caricamento scadenze." },

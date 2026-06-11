@@ -44,23 +44,50 @@ function normalizeText(value: unknown) {
   return String(value ?? "").trim();
 }
 
-export async function GET() {
+const DEFAULT_LIMIT = 5000;
+const MAX_LIMIT = 20000;
+
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+function parseOffsetParam(value: string | null) {
+  if (!value) return 0;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
+export async function GET(request: Request) {
   const auth = await requireModuleAccess("mezzi_attrezzature", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
     const supabase = auth.supabase;
+    const url = new URL(request.url);
+    const limit = parseLimitParam(url.searchParams.get("limit"));
+    const offset = parseOffsetParam(url.searchParams.get("offset"));
+
     const { data, error } = await supabase
       .from("fleet_assets")
       .select(
         "id,asset_type,ownership_type,status,category,brand,model,plate,vin,internal_code,serial_number,registration_date,rental_supplier,rental_start_date,rental_end_date,notes,sites(display_name),sub_sites(display_name)",
       )
-      .order("id", { ascending: false });
+      .order("id", { ascending: false })
+      .range(offset, offset + limit);
 
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as AssetRow[];
+    const raw = (data ?? []) as AssetRow[];
+    const truncated = raw.length > limit;
+    const rows = raw.slice(0, limit);
 
     return NextResponse.json({
+      limit,
+      offset,
+      truncated,
       rows: rows.map((row) => ({
         id: row.id,
         assetType: row.asset_type,
