@@ -234,9 +234,6 @@ export async function POST(request: Request) {
         { onConflict: "user_id,module" },
       );
       if (permsError) throw new Error(permsError.message);
-    } else {
-      const { error: clearError } = await supabaseAdmin.from("module_permissions").delete().eq("user_id", userId);
-      if (clearError) throw new Error(clearError.message);
     }
 
     return NextResponse.json({ ok: true, id: userId });
