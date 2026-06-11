@@ -84,6 +84,20 @@ type RowState = "idoneo" | "in scadenza" | "scaduto" | "da fare" | "programmato"
 
 export const runtime = "nodejs";
 
+const MAX_EXPORT_EMPLOYEES = 20000;
+const MAX_EXPORT_SURVEILLANCE_ROWS = 50000;
+const MAX_EXPORT_FREEZES = 50000;
+const MAX_EXPORT_JOB_RULES = 50000;
+const MAX_EXPORT_SCOPE_RULES = 50000;
+const MAX_EXPORT_PROVIDER_ASSIGNMENTS = 50000;
+const MAX_EXPORT_EMPLOYEE_EXCLUSIONS = 100000;
+const MAX_EXPORT_EMPLOYEE_OVERRIDES = 100000;
+const MAX_EXPORT_OUTPUT_ROWS = 20000;
+
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
 function extractDisplayName(value: unknown) {
   if (!value) return "-";
   if (Array.isArray(value)) {
@@ -166,6 +180,11 @@ async function fetchAllEmployees(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as EmployeeRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EXPORT_EMPLOYEES) {
+      throw new TooManyRowsError(
+        `Troppi lavoratori per export sorveglianza (> ${MAX_EXPORT_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -189,6 +208,11 @@ async function fetchAllSurveillanceRows(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as SurveillanceRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EXPORT_SURVEILLANCE_ROWS) {
+      throw new TooManyRowsError(
+        `Troppi record sorveglianza (> ${MAX_EXPORT_SURVEILLANCE_ROWS}). Restringi il dataset o applica filtri.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -213,6 +237,11 @@ async function fetchAllFreezes(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as FreezeRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EXPORT_FREEZES) {
+      throw new TooManyRowsError(
+        `Troppi periodi freeze (> ${MAX_EXPORT_FREEZES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -236,6 +265,11 @@ async function fetchAllJobRules(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as JobRuleRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EXPORT_JOB_RULES) {
+      throw new TooManyRowsError(
+        `Troppe regole mansione (> ${MAX_EXPORT_JOB_RULES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -261,6 +295,11 @@ async function fetchAllScopeRules(supabase: SupabaseClient) {
       (row) => row.is_active !== false,
     );
     allRows.push(...rows);
+    if (allRows.length > MAX_EXPORT_SCOPE_RULES) {
+      throw new TooManyRowsError(
+        `Troppe regole scope (> ${MAX_EXPORT_SCOPE_RULES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -284,6 +323,11 @@ async function fetchAllProviderAssignments(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as ProviderAssignmentRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EXPORT_PROVIDER_ASSIGNMENTS) {
+      throw new TooManyRowsError(
+        `Troppe assegnazioni provider (> ${MAX_EXPORT_PROVIDER_ASSIGNMENTS}). Restringi il dataset o applica paginazione.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -308,6 +352,11 @@ async function fetchAllEmployeeExclusions(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as EmployeeExclusionRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EXPORT_EMPLOYEE_EXCLUSIONS) {
+      throw new TooManyRowsError(
+        `Troppe esclusioni lavoratori (> ${MAX_EXPORT_EMPLOYEE_EXCLUSIONS}). Restringi il dataset o applica paginazione.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -332,6 +381,11 @@ async function fetchAllEmployeeOverrides(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as EmployeeOverrideRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EXPORT_EMPLOYEE_OVERRIDES) {
+      throw new TooManyRowsError(
+        `Troppe override lavoratori (> ${MAX_EXPORT_EMPLOYEE_OVERRIDES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -421,6 +475,14 @@ export async function GET(request: Request) {
       state: RowState;
       requiresVisit: boolean;
     }> = [];
+    const pushRow = (row: (typeof rows)[number]) => {
+      rows.push(row);
+      if (rows.length > MAX_EXPORT_OUTPUT_ROWS) {
+        throw new TooManyRowsError(
+          `Export sorveglianza troppo grande (> ${MAX_EXPORT_OUTPUT_ROWS} righe). Restringi il dataset o applica filtri.`,
+        );
+      }
+    };
 
     for (const employee of employees) {
       const freeze = activeFreezeByEmployeeId.get(employee.id);
@@ -496,7 +558,7 @@ export async function GET(request: Request) {
         if (!searchable.includes(query)) continue;
       }
 
-      rows.push({ employee, provider, nextDueDate, limitations, state, requiresVisit });
+      pushRow({ employee, provider, nextDueDate, limitations, state, requiresVisit });
     }
 
     rows.sort((a, b) => a.employee.last_name.localeCompare(b.employee.last_name, "it", { sensitivity: "base" }) || a.employee.first_name.localeCompare(b.employee.first_name, "it", { sensitivity: "base" }));
@@ -551,9 +613,12 @@ export async function GET(request: Request) {
         "Cache-Control": "no-store",
       },
     });
-  } catch (error) {
+  } catch (err) {
+    if (err instanceof TooManyRowsError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Errore export sorveglianza." },
+      { error: err instanceof Error ? err.message : "Errore export sorveglianza." },
       { status: 500 },
     );
   }
