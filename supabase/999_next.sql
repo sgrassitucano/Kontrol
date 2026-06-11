@@ -437,7 +437,11 @@ alter table public.employees
   drop constraint if exists employees_residence_belfiore_check,
   add constraint employees_residence_belfiore_check check (residence_belfiore_code is null or residence_belfiore_code ~ '^[A-Z][0-9]{3}$');
 
-select pg_notify('pgrst','reload schema');
+do $$
+begin
+  perform pg_notify('pgrst','reload schema');
+end
+$$;
 
 do $$
 begin
@@ -2299,5 +2303,110 @@ create policy "medical_surveillance_employee_overrides_update_by_scope"
 
 create policy "medical_surveillance_employee_overrides_delete_management_only"
   on public.medical_surveillance_employee_overrides
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "module_permissions_write_management_only" on public.module_permissions;
+drop policy if exists "module_permissions_insert_management_only" on public.module_permissions;
+drop policy if exists "module_permissions_update_management_only" on public.module_permissions;
+drop policy if exists "module_permissions_delete_management_only" on public.module_permissions;
+
+create policy "module_permissions_insert_management_only"
+  on public.module_permissions
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "module_permissions_update_management_only"
+  on public.module_permissions
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "module_permissions_delete_management_only"
+  on public.module_permissions
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "sites_write_management_only" on public.sites;
+drop policy if exists "sites_insert_management_only" on public.sites;
+drop policy if exists "sites_update_management_only" on public.sites;
+drop policy if exists "sites_delete_management_only" on public.sites;
+
+create policy "sites_insert_management_only"
+  on public.sites
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "sites_update_management_only"
+  on public.sites
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "sites_delete_management_only"
+  on public.sites
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "sub_sites_write_management_only" on public.sub_sites;
+drop policy if exists "sub_sites_insert_management_only" on public.sub_sites;
+drop policy if exists "sub_sites_update_management_only" on public.sub_sites;
+drop policy if exists "sub_sites_delete_management_only" on public.sub_sites;
+
+create policy "sub_sites_insert_management_only"
+  on public.sub_sites
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "sub_sites_update_management_only"
+  on public.sub_sites
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "sub_sites_delete_management_only"
+  on public.sub_sites
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "training_courses_write_management_only" on public.training_courses;
+drop policy if exists "training_courses_insert_management_only" on public.training_courses;
+drop policy if exists "training_courses_update_management_only" on public.training_courses;
+drop policy if exists "training_courses_delete_management_only" on public.training_courses;
+
+create policy "training_courses_insert_management_only"
+  on public.training_courses
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "training_courses_update_management_only"
+  on public.training_courses
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "training_courses_delete_management_only"
+  on public.training_courses
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "training_rule_links_write_management_only" on public.training_rule_links;
+drop policy if exists "training_rule_links_insert_management_only" on public.training_rule_links;
+drop policy if exists "training_rule_links_update_management_only" on public.training_rule_links;
+drop policy if exists "training_rule_links_delete_management_only" on public.training_rule_links;
+
+create policy "training_rule_links_insert_management_only"
+  on public.training_rule_links
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "training_rule_links_update_management_only"
+  on public.training_rule_links
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "training_rule_links_delete_management_only"
+  on public.training_rule_links
   for delete
   using (public.has_module_access('gestione', true));
