@@ -12,11 +12,20 @@ type JobRuleRow = {
 
 export const runtime = "nodejs";
 
+const MAX_EMPLOYEES_FOR_JOB_CODES = 20000;
+const MAX_JOB_CODES = 5000;
+const MAX_JOB_RULES = 50000;
+
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
 async function listJobCodes(supabase: SupabaseClient) {
   const pageSize = 1000;
   let from = 0;
   let hasMore = true;
   const map = new Map<string, string>();
+  let totalEmployees = 0;
 
   while (hasMore) {
     const to = from + pageSize - 1;
@@ -34,6 +43,17 @@ async function listJobCodes(supabase: SupabaseClient) {
       if (!map.has(key)) map.set(key, label);
     });
     const batch = (data ?? []) as Array<{ job_title: string }>;
+    totalEmployees += batch.length;
+    if (totalEmployees > MAX_EMPLOYEES_FOR_JOB_CODES) {
+      throw new TooManyRowsError(
+        `Troppi lavoratori per derivare le mansioni matrice (> ${MAX_EMPLOYEES_FOR_JOB_CODES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
+    if (map.size > MAX_JOB_CODES) {
+      throw new TooManyRowsError(
+        `Troppe mansioni distinte per matrice sorveglianza (> ${MAX_JOB_CODES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
     if (batch.length < pageSize) hasMore = false;
     else from += pageSize;
   }
@@ -47,9 +67,16 @@ async function listRules(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("medical_surveillance_job_rules")
     .select("job_code_norm,always_exempt,exempt_below_weekly_minutes,note")
-    .order("job_code_norm");
+    .order("job_code_norm")
+    .limit(MAX_JOB_RULES + 1);
   if (error) return { ok: false as const, rows: [] as JobRuleRow[] };
-  return { ok: true as const, rows: (data ?? []) as JobRuleRow[] };
+  const rows = (data ?? []) as JobRuleRow[];
+  if (rows.length > MAX_JOB_RULES) {
+    throw new TooManyRowsError(
+      `Troppe regole mansione per matrice sorveglianza (> ${MAX_JOB_RULES}). Restringi il dataset o applica paginazione.`,
+    );
+  }
+  return { ok: true as const, rows };
 }
 
 export async function GET() {
@@ -74,6 +101,9 @@ export async function GET() {
       },
     });
   } catch (error) {
+    if (error instanceof TooManyRowsError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Errore caricamento matrice sorveglianza." },
       { status: 500 },
