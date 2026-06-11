@@ -122,6 +122,12 @@ const DEFAULT_JOB_TITLE = "MANSIONE_NON_ASSEGNATA";
 const DEFAULT_TEXT_VALUE = "NON_INDICATO";
 const DEFAULT_BIRTH_DATE = "1900-01-01";
 const DEFAULT_SITE = "NON_ASSEGNATO";
+const DISMISSAL_BLOCKING_ERROR_TYPES = new Set([
+  "required_identity_fields",
+  "duplicate_tax_code_file",
+  "matricola_tax_mismatch_file",
+  "matricola_tax_mismatch_db",
+]);
 
 export async function processAnagraficaImport({
   fileBuffer,
@@ -143,6 +149,8 @@ export async function processAnagraficaImport({
   );
   const allErrors = [...parsed.errors, ...analysis.conflictErrors];
   const validRows = analysis.filteredValidRows;
+  const dismissalsBlocked = allErrors.some((error) => DISMISSAL_BLOCKING_ERROR_TYPES.has(error.errorType));
+  const dismissedRows = dismissalsBlocked ? 0 : analysis.dismissedRows;
   const previewRows = validRows.slice(0, 150).map((row) => ({
     matricola: row.matricola,
     cognome: row.lastName,
@@ -159,12 +167,12 @@ export async function processAnagraficaImport({
     newRows: analysis.newRows,
     updatedRows: analysis.updatedRows,
     reactivatedRows: analysis.reactivatedRows,
-    dismissedRows: analysis.dismissedRows,
+    dismissedRows,
     existingActiveEmployees,
     snapshotTaxCodes: parsed.snapshotTaxCodes.length,
     dismissalRisk: assessDismissalRisk({
       existingActiveEmployees,
-      dismissedRows: analysis.dismissedRows,
+      dismissedRows,
       snapshotTaxCodes: parsed.snapshotTaxCodes.length,
     }),
   };
@@ -176,7 +184,9 @@ export async function processAnagraficaImport({
       previewRows,
       errors: allErrors,
       importRunId: null,
-      message: "Anteprima completata.",
+      message: dismissalsBlocked
+        ? "Anteprima completata. Dimissioni automatiche disattivate: il file contiene errori identitari o conflitti CF/matricola."
+        : "Anteprima completata.",
     };
   }
 
@@ -215,6 +225,7 @@ export async function processAnagraficaImport({
     errors: allErrors,
     existingEmployees,
     summary: summaryBase,
+    dismissEmployees: !dismissalsBlocked,
   });
 
   return {
@@ -515,6 +526,7 @@ async function commitImport(args: {
   errors: ImportErrorRow[];
   existingEmployees: ExistingEmployee[];
   summary: ImportSummary;
+  dismissEmployees: boolean;
 }) {
   const {
     supabase,
@@ -524,6 +536,7 @@ async function commitImport(args: {
     snapshotTaxCodes,
     errors,
     existingEmployees,
+    dismissEmployees,
   } = args;
 
   let importRunId: string | null = null;
@@ -717,27 +730,29 @@ async function commitImport(args: {
     }
   }
 
-  const importedTaxCodes = new Set(snapshotTaxCodes);
-  const toDismiss = existingEmployees
-    .filter((employee) => employee.status === "attivo" && !importedTaxCodes.has(employee.tax_code))
-    .map((employee) => employee.tax_code);
+  if (dismissEmployees) {
+    const importedTaxCodes = new Set(snapshotTaxCodes);
+    const toDismiss = existingEmployees
+      .filter((employee) => employee.status === "attivo" && !importedTaxCodes.has(employee.tax_code))
+      .map((employee) => employee.tax_code);
 
-  for (const chunk of chunkArray(toDismiss, 300)) {
-    const { error } = await supabase
-      .from("employees")
-      .update({ status: "dimesso" })
-      .in("tax_code", chunk);
-    if (error) {
-      commitErrors.push({
-        rowNumber: 0,
-        matricola: "",
-        taxCode: "",
-        lastName: "",
-        firstName: "",
-        errorType: "dismiss_update_error",
-        errorMessage: `Errore aggiornamento dimessi: ${error.message}`,
-      });
-      break;
+    for (const chunk of chunkArray(toDismiss, 300)) {
+      const { error } = await supabase
+        .from("employees")
+        .update({ status: "dimesso" })
+        .in("tax_code", chunk);
+      if (error) {
+        commitErrors.push({
+          rowNumber: 0,
+          matricola: "",
+          taxCode: "",
+          lastName: "",
+          firstName: "",
+          errorType: "dismiss_update_error",
+          errorMessage: `Errore aggiornamento dimessi: ${error.message}`,
+        });
+        break;
+      }
     }
   }
 
@@ -779,7 +794,9 @@ async function commitImport(args: {
     message:
       commitErrors.length > 0
         ? "Import completato con errori. Controlla il report."
-        : "Import completato con successo.",
+        : dismissEmployees
+          ? "Import completato con successo."
+          : "Import completato con successo. Dimissioni automatiche saltate per protezione: presenti errori identitari o conflitti CF/matricola.",
   };
 }
 
