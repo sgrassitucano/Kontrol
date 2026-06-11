@@ -52,9 +52,21 @@ create policy "turni_employee_templates_read"
   );
 
 drop policy if exists "turni_employee_templates_write" on public.turni_employee_templates;
-create policy "turni_employee_templates_write"
+drop policy if exists "turni_employee_templates_insert" on public.turni_employee_templates;
+drop policy if exists "turni_employee_templates_update" on public.turni_employee_templates;
+drop policy if exists "turni_employee_templates_delete_management_only" on public.turni_employee_templates;
+
+create policy "turni_employee_templates_insert"
   on public.turni_employee_templates
-  for all
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or public.has_module_access('turni', true)
+  );
+
+create policy "turni_employee_templates_update"
+  on public.turni_employee_templates
+  for update
   using (
     public.has_module_access('gestione', true)
     or public.has_module_access('turni', true)
@@ -63,6 +75,11 @@ create policy "turni_employee_templates_write"
     public.has_module_access('gestione', true)
     or public.has_module_access('turni', true)
   );
+
+create policy "turni_employee_templates_delete_management_only"
+  on public.turni_employee_templates
+  for delete
+  using (public.has_module_access('gestione', true));
 
 drop policy if exists "turni_employee_template_slots_read" on public.turni_employee_template_slots;
 create policy "turni_employee_template_slots_read"
@@ -74,9 +91,21 @@ create policy "turni_employee_template_slots_read"
   );
 
 drop policy if exists "turni_employee_template_slots_write" on public.turni_employee_template_slots;
-create policy "turni_employee_template_slots_write"
+drop policy if exists "turni_employee_template_slots_insert" on public.turni_employee_template_slots;
+drop policy if exists "turni_employee_template_slots_update" on public.turni_employee_template_slots;
+drop policy if exists "turni_employee_template_slots_delete_management_only" on public.turni_employee_template_slots;
+
+create policy "turni_employee_template_slots_insert"
   on public.turni_employee_template_slots
-  for all
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or public.has_module_access('turni', true)
+  );
+
+create policy "turni_employee_template_slots_update"
+  on public.turni_employee_template_slots
+  for update
   using (
     public.has_module_access('gestione', true)
     or public.has_module_access('turni', true)
@@ -85,6 +114,11 @@ create policy "turni_employee_template_slots_write"
     public.has_module_access('gestione', true)
     or public.has_module_access('turni', true)
   );
+
+create policy "turni_employee_template_slots_delete_management_only"
+  on public.turni_employee_template_slots
+  for delete
+  using (public.has_module_access('gestione', true));
 
 update public.training_courses
 set validity_years = 3,
