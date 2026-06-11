@@ -2118,3 +2118,186 @@ create policy "medical_surveillance_job_rules_delete_management_only"
   on public.medical_surveillance_job_rules
   for delete
   using (public.has_module_access('gestione', true));
+
+drop policy if exists "training_scope_exclusions_write_management_only" on public.training_scope_exclusions;
+drop policy if exists "training_scope_exclusions_insert_management_only" on public.training_scope_exclusions;
+drop policy if exists "training_scope_exclusions_update_management_only" on public.training_scope_exclusions;
+drop policy if exists "training_scope_exclusions_delete_management_only" on public.training_scope_exclusions;
+
+create policy "training_scope_exclusions_insert_management_only"
+  on public.training_scope_exclusions
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "training_scope_exclusions_update_management_only"
+  on public.training_scope_exclusions
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "training_scope_exclusions_delete_management_only"
+  on public.training_scope_exclusions
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "training_employee_exclusions_write_formazione" on public.training_employee_exclusions;
+drop policy if exists "training_employee_exclusions_insert_by_scope" on public.training_employee_exclusions;
+drop policy if exists "training_employee_exclusions_update_by_scope" on public.training_employee_exclusions;
+drop policy if exists "training_employee_exclusions_delete_management_only" on public.training_employee_exclusions;
+
+create policy "training_employee_exclusions_insert_by_scope"
+  on public.training_employee_exclusions
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "training_employee_exclusions_update_by_scope"
+  on public.training_employee_exclusions
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('formazione', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "training_employee_exclusions_delete_management_only"
+  on public.training_employee_exclusions
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "medical_surveillance_employee_exclusions_write" on public.medical_surveillance_employee_exclusions;
+drop policy if exists "medical_surveillance_employee_exclusions_insert_by_scope" on public.medical_surveillance_employee_exclusions;
+drop policy if exists "medical_surveillance_employee_exclusions_update_by_scope" on public.medical_surveillance_employee_exclusions;
+drop policy if exists "medical_surveillance_employee_exclusions_delete_management_only" on public.medical_surveillance_employee_exclusions;
+
+create policy "medical_surveillance_employee_exclusions_insert_by_scope"
+  on public.medical_surveillance_employee_exclusions
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "medical_surveillance_employee_exclusions_update_by_scope"
+  on public.medical_surveillance_employee_exclusions
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "medical_surveillance_employee_exclusions_delete_management_only"
+  on public.medical_surveillance_employee_exclusions
+  for delete
+  using (public.has_module_access('gestione', true));
+
+drop policy if exists "medical_surveillance_employee_overrides_write" on public.medical_surveillance_employee_overrides;
+drop policy if exists "medical_surveillance_employee_overrides_insert_by_scope" on public.medical_surveillance_employee_overrides;
+drop policy if exists "medical_surveillance_employee_overrides_update_by_scope" on public.medical_surveillance_employee_overrides;
+drop policy if exists "medical_surveillance_employee_overrides_delete_management_only" on public.medical_surveillance_employee_overrides;
+
+create policy "medical_surveillance_employee_overrides_insert_by_scope"
+  on public.medical_surveillance_employee_overrides
+  for insert
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "medical_surveillance_employee_overrides_update_by_scope"
+  on public.medical_surveillance_employee_overrides
+  for update
+  using (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  )
+  with check (
+    public.has_module_access('gestione', true)
+    or (
+      public.has_module_access('sorveglianza', true)
+      and exists (
+        select 1
+        from public.employees e
+        where e.id = employee_id
+          and public.can_access_employee(e.responsible_code, e.referral)
+      )
+    )
+  );
+
+create policy "medical_surveillance_employee_overrides_delete_management_only"
+  on public.medical_surveillance_employee_overrides
+  for delete
+  using (public.has_module_access('gestione', true));
