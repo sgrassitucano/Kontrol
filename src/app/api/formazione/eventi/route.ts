@@ -5,6 +5,8 @@ export const runtime = "nodejs";
 
 type EventType = "PROGRAMMATO" | "RIMUOVI_PROGRAMMATO" | "SVOLTO" | "MODIFICA_DATA" | "ANNULLA" | "DA_FARE" | "NOTE";
 
+const MAX_EMPLOYEE_IDS = 5000;
+
 function chunkArray<T>(items: T[], chunkSize: number) {
   const size = Math.max(1, Math.floor(chunkSize));
   const chunks: T[][] = [];
@@ -70,6 +72,12 @@ export async function POST(request: Request) {
 
     if (employeeIds.length === 0) {
       return NextResponse.json({ error: "employeeIds non valido." }, { status: 400 });
+    }
+    if (employeeIds.length > MAX_EMPLOYEE_IDS) {
+      return NextResponse.json(
+        { error: `Troppi lavoratori selezionati (>${MAX_EMPLOYEE_IDS}). Riduci la selezione.` },
+        { status: 400 },
+      );
     }
     if (!courseCode) {
       return NextResponse.json({ error: "courseCode obbligatorio." }, { status: 400 });

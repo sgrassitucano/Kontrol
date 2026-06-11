@@ -6,6 +6,8 @@ export const runtime = "nodejs";
 type TextFieldPatch = { action: "no_change" | "set" | "clear_value"; value?: string };
 type DateFieldPatch = { action: "no_change" | "set" | "clear_value"; value?: string };
 
+const MAX_EMPLOYEE_IDS = 5000;
+
 type Body = {
   employeeIds: number[];
   record?: {
@@ -59,6 +61,12 @@ export async function POST(request: Request) {
     const employeeIds = uniqNumbers(body.employeeIds);
     if (employeeIds.length === 0) {
       return NextResponse.json({ error: "Nessun lavoratore selezionato." }, { status: 400 });
+    }
+    if (employeeIds.length > MAX_EMPLOYEE_IDS) {
+      return NextResponse.json(
+        { error: `Troppi lavoratori selezionati (>${MAX_EMPLOYEE_IDS}). Riduci la selezione.` },
+        { status: 400 },
+      );
     }
 
     const record = body.record ?? {};
