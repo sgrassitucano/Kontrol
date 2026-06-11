@@ -15,7 +15,12 @@ export type ImportRunChangeRow = {
   after_row: Record<string, unknown> | null;
 };
 
+const MAX_IMPORT_RUN_CHANGES = 50000;
+
 export class MissingImportUndoArchiveError extends Error {}
+export class ImportUndoLimitError extends Error {
+  status = 400;
+}
 
 export async function fetchLatestUndoableImportRun(params: {
   supabase: SupabaseClient;
@@ -57,9 +62,16 @@ export async function fetchImportRunChanges(params: {
     .select("id,table_name,action,row_key,before_row,after_row")
     .eq("import_run_id", importRunId)
     .eq("table_name", tableName)
-    .order("id", { ascending: false });
+    .order("id", { ascending: false })
+    .limit(MAX_IMPORT_RUN_CHANGES + 1);
   if (error) throw new Error(error.message);
-  return (data ?? []) as ImportRunChangeRow[];
+  const rows = (data ?? []) as ImportRunChangeRow[];
+  if (rows.length > MAX_IMPORT_RUN_CHANGES) {
+    throw new ImportUndoLimitError(
+      `Undo import troppo grande (> ${MAX_IMPORT_RUN_CHANGES} righe). Restringi o spezza la run prima di annullarla.`,
+    );
+  }
+  return rows;
 }
 
 export async function markImportRunUndone(params: {

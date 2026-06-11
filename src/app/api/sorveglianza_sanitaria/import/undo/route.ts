@@ -4,6 +4,7 @@ import {
   archiveImportUndoDeletedRows,
   fetchImportRunChanges,
   fetchLatestUndoableImportRun,
+  ImportUndoLimitError,
   markImportRunUndone,
   MissingImportUndoArchiveError,
   pickComparableFields,
@@ -154,6 +155,9 @@ export async function POST() {
   } catch (err) {
     if (err instanceof MissingImportUndoArchiveError) {
       return NextResponse.json({ error: err.message }, { status: 503 });
+    }
+    if (err instanceof ImportUndoLimitError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
     }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore annullamento import." },
