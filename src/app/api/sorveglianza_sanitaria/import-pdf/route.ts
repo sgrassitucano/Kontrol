@@ -297,33 +297,15 @@ export async function makePdfImportUpsertsSafe(args: {
     upsert: { employee_id: number; created_by: string | null; next_due_date?: string | null; limitations?: string | null };
   }>;
 }) {
-  const { supabase, rows } = args;
-  const employeeIds = Array.from(new Set(rows.map((r) => r.upsert.employee_id))).filter((n) => Number.isFinite(n) && n > 0);
-  const existingByEmployeeId = new Map<number, { next_due_date: string | null; limitations: string | null }>();
-
-  const chunkSize = 500;
-  for (let i = 0; i < employeeIds.length; i += chunkSize) {
-    const part = employeeIds.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from("medical_surveillance_records")
-      .select("employee_id,next_due_date,limitations")
-      .in("employee_id", part);
-    if (error) throw new Error(error.message);
-    ((data ?? []) as Array<{ employee_id: number; next_due_date: string | null; limitations: string | null }>).forEach((r) => {
-      existingByEmployeeId.set(r.employee_id, { next_due_date: r.next_due_date ?? null, limitations: r.limitations ?? null });
-    });
-  }
+  const { rows } = args;
 
   const safeRows: typeof rows = [];
 
   rows.forEach((row) => {
-    const existing = existingByEmployeeId.get(row.upsert.employee_id) ?? { next_due_date: null, limitations: null };
     const out = { ...row.upsert };
 
     const candLim = String(out.limitations ?? "").trim();
-    const prevLim = String(existing.limitations ?? "").trim();
     if (!candLim) delete out.limitations;
-    else if (!out.next_due_date && prevLim) delete out.limitations;
 
     if (!out.next_due_date && !out.limitations) return;
     safeRows.push({ page: row.page, upsert: out });

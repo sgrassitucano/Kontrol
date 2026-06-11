@@ -77,6 +77,40 @@ test("upsert safe: non azzera scadenza quando manca nel file (visita SI)", () =>
   assert.equal("next_due_date" in rows[0], false);
 });
 
+test("upsert safe: mantiene aggiornamenti di limitazioni e note anche senza nuova scadenza", () => {
+  const existingByEmployeeId = new Map([
+    [
+      1,
+      {
+        employee_id: 1,
+        requires_visit: true,
+        next_due_date: "2027-01-01",
+        limitations: "VECCHIE",
+        notes: "NOTE_VECCHIE",
+      },
+    ],
+  ]);
+
+  const { rows } = makeMedicalSurveillanceUpsertsSafe({
+    rows: [
+      {
+        employee_id: 1,
+        requires_visit: true,
+        next_due_date: null,
+        limitations: "NUOVE_LIMITAZIONI",
+        notes: "NUOVE_NOTE",
+        created_by: null,
+      },
+    ],
+    existingByEmployeeId,
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal("next_due_date" in rows[0], false);
+  assert.equal(rows[0].limitations, "NUOVE_LIMITAZIONI");
+  assert.equal(rows[0].notes, "NUOVE_NOTE");
+});
+
 test("upsert safe: visita NO forza scadenza null", () => {
   const existingByEmployeeId = new Map([
     [

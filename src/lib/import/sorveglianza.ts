@@ -126,7 +126,6 @@ export function makeMedicalSurveillanceUpsertsSafe(args: {
   existingByEmployeeId: Map<number, ExistingMedicalSurveillanceRow>;
 }) {
   const safeRows = args.rows.map((row) => {
-    const existing = args.existingByEmployeeId.get(row.employee_id) ?? null;
     const out: MedicalSurveillanceUpsertRow = { ...row };
 
     if (!out.requires_visit) {
@@ -137,11 +136,9 @@ export function makeMedicalSurveillanceUpsertsSafe(args: {
 
     const candLimitations = String(out.limitations ?? "").trim();
     if (!candLimitations) delete out.limitations;
-    else if (!out.next_due_date && String(existing?.limitations ?? "").trim()) delete out.limitations;
 
     const candNotes = String(out.notes ?? "").trim();
     if (!candNotes) delete out.notes;
-    else if (!out.next_due_date && String(existing?.notes ?? "").trim()) delete out.notes;
 
     return out;
   });

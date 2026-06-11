@@ -60,6 +60,24 @@ test("makePdfImportUpsertsSafe: permette di correggere una scadenza salvata trop
   assert.equal(result.rows[0]?.upsert.limitations, "LIM_NUOVE");
 });
 
+test("makePdfImportUpsertsSafe: mantiene un aggiornamento di sole limitazioni", async () => {
+  const mock = createSupabaseMock();
+  const result = await makePdfImportUpsertsSafe({
+    supabase: mock.supabase,
+    rows: [
+      {
+        page: 1,
+        upsert: { employee_id: 1, created_by: null, limitations: "LIM_CORRETTE" },
+      },
+    ],
+  });
+
+  assert.equal(result.skippedOlderDueDates, 0);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0]?.upsert.next_due_date, undefined);
+  assert.equal(result.rows[0]?.upsert.limitations, "LIM_CORRETTE");
+});
+
 test("insertImportRunErrors: mappa page->row_number e salva tax_code", async () => {
   const mock = createSupabaseMock();
   await insertImportRunErrors({
