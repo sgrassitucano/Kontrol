@@ -27,6 +27,11 @@
 - Apri il dettaglio di 2–3 lavoratori e verifica coerenenza tabella ↔ dettaglio.
 - Se export per sistemi esterni: rigenera l’export e valida 2 righe EBAFOS e 2 righe PIATTAFORMA.
 
+## Note API (liste/export)
+- Molte liste ora espongono `limit` e `offset` (querystring) e restituiscono anche `truncated` in risposta per indicare dataset parziale.
+- Se ottieni errore `400` “troppi record”, restringi filtri o periodo: è un guard-rail per evitare full-scan/export troppo grandi.
+- Se ottieni errore `503` “RPC ... non disponibile”, applica prima `supabase/999_next.sql` (mancano funzioni DB richieste).
+
 ## Prima di un deploy
 - Applica su Supabase la patch cumulativa DB: `supabase/999_next.sql` (una sola volta per ambiente).
 - La patch cumulativa aggiorna anche strutture usate da hardening operativo recente:
