@@ -38,11 +38,11 @@ export async function GET(request: Request) {
 
     let importedByName: string | null = null;
     if (run?.imported_by) {
-      const { data: canSeeProfiles } = await auth.supabase.rpc("has_module_access", {
+      const { data: canSeeProfiles, error: canSeeProfilesError } = await auth.supabase.rpc("has_module_access", {
         target_module: "gestione",
         require_write: false,
       });
-      if (canSeeProfiles) {
+      if (!canSeeProfilesError && canSeeProfiles) {
         const { data: profile } = await auth.supabase
           .from("profiles")
           .select("full_name,email")

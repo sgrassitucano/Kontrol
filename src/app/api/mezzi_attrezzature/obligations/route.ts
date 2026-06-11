@@ -91,6 +91,10 @@ export function computeObligationStatus(args: { nextDueDate: string | null; thre
   return "ok" as const;
 }
 
+class MissingRpcError extends Error {
+  status = 503;
+}
+
 async function completeObligationAtomic(args: {
   supabase: SupabaseClient;
   obligationId: number;
@@ -111,8 +115,10 @@ async function completeObligationAtomic(args: {
   });
   if (!error) return { usedRpc: true as const };
   const msg = String((error as { message?: unknown } | null)?.message ?? "");
-  if (!/fleet_complete_obligation/i.test(msg)) throw new Error(msg || "Errore registrazione verifica.");
-  return { usedRpc: false as const };
+  if (/fleet_complete_obligation/i.test(msg)) {
+    throw new MissingRpcError("RPC fleet_complete_obligation non disponibile. Applicare patch DB.");
+  }
+  throw new Error(msg || "Errore registrazione verifica.");
 }
 
 export async function GET(request: Request) {
@@ -263,28 +269,13 @@ export async function POST(request: Request) {
       documentRef: body.documentRef ?? null,
       vendor: body.vendor ?? null,
     });
-    if (!rpcRes.usedRpc) {
-      const { error: eventError } = await supabase.from("fleet_obligation_events").insert({
-        asset_obligation_id: body.obligationId,
-        event_date: doneDate,
-        note: body.note ?? null,
-        document_ref: body.documentRef ?? null,
-      });
-      if (eventError) throw new Error(eventError.message);
-
-      const { error: updateError } = await supabase
-        .from("fleet_asset_obligations")
-        .update({
-          last_done_date: doneDate,
-          next_due_date: nextDueDate,
-          vendor: body.vendor ?? null,
-        })
-        .eq("id", body.obligationId);
-      if (updateError) throw new Error(updateError.message);
-    }
+    void rpcRes;
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof MissingRpcError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Errore registrazione verifica." },
       { status: 500 },

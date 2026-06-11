@@ -4,6 +4,10 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+class MissingRpcError extends Error {
+  status = 503;
+}
+
 type SlotPayload = {
   weekday: number;
   startTime: string;
@@ -25,6 +29,33 @@ function parseTime(value: unknown) {
   const v = normalizeText(value);
   if (!/^\d{2}:\d{2}$/.test(v)) return null;
   return v;
+}
+
+function isTemplateSlotPayload(value: {
+  weekday: number;
+  start_time: string | null;
+  end_time: string | null;
+  break_minutes: number;
+}): value is { weekday: number; start_time: string; end_time: string; break_minutes: number } {
+  return Number.isFinite(value.weekday) && Boolean(value.start_time) && Boolean(value.end_time);
+}
+
+async function replaceTemplateSlotsAtomic(args: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  templateId: number;
+  slots: Array<{ weekday: number; start_time: string; end_time: string; break_minutes: number }>;
+}) {
+  const { supabase, templateId, slots } = args;
+  const { error } = await supabase.rpc("turni_replace_site_template_slots", {
+    template_id: templateId,
+    slots,
+  });
+  if (!error) return;
+  const msg = String((error as { message?: unknown } | null)?.message ?? "");
+  if (/turni_replace_site_template_slots/i.test(msg)) {
+    throw new MissingRpcError("RPC turni_replace_site_template_slots non disponibile. Applicare patch DB.");
+  }
+  throw new Error(msg || "Errore aggiornamento slot template.");
 }
 
 async function resolveValidatedSubSiteIdForTemplate(
@@ -279,17 +310,16 @@ export async function PATCH(request: Request) {
           end_time: parseTime(s.endTime),
           break_minutes: typeof s.breakMinutes === "number" ? s.breakMinutes : 0,
         }))
-        .filter((s) => Number.isFinite(s.weekday) && s.start_time && s.end_time);
+        .filter(isTemplateSlotPayload);
 
-      const { error: replaceError } = await supabase.rpc("turni_replace_site_template_slots", {
-        template_id: templateId,
-        slots: slotsPayload,
-      });
-      if (replaceError) throw new Error(replaceError.message);
+      await replaceTemplateSlotsAtomic({ supabase, templateId, slots: slotsPayload });
     }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof MissingRpcError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore aggiornamento template." },
       { status: 500 },

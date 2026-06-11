@@ -4,6 +4,10 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+class MissingRpcError extends Error {
+  status = 503;
+}
+
 type SlotPayload = {
   weekday: number;
   siteId: number;
@@ -27,6 +31,31 @@ function parseTime(value: unknown) {
   const v = normalizeText(value);
   if (!/^\d{2}:\d{2}$/.test(v)) return null;
   return v;
+}
+
+async function replaceEmployeeTemplateSlotsAtomic(args: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  templateId: number;
+  slots: Array<{
+    weekday: number;
+    site_id: number;
+    sub_site_id: number | null;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+  }>;
+}) {
+  const { supabase, templateId, slots } = args;
+  const { error } = await supabase.rpc("turni_replace_employee_template_slots", {
+    template_id: templateId,
+    slots,
+  });
+  if (!error) return;
+  const msg = String((error as { message?: unknown } | null)?.message ?? "");
+  if (/turni_replace_employee_template_slots/i.test(msg)) {
+    throw new MissingRpcError("RPC turni_replace_employee_template_slots non disponibile. Applicare patch DB.");
+  }
+  throw new Error(msg || "Errore aggiornamento slot template lavoratore.");
 }
 
 async function resolveValidatedSubSiteId(
@@ -278,15 +307,14 @@ export async function PATCH(request: Request) {
         });
       }
 
-      const { error: replaceError } = await supabase.rpc("turni_replace_employee_template_slots", {
-        template_id: templateId,
-        slots: slotsPayload,
-      });
-      if (replaceError) throw new Error(replaceError.message);
+      await replaceEmployeeTemplateSlotsAtomic({ supabase, templateId, slots: slotsPayload });
     }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof MissingRpcError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore aggiornamento template lavoratore." },
       { status: 500 },
