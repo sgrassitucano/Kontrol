@@ -1287,6 +1287,7 @@ create policy "turni_site_template_slots_delete_management_only"
 
 drop policy if exists "turni_employee_templates_read" on public.turni_employee_templates;
 drop policy if exists "turni_employee_templates_write" on public.turni_employee_templates;
+drop policy if exists "turni_employee_templates_read_by_scope" on public.turni_employee_templates;
 drop policy if exists "turni_employee_templates_insert_by_scope" on public.turni_employee_templates;
 drop policy if exists "turni_employee_templates_update_by_scope" on public.turni_employee_templates;
 drop policy if exists "turni_employee_templates_delete_management_only" on public.turni_employee_templates;
@@ -1358,6 +1359,7 @@ create policy "turni_employee_templates_delete_management_only"
 
 drop policy if exists "turni_employee_template_slots_read" on public.turni_employee_template_slots;
 drop policy if exists "turni_employee_template_slots_write" on public.turni_employee_template_slots;
+drop policy if exists "turni_employee_template_slots_read_by_scope" on public.turni_employee_template_slots;
 drop policy if exists "turni_employee_template_slots_insert_by_scope" on public.turni_employee_template_slots;
 drop policy if exists "turni_employee_template_slots_update_by_scope" on public.turni_employee_template_slots;
 drop policy if exists "turni_employee_template_slots_delete_management_only" on public.turni_employee_template_slots;
