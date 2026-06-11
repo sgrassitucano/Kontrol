@@ -225,7 +225,8 @@ export async function POST(request: Request) {
     if (profileError) throw new Error(profileError.message);
 
     if (role === "manager" && normalizedPermissions.length > 0) {
-      const { error: permsError } = await supabaseAdmin.from("module_permissions").upsert(
+      const supabase = await createSupabaseRouteHandlerClient();
+      const { error: permsError } = await supabase.from("module_permissions").upsert(
         normalizedPermissions.map((p) => ({
           user_id: userId,
           module: p.module,
@@ -307,6 +308,7 @@ export async function PATCH(request: Request) {
     }
 
     if (normalizedPermissions !== null) {
+      const supabase = await createSupabaseRouteHandlerClient();
       const { data: profile, error: profileError } = await supabaseAdmin
         .from("profiles")
         .select("role")
@@ -316,31 +318,16 @@ export async function PATCH(request: Request) {
       const effectiveRole = (profile as { role: UserRole }).role;
 
       if (effectiveRole !== "manager") {
-        const { error: clearError } = await supabaseAdmin.from("module_permissions").delete().eq("user_id", userId);
+        const { error: clearError } = await supabase.from("module_permissions").delete().eq("user_id", userId);
         if (clearError) throw new Error(clearError.message);
         return NextResponse.json({ ok: true });
       }
 
-      const nextKeys = new Set(normalizedPermissions.map((p) => p.module));
-      const { data: existing, error: existingError } = await supabaseAdmin
-        .from("module_permissions")
-        .select("module")
-        .eq("user_id", userId);
-      if (existingError) throw new Error(existingError.message);
-      const existingKeys = new Set(((existing ?? []) as Array<{ module: AppModule }>).map((r) => r.module));
-      const toDelete = Array.from(existingKeys).filter((m) => !nextKeys.has(m));
-
-      if (toDelete.length > 0) {
-        const { error: deleteError } = await supabaseAdmin
-          .from("module_permissions")
-          .delete()
-          .eq("user_id", userId)
-          .in("module", toDelete);
-        if (deleteError) throw new Error(deleteError.message);
-      }
+      const { error: clearError } = await supabase.from("module_permissions").delete().eq("user_id", userId);
+      if (clearError) throw new Error(clearError.message);
 
       if (normalizedPermissions.length > 0) {
-        const { error: upsertError } = await supabaseAdmin.from("module_permissions").upsert(
+        const { error: upsertError } = await supabase.from("module_permissions").upsert(
           normalizedPermissions.map((p) => ({
             user_id: userId,
             module: p.module,
