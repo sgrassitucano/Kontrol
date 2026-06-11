@@ -175,3 +175,99 @@ test("processAnagraficaImport: importa le righe sporche con warning ma blocca qu
   assert.ok(result.errors.some((row) => row.errorType === "required_identity_fields"));
   assert.ok(result.errors.some((row) => row.errorType === "duplicate_tax_code_file"));
 });
+
+test("processAnagraficaImport: non scarta le ultime righe dipendenti prima dei footer", async () => {
+  const fileBuffer = buildWorkbookBuffer([
+    [
+      "0001",
+      "Rossi",
+      "Mario",
+      "01/01/1980",
+      "Roma",
+      "RSSMRA80A01H501Z",
+      "",
+      "",
+      "mario@example.com",
+      "",
+      "",
+      "RESP1",
+      "Operaio",
+      "",
+      "SPU",
+      "",
+      "RM",
+      "2400",
+      "00100",
+      "Roma",
+      "Via Roma 1",
+      "RM",
+      "M",
+      "H501",
+    ],
+    [
+      "0002",
+      "Bianchi",
+      "Luca",
+      "02/02/1981",
+      "Milano",
+      "BNCLCU81B02F205X",
+      "",
+      "",
+      "luca@example.com",
+      "",
+      "",
+      "RESP2",
+      "Operaio",
+      "",
+      "SPU",
+      "",
+      "MI",
+      "2400",
+      "20100",
+      "Milano",
+      "Via Milano 2",
+      "MI",
+      "M",
+      "F205",
+    ],
+    [
+      "0003",
+      "MUNITANTIRIGE",
+      "TEST",
+      "03/03/1982",
+      "Napoli",
+      "MNTTST82C03F839X",
+      "",
+      "",
+      "test@example.com",
+      "",
+      "",
+      "RESP3",
+      "Operaio",
+      "",
+      "SPU",
+      "",
+      "NA",
+      "2400",
+      "80100",
+      "Napoli",
+      "Via Napoli 3",
+      "NA",
+      "F",
+      "F839",
+    ],
+  ]);
+
+  const result = await processAnagraficaImport({
+    fileBuffer,
+    fileName: "ultime-righe.xlsx",
+    mode: "preview",
+    supabase: createPreviewSupabase(),
+  });
+
+  assert.equal(result.summary.totalRows, 3);
+  assert.equal(result.summary.validRows, 3);
+  assert.equal(result.summary.errorRows, 0);
+  assert.ok(result.previewRows.some((row) => row.matricola === "0003"));
+  assert.ok(result.previewRows.some((row) => row.cognome === "MUNITANTIRIGE"));
+});

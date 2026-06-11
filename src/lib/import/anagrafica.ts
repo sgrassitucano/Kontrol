@@ -265,7 +265,7 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
 
   const headerRow = rows[1] ?? [];
   const headerIndex = buildHeaderIndex(headerRow);
-  const dataRows = rows.slice(2, Math.max(rows.length - 2, 2));
+  const dataRows = rows.slice(2).filter((row) => !isIgnorableFooterRow(row));
 
   const validRows: RawEmployeeRow[] = [];
   const errors: ImportErrorRow[] = [];
@@ -444,6 +444,14 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
     totalRows: dataRows.length,
     snapshotTaxCodes: Array.from(snapshotTaxCodes),
   };
+}
+
+function isIgnorableFooterRow(row: Array<string | number | Date>) {
+  const cells = row.map((cell) => cleanCell(cell)).filter(Boolean);
+  if (cells.length === 0) return true;
+  if (cells.length !== 1) return false;
+  const first = cells[0]?.toLowerCase();
+  return first === "totale" || first === "totali" || first === "fine";
 }
 
 function analyzeAgainstExisting(
