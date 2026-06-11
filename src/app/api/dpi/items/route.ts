@@ -3,6 +3,22 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+const DEFAULT_LIMIT = 2000;
+const MAX_LIMIT = 5000;
+
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+function normalizeQuery(value: string | null) {
+  const q = String(value ?? "").trim();
+  if (!q) return null;
+  return q.slice(0, 80);
+}
+
 type DpiItemRow = {
   id: number;
   title: string;
@@ -18,22 +34,34 @@ function isMissingRelationError(error: unknown) {
   return /relation .*dpi_items.* does not exist/i.test(error.message);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireModuleAccess("dpi", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
+    const url = new URL(request.url);
+    const q = normalizeQuery(url.searchParams.get("q"));
+    const limit = parseLimitParam(url.searchParams.get("limit"), q ? 200 : DEFAULT_LIMIT);
+
     const supabase = auth.supabase;
-    const { data, error } = await supabase
+    let query = supabase
       .from("dpi_items")
       .select("id,title,risk_activities,category,control_frequency,control_type,is_active")
       .eq("is_active", true)
       .order("title", { ascending: true });
+    if (q) {
+      query = query.ilike("title", `%${q}%`);
+    }
+    const { data, error } = await query.limit(limit + 1);
 
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as DpiItemRow[];
+    const raw = (data ?? []) as DpiItemRow[];
+    const truncated = raw.length > limit;
+    const rows = raw.slice(0, limit);
 
     return NextResponse.json({
+      limit,
+      truncated,
       rows: rows.map((row) => ({
         id: row.id,
         title: row.title,
@@ -46,6 +74,8 @@ export async function GET() {
   } catch (err) {
     if (isMissingRelationError(err)) {
       return NextResponse.json({
+        limit: 0,
+        truncated: false,
         rows: [],
         warning: "Tabelle DPI non presenti nel DB. Applica lo schema Supabase per abilitare il modulo DPI.",
       });

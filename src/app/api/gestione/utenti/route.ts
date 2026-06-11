@@ -75,35 +75,78 @@ async function requireGestioneWrite() {
 
 export const runtime = "nodejs";
 
-export async function GET() {
+const DEFAULT_LIMIT = 500;
+const MAX_LIMIT = 5000;
+const QUERY_CHUNK_SIZE = 500;
+
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+function parseOffsetParam(value: string | null) {
+  if (!value) return 0;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
+function normalizeQuery(value: string | null) {
+  const q = String(value ?? "").trim().toLowerCase();
+  if (!q) return null;
+  return q.slice(0, 100);
+}
+
+export async function GET(request: Request) {
   const auth = await requireGestioneWrite();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
     const supabase = createSupabaseAdminClient();
 
-    const [{ data: profiles, error: profilesError }, { data: perms, error: permsError }] =
-      await Promise.all([
-        supabase
-          .from("profiles")
-          .select("id,email,full_name,manager_code,role,is_active")
-          .order("email"),
-        supabase
-          .from("module_permissions")
-          .select("user_id,module,can_write"),
-      ]);
+    const requestUrl = new URL(request.url);
+    const query = normalizeQuery(requestUrl.searchParams.get("q"));
+    const limit = parseLimitParam(requestUrl.searchParams.get("limit"), query ? 200 : DEFAULT_LIMIT);
+    const offset = parseOffsetParam(requestUrl.searchParams.get("offset"));
 
+    let profilesQuery = supabase
+      .from("profiles")
+      .select("id,email,full_name,manager_code,role,is_active")
+      .order("email")
+      .range(offset, offset + limit);
+    if (query) {
+      profilesQuery = profilesQuery.ilike("email", `%${query}%`);
+    }
+
+    const { data: profilesData, error: profilesError } = await profilesQuery;
     if (profilesError) throw new Error(profilesError.message);
-    if (permsError) throw new Error(permsError.message);
+
+    const profilesRaw = (profilesData ?? []) as ProfilesRow[];
+    const truncated = profilesRaw.length > limit;
+    const profiles = profilesRaw.slice(0, limit);
+
+    const userIds = profiles.map((p) => p.id);
+    const perms: ModulePermissionRow[] = [];
+    for (let i = 0; i < userIds.length; i += QUERY_CHUNK_SIZE) {
+      const chunk = userIds.slice(i, i + QUERY_CHUNK_SIZE);
+      const { data, error } = await supabase
+        .from("module_permissions")
+        .select("user_id,module,can_write")
+        .in("user_id", chunk);
+      if (error) throw new Error(error.message);
+      perms.push(...((data ?? []) as ModulePermissionRow[]));
+    }
 
     const permsByUser = new Map<string, ModulePermissionRow[]>();
-    ((perms ?? []) as ModulePermissionRow[]).forEach((row) => {
+    perms.forEach((row) => {
       const list = permsByUser.get(row.user_id);
       if (!list) permsByUser.set(row.user_id, [row]);
       else list.push(row);
     });
 
-    const users = ((profiles ?? []) as ProfilesRow[]).map((p) => {
+    const users = profiles.map((p) => {
       const userPerms = permsByUser.get(p.id) ?? [];
       const permissions =
         p.role === "manager"
@@ -123,7 +166,7 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ users });
+    return NextResponse.json({ limit, offset, truncated, users });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore caricamento utenti." },

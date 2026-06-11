@@ -5,6 +5,13 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
+const MAX_DPI_ITEMS = 5000;
+const MAX_RULES = 50000;
+
 type DpiItemRow = {
   id: number;
   title: string;
@@ -38,12 +45,14 @@ export async function GET() {
         .from("dpi_items")
         .select("id,title,risk_activities,category,control_frequency,control_type,is_active")
         .eq("is_active", true)
-        .order("title", { ascending: true }),
+        .order("title", { ascending: true })
+        .limit(MAX_DPI_ITEMS + 1),
       supabase
         .from("dpi_matrix_rules")
         .select("dpi_id,job_code_norm,is_required")
         .eq("scope_type", "job")
-        .order("dpi_id", { ascending: true }),
+        .order("dpi_id", { ascending: true })
+        .limit(MAX_RULES + 1),
     ]);
 
     if (dpiItemsResult.error) throw new Error(dpiItemsResult.error.message);
@@ -51,6 +60,13 @@ export async function GET() {
 
     const dpiItems = (dpiItemsResult.data ?? []) as DpiItemRow[];
     const rules = (rulesResult.data ?? []) as MatrixRuleRow[];
+
+    if (dpiItems.length > MAX_DPI_ITEMS) {
+      throw new TooManyRowsError("Troppi DPI per matrice. Riduci il dataset o applica paginazione.");
+    }
+    if (rules.length > MAX_RULES) {
+      throw new TooManyRowsError("Troppe regole matrice DPI. Riduci il dataset o applica paginazione.");
+    }
 
     const requiredByJob: Record<string, number[]> = {};
     for (const rule of rules) {
@@ -76,6 +92,9 @@ export async function GET() {
       requiredByJob,
     });
   } catch (err) {
+    if (err instanceof TooManyRowsError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     if (isMissingRelationError(err)) {
       const mansioni = await readMansioniCsv();
       return NextResponse.json({

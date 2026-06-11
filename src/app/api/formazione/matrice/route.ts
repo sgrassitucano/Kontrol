@@ -17,6 +17,16 @@ type ToggleBody = {
 
 export const runtime = "nodejs";
 
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
+const MAX_COURSES = 5000;
+const MAX_RULES = 50000;
+const MAX_EMPLOYEES_FOR_JOB_ENTITIES = 20000;
+const MAX_SITES = 5000;
+const MAX_SUBSITES = 10000;
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("gestione", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -37,12 +47,14 @@ export async function GET(request: Request) {
           .from("training_courses")
           .select("id,code,title,is_active")
           .eq("is_active", true)
-          .order("code"),
+          .order("code")
+          .limit(MAX_COURSES + 1),
         fetchScopeEntities(supabase, scopeType),
         supabase
           .from("training_matrix_rules")
           .select("id,scope_type,course_id,job_code_norm,site_id,sub_site_id,is_required,source")
-          .eq("scope_type", scopeType),
+          .eq("scope_type", scopeType)
+          .limit(MAX_RULES + 1),
       ]);
 
     if (coursesError) {
@@ -55,9 +67,19 @@ export async function GET(request: Request) {
       throw new Error(rulesError.message);
     }
 
+    const coursesRows = courses ?? [];
+    if (coursesRows.length > MAX_COURSES) {
+      throw new TooManyRowsError("Troppi corsi per matrice formazione. Riduci il dataset o applica paginazione.");
+    }
+
+    const rulesRows = rules ?? [];
+    if (rulesRows.length > MAX_RULES) {
+      throw new TooManyRowsError("Troppe regole per matrice formazione. Riduci il dataset o applica paginazione.");
+    }
+
     const flags = new Set<string>();
     const cellSources: Record<string, "baseline" | "manual"> = {};
-    (rules ?? []).forEach((rule) => {
+    rulesRows.forEach((rule) => {
       if (!rule.is_required) return;
       const scopeKey =
         scopeType === "job"
@@ -76,12 +98,16 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       scopeType,
-      courses: courses ?? [],
+      courses: coursesRows,
       entities: entitiesResult.data,
+      entitiesTruncated: entitiesResult.truncated,
       flags: Array.from(flags),
       cellSources,
     });
   } catch (error) {
+    if (error instanceof TooManyRowsError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       {
         error:
@@ -175,18 +201,23 @@ async function fetchScopeEntities(
       .from("employees")
       .select("job_title,job_title_notes")
       .neq("job_title", "")
-      .order("job_title");
+      .order("job_title")
+      .limit(MAX_EMPLOYEES_FOR_JOB_ENTITIES + 1);
 
     if (error) {
       return {
         data: [] as Array<{ key: string; label: string; isExtra: boolean }>,
         error: error.message,
+        truncated: false,
       };
     }
 
+    const truncated = (data ?? []).length > MAX_EMPLOYEES_FOR_JOB_ENTITIES;
+    const employeeRows = (data ?? []).slice(0, MAX_EMPLOYEES_FOR_JOB_ENTITIES);
+
     const extras = new Map<string, string>();
     const variants = new Map<string, string>();
-    (data ?? []).forEach((row) => {
+    employeeRows.forEach((row) => {
       const title = String((row as { job_title?: string }).job_title ?? "").trim();
       const notes = String((row as { job_title_notes?: string | null }).job_title_notes ?? "").trim();
       if (!title) return;
@@ -215,6 +246,7 @@ async function fetchScopeEntities(
         ].sort((a, b) => a.label.localeCompare(b.label)),
       ],
       error: null,
+      truncated,
     };
   }
 
@@ -222,10 +254,19 @@ async function fetchScopeEntities(
     const { data, error } = await supabase
       .from("sites")
       .select("id,display_name")
-      .order("display_name");
+      .order("display_name")
+      .limit(MAX_SITES + 1);
 
     if (error) {
-      return { data: [] as Array<{ key: string; label: string }>, error: error.message };
+      return { data: [] as Array<{ key: string; label: string }>, error: error.message, truncated: false };
+    }
+
+    if ((data ?? []).length > MAX_SITES) {
+      return {
+        data: [] as Array<{ key: string; label: string }>,
+        error: "Troppi cantieri per matrice formazione. Riduci il dataset o applica paginazione.",
+        truncated: false,
+      };
     }
 
     return {
@@ -234,16 +275,26 @@ async function fetchScopeEntities(
         label: row.display_name,
       })),
       error: null,
+      truncated: false,
     };
   }
 
   const { data, error } = await supabase
     .from("sub_sites")
     .select("id,display_name,sites(display_name)")
-    .order("display_name");
+    .order("display_name")
+    .limit(MAX_SUBSITES + 1);
 
   if (error) {
-    return { data: [] as Array<{ key: string; label: string }>, error: error.message };
+    return { data: [] as Array<{ key: string; label: string }>, error: error.message, truncated: false };
+  }
+
+  if ((data ?? []).length > MAX_SUBSITES) {
+    return {
+      data: [] as Array<{ key: string; label: string }>,
+      error: "Troppi sottocantieri per matrice formazione. Riduci il dataset o applica paginazione.",
+      truncated: false,
+    };
   }
 
   return {
@@ -252,6 +303,7 @@ async function fetchScopeEntities(
       label: `${(row as { sites?: { display_name?: string } }).sites?.display_name ?? ""} / ${row.display_name}`,
     })),
     error: null,
+    truncated: false,
   };
 }
 

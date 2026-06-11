@@ -3,6 +3,23 @@ import { requireAnyModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+const DEFAULT_LIMIT = 50000;
+const MAX_LIMIT = 100000;
+
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+function parseOffsetParam(value: string | null) {
+  if (!value) return 0;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
 function csvEscape(value: unknown) {
   const raw = String(value ?? "");
   const needsQuote = raw.includes('"') || raw.includes(",") || raw.includes("\n") || raw.includes("\r");
@@ -21,14 +38,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "importRunId obbligatorio." }, { status: 400 });
     }
 
+    const limit = parseLimitParam(url.searchParams.get("limit"));
+    const offset = parseOffsetParam(url.searchParams.get("offset"));
+
     const { data, error } = await auth.supabase
       .from("import_run_errors")
       .select("row_number,matricola,tax_code,last_name,first_name,error_type,error_message")
       .eq("import_run_id", importRunId)
-      .order("id", { ascending: true });
+      .order("id", { ascending: true })
+      .range(offset, offset + limit);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const rows = (data ?? []) as Array<{
+    const raw = (data ?? []) as Array<{
       row_number: number;
       matricola: string | null;
       tax_code: string | null;
@@ -37,6 +58,8 @@ export async function GET(request: Request) {
       error_type: string;
       error_message: string;
     }>;
+    const truncated = raw.length > limit;
+    const rows = raw.slice(0, limit);
 
     const header = ["riga", "matricola", "codice_fiscale", "cognome", "nome", "tipo_errore", "messaggio"];
     const lines = [
@@ -63,6 +86,9 @@ export async function GET(request: Request) {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="import-errori-${importRunId}.csv"`,
+        "X-Limit": String(limit),
+        "X-Offset": String(offset),
+        "X-Truncated": truncated ? "1" : "0",
       },
     });
   } catch (err) {
@@ -72,4 +98,3 @@ export async function GET(request: Request) {
     );
   }
 }
-

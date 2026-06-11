@@ -12,6 +12,16 @@ type ToggleBody = {
 
 export const runtime = "nodejs";
 
+const DEFAULT_LIMIT = 50000;
+const MAX_LIMIT = 100000;
+
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("gestione", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -20,6 +30,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const scopeTypeParam = url.searchParams.get("scopeType");
     const scopeType = scopeTypeParam ? (scopeTypeParam as ScopeType) : null;
+    const limit = parseLimitParam(url.searchParams.get("limit"));
 
     if (scopeType !== null && scopeType !== "site" && scopeType !== "sub_site") {
       return NextResponse.json({ error: "scopeType non valido." }, { status: 400 });
@@ -36,10 +47,14 @@ export async function GET(request: Request) {
       query = query.eq("scope_type", scopeType);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await query.limit(limit + 1);
     if (error) throw new Error(error.message);
 
-    const excludedKeys = (data ?? [])
+    const raw = data ?? [];
+    const truncated = raw.length > limit;
+    const rows = raw.slice(0, limit);
+
+    const excludedKeys = rows
       .map((row) => {
         const s = row as {
           scope_type: ScopeType;
@@ -53,6 +68,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       scopeType,
+      limit,
+      truncated,
       excludedKeys,
     });
   } catch (error) {
