@@ -5,6 +5,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
+const DEFAULT_LIMIT = 500;
+const MAX_LIMIT = 5000;
+const MAX_EMPLOYEES = 20000;
+const MAX_OUTPUT_ROWS = 100000;
+
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
 type DpiState = "idoneo" | "consegnato" | "da consegnare" | "da verificare" | "scaduto" | "programmato";
 
 type EmployeeRow = {
@@ -43,6 +52,28 @@ type EmployeeDpiRow = {
   planned_date: string | null;
   next_check_date: string | null;
   note: string | null;
+};
+
+type WorkerDpiRow = {
+  workerId: number;
+  matricola: string;
+  cognome: string;
+  nome: string;
+  mansione: string;
+  cantiere: string;
+  sottocantiere: string;
+  responsabile: string;
+  referente: string;
+  dpiId: number;
+  dpi: string;
+  riskActivities: string;
+  category: string;
+  controlFrequency: string;
+  controlType: string;
+  dataConsegna: string | null;
+  dataProssimoControllo: string | null;
+  stato: DpiState;
+  note: string;
 };
 
 function normalizeIsoDate(value: unknown) {
@@ -97,6 +128,20 @@ function isMissingRelationError(error: unknown) {
   return /relation .*dpi_/i.test(error.message) && /does not exist/i.test(error.message);
 }
 
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+function parseOffsetParam(value: string | null) {
+  if (!value) return 0;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("lavoratori", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -108,6 +153,8 @@ export async function GET(request: Request) {
     const employeeIdParam = url.searchParams.get("employeeId");
     const employeeId = employeeIdParam ? Number(employeeIdParam) : null;
     const simulationDate = (url.searchParams.get("date") ?? "").trim();
+    const limit = parseLimitParam(url.searchParams.get("limit"), query ? 200 : DEFAULT_LIMIT);
+    const offset = parseOffsetParam(url.searchParams.get("offset"));
 
     const todayIsoDate = normalizeIsoDate(simulationDate) ?? new Date().toISOString().slice(0, 10);
     const thresholdIsoDate =
@@ -171,7 +218,15 @@ export async function GET(request: Request) {
       deliveryByKey.set(`${row.employee_id}:${row.dpi_id}`, row);
     }
 
-    const rows = [];
+    const rows: WorkerDpiRow[] = [];
+    const pushRow = (row: WorkerDpiRow) => {
+      rows.push(row);
+      if (rows.length > MAX_OUTPUT_ROWS) {
+        throw new TooManyRowsError(
+          `Troppi risultati DPI lavoratori (> ${MAX_OUTPUT_ROWS}). Restringi il dataset o applica filtri.`,
+        );
+      }
+    };
 
     for (const employee of employees) {
       const jobCodeNorm = normalizeJobCode(employee.job_title ?? "");
@@ -249,7 +304,7 @@ export async function GET(request: Request) {
           if (!searchable.includes(query)) continue;
         }
 
-        rows.push(row);
+        pushRow(row);
       }
     }
 
@@ -260,17 +315,30 @@ export async function GET(request: Request) {
         a.dpi.localeCompare(b.dpi),
     );
 
+    const totalRows = rows.length;
+    const pagedRows = rows.slice(offset, offset + limit);
+    const truncated = offset + limit < totalRows;
+
     return NextResponse.json({
-      rows,
-      totalRows: rows.length,
+      limit,
+      offset,
+      truncated,
+      rows: pagedRows,
+      totalRows,
     });
   } catch (err) {
     if (isMissingRelationError(err)) {
       return NextResponse.json({
+        limit: 0,
+        offset: 0,
+        truncated: false,
         rows: [],
         totalRows: 0,
         warning: "Tabelle DPI non presenti nel DB. Applica lo schema Supabase per abilitare il modulo DPI.",
       });
+    }
+    if (err instanceof TooManyRowsError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
     }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore caricamento DPI lavoratori." },
@@ -313,6 +381,11 @@ async function fetchEmployees(
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as EmployeeRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EMPLOYEES) {
+      throw new TooManyRowsError(
+        `Troppi lavoratori per vista DPI (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+      );
+    }
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
