@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseStrictIsoDateToIso } from "@/lib/it-date";
 
 type ImportMode = "preview" | "commit";
 
@@ -124,7 +125,6 @@ export function makeMedicalSurveillanceUpsertsSafe(args: {
   rows: MedicalSurveillanceUpsertRow[];
   existingByEmployeeId: Map<number, ExistingMedicalSurveillanceRow>;
 }) {
-  let skippedOlderDueDates = 0;
   const safeRows = args.rows.map((row) => {
     const existing = args.existingByEmployeeId.get(row.employee_id) ?? null;
     const out: MedicalSurveillanceUpsertRow = { ...row };
@@ -133,9 +133,6 @@ export function makeMedicalSurveillanceUpsertsSafe(args: {
       out.next_due_date = null;
     } else if (!out.next_due_date) {
       delete out.next_due_date;
-    } else if (existing?.next_due_date && out.next_due_date <= existing.next_due_date) {
-      delete out.next_due_date;
-      skippedOlderDueDates += 1;
     }
 
     const candLimitations = String(out.limitations ?? "").trim();
@@ -149,7 +146,7 @@ export function makeMedicalSurveillanceUpsertsSafe(args: {
     return out;
   });
 
-  return { rows: safeRows, skippedOlderDueDates };
+  return { rows: safeRows, skippedOlderDueDates: 0 };
 }
 
 export async function processMedicalSurveillanceImport({
@@ -442,15 +439,20 @@ function parseBooleanSiNo(value: string) {
 }
 
 export function parseDateToIso(value: unknown) {
+  const toValidIso = (yyyy: string | number, mm: string | number, dd: string | number) =>
+    parseStrictIsoDateToIso(
+      `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`,
+    );
+
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    return parseStrictIsoDateToIso(value.toISOString().slice(0, 10));
   }
 
   if (typeof value === "number" && Number.isFinite(value)) {
     const n = value;
     if (n > 20000 && n < 80000) {
       const millis = Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000;
-      return new Date(millis).toISOString().slice(0, 10);
+      return parseStrictIsoDateToIso(new Date(millis).toISOString().slice(0, 10));
     }
   }
 
@@ -461,21 +463,19 @@ export function parseDateToIso(value: unknown) {
     const n = Number(raw);
     if (Number.isFinite(n) && n > 20000 && n < 80000) {
       const millis = Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000;
-      return new Date(millis).toISOString().slice(0, 10);
+      return parseStrictIsoDateToIso(new Date(millis).toISOString().slice(0, 10));
     }
   }
 
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (iso) return toValidIso(iso[1], iso[2], iso[3]);
 
   const dash = raw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (dash) return `${dash[3]}-${dash[2]}-${dash[1]}`;
+  if (dash) return toValidIso(dash[3], dash[2], dash[1]);
 
   const dot = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (dot) {
-    const dd = String(dot[1]).padStart(2, "0");
-    const mm = String(dot[2]).padStart(2, "0");
-    return `${dot[3]}-${mm}-${dd}`;
+    return toValidIso(dot[3], dot[2], dot[1]);
   }
 
   const slashLong = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
@@ -483,9 +483,7 @@ export function parseDateToIso(value: unknown) {
     const ddNum = Number(slashLong[1]);
     const mmNum = Number(slashLong[2]);
     if (!Number.isFinite(ddNum) || !Number.isFinite(mmNum) || ddNum < 1 || ddNum > 31 || mmNum < 1 || mmNum > 12) return null;
-    const dd = String(ddNum).padStart(2, "0");
-    const mm = String(mmNum).padStart(2, "0");
-    return `${slashLong[3]}-${mm}-${dd}`;
+    return toValidIso(slashLong[3], mmNum, ddNum);
   }
 
   const slashShort = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{2})/);
@@ -495,9 +493,7 @@ export function parseDateToIso(value: unknown) {
     if (!Number.isFinite(ddNum) || !Number.isFinite(mmNum) || ddNum < 1 || ddNum > 31 || mmNum < 1 || mmNum > 12) return null;
     const yy = Number(slashShort[3]);
     const year = yy >= 70 ? 1900 + yy : 2000 + yy;
-    const dd = String(ddNum).padStart(2, "0");
-    const mm = String(mmNum).padStart(2, "0");
-    return `${year}-${mm}-${dd}`;
+    return toValidIso(year, mmNum, ddNum);
   }
 
   return null;
@@ -634,6 +630,7 @@ function parseWorkbook(
         errorType: "invalid_due_date",
         errorMessage: `Data non valida in "scadenza visita": "${dueRawText}".`,
       });
+      return;
     }
 
     validRows.push({

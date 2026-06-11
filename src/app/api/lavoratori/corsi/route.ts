@@ -469,6 +469,7 @@ export async function GET(request: Request) {
 
               if (query) {
                 const searchable = [
+                  outputRow.matricola,
                   outputRow.cantiere,
                   outputRow.sottocantiere,
                   outputRow.cognome,
@@ -536,6 +537,7 @@ export async function GET(request: Request) {
 
           if (query) {
             const searchable = [
+              outputRow.matricola,
               outputRow.cantiere,
               outputRow.sottocantiere,
               outputRow.cognome,
@@ -576,6 +578,7 @@ export async function GET(request: Request) {
 
             if (query) {
               const searchable = [
+                lostRow.matricola,
                 lostRow.cantiere,
                 lostRow.sottocantiere,
                 lostRow.cognome,
@@ -629,6 +632,7 @@ export async function GET(request: Request) {
 
         if (query) {
           const searchable = [
+            outputRow.matricola,
             outputRow.cantiere,
             outputRow.sottocantiere,
             outputRow.cognome,
@@ -692,6 +696,7 @@ export async function GET(request: Request) {
 
         if (query) {
           const searchable = [
+            outputRow.matricola,
             outputRow.cantiere,
             outputRow.sottocantiere,
             outputRow.cognome,

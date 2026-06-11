@@ -42,7 +42,7 @@ function createSupabaseMock() {
   return { supabase, insertedErrors };
 }
 
-test("makePdfImportUpsertsSafe: non regredisce scadenza e non sovrascrive limitazioni con record più vecchio", async () => {
+test("makePdfImportUpsertsSafe: permette di correggere una scadenza salvata troppo avanti", async () => {
   const mock = createSupabaseMock();
   const result = await makePdfImportUpsertsSafe({
     supabase: mock.supabase,
@@ -54,8 +54,10 @@ test("makePdfImportUpsertsSafe: non regredisce scadenza e non sovrascrive limita
     ],
   });
 
-  assert.equal(result.skippedOlderDueDates, 1);
-  assert.equal(result.rows.length, 0);
+  assert.equal(result.skippedOlderDueDates, 0);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0]?.upsert.next_due_date, "2026-01-01");
+  assert.equal(result.rows[0]?.upsert.limitations, "LIM_NUOVE");
 });
 
 test("insertImportRunErrors: mappa page->row_number e salva tax_code", async () => {
@@ -73,4 +75,3 @@ test("insertImportRunErrors: mappa page->row_number e salva tax_code", async () 
   assert.equal(row.tax_code, "RSSMRA80A01H501Z");
   assert.equal(row.error_type, "employee_not_found");
 });
-

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import { parseStrictItDateToIso } from "@/lib/it-date";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -77,7 +78,7 @@ function parseItDateToIso(value: string) {
   let yyyy = Number(m[3]);
   if (yyyy < 100) yyyy = 2000 + yyyy;
   if (yyyy < 1900 || yyyy > 2200) return null;
-  return `${yyyy}-${mm}-${dd}`;
+  return parseStrictItDateToIso(`${dd}/${mm}/${yyyy}`);
 }
 
 function extractTaxCode(text: string) {
@@ -313,19 +314,11 @@ export async function makePdfImportUpsertsSafe(args: {
     });
   }
 
-  let skippedOlderDueDates = 0;
   const safeRows: typeof rows = [];
 
   rows.forEach((row) => {
     const existing = existingByEmployeeId.get(row.upsert.employee_id) ?? { next_due_date: null, limitations: null };
     const out = { ...row.upsert };
-
-    const candDue = out.next_due_date ?? null;
-    const prevDue = existing.next_due_date ?? null;
-    if (candDue && prevDue && candDue <= prevDue) {
-      delete out.next_due_date;
-      skippedOlderDueDates += 1;
-    }
 
     const candLim = String(out.limitations ?? "").trim();
     const prevLim = String(existing.limitations ?? "").trim();
@@ -336,7 +329,7 @@ export async function makePdfImportUpsertsSafe(args: {
     safeRows.push({ page: row.page, upsert: out });
   });
 
-  return { rows: safeRows, skippedOlderDueDates };
+  return { rows: safeRows, skippedOlderDueDates: 0 };
 }
 
 export async function insertImportRunErrors(args: {

@@ -13,6 +13,17 @@ export function normalizeItDateDraft(value: string) {
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
 }
 
+export function parseStrictIsoDateToIso(value: string) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const iso = `${match[1]}-${match[2]}-${match[3]}`;
+  const dt = new Date(`${iso}T12:00:00`);
+  if (!Number.isFinite(dt.getTime())) return null;
+  const roundTrip = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  return roundTrip === iso ? iso : null;
+}
+
 export function parseStrictItDateToIso(value: string) {
   const raw = String(value ?? "").trim();
   const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -20,10 +31,5 @@ export function parseStrictItDateToIso(value: string) {
   const dd = match[1];
   const mm = match[2];
   const yyyy = match[3];
-  const iso = `${yyyy}-${mm}-${dd}`;
-  const dt = new Date(`${iso}T12:00:00`);
-  if (!Number.isFinite(dt.getTime())) return null;
-  const roundTrip = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-  return roundTrip === iso ? iso : null;
+  return parseStrictIsoDateToIso(`${yyyy}-${mm}-${dd}`);
 }
-

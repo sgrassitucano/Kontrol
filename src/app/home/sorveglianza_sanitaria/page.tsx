@@ -162,28 +162,51 @@ export default function HomeSorveglianzaPage() {
     const controller = new AbortController();
     loadRowsAbortRef.current = controller;
     try {
-      const params = new URLSearchParams();
-      params.set("expiringDays", String(expiringDays));
-      if (includeExcluded) params.set("includeExcluded", "1");
-      const response = await fetch(`/api/sorveglianza_sanitaria/lavoratori?${params.toString()}`, { signal: controller.signal });
-      const body = (await response.json()) as ApiResponse;
-      if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore caricamento sorveglianza sanitaria.");
+      async function fetchChunk(offset: number) {
+        const params = new URLSearchParams();
+        params.set("expiringDays", String(expiringDays));
+        params.set("limit", "1000");
+        params.set("offset", String(offset));
+        if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
+        if (includeExcluded) params.set("includeExcluded", "1");
+        const response = await fetch(`/api/sorveglianza_sanitaria/lavoratori?${params.toString()}`, { signal: controller.signal });
+        const body = (await response.json()) as ApiResponse & { truncated?: boolean };
+        if (!response.ok || body.error) {
+          throw new Error(body.error ?? "Errore caricamento sorveglianza sanitaria.");
+        }
+        return body;
       }
-      setRows(body.rows ?? []);
+
+      const nextRows: WorkerSurveillanceRow[] = [];
+      let offset = 0;
+      let truncated = true;
+      let metaNext = {
+        totalActiveEmployees: 0,
+        excludedByRule: 0,
+        frozenEmployees: 0,
+        counts: { idoneo: 0, inScadenza: 0, scaduto: 0, daFare: 0, programmato: 0, sospeso: 0, escluso: 0 },
+      };
+
+      while (truncated) {
+        const body = await fetchChunk(offset);
+        nextRows.push(...(body.rows ?? []));
+        truncated = Boolean(body.truncated);
+        offset += (body.rows ?? []).length;
+        metaNext = {
+          totalActiveEmployees: body.totalActiveEmployees ?? metaNext.totalActiveEmployees,
+          excludedByRule: body.excludedByRule ?? metaNext.excludedByRule,
+          frozenEmployees: body.frozenEmployees ?? metaNext.frozenEmployees,
+          counts: body.counts ?? metaNext.counts,
+        };
+        if ((body.rows ?? []).length === 0) break;
+      }
+
+      setRows(nextRows);
       setMeta({
-        totalActiveEmployees: body.totalActiveEmployees ?? 0,
-        excludedByRule: body.excludedByRule ?? 0,
-        frozenEmployees: body.frozenEmployees ?? 0,
-        counts: body.counts ?? {
-          idoneo: 0,
-          inScadenza: 0,
-          scaduto: 0,
-          daFare: 0,
-          programmato: 0,
-          sospeso: 0,
-          escluso: 0,
-        },
+        totalActiveEmployees: metaNext.totalActiveEmployees,
+        excludedByRule: metaNext.excludedByRule,
+        frozenEmployees: metaNext.frozenEmployees,
+        counts: metaNext.counts,
       });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -191,7 +214,7 @@ export default function HomeSorveglianzaPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [expiringDays, includeExcluded]);
+  }, [deferredSearch, expiringDays, includeExcluded]);
 
   useEffect(() => {
     void loadRows();

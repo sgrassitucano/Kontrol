@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import { parseStrictIsoDateToIso } from "@/lib/it-date";
 
 export const runtime = "nodejs";
 
@@ -43,13 +44,7 @@ function normalizeNullableText(value: unknown): string | null {
 }
 
 function parseIsoDate(value: unknown): string | null {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const d = new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00Z`);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${match[1]}-${match[2]}-${match[3]}`;
+  return parseStrictIsoDateToIso(String(value ?? ""));
 }
 
 export async function POST(request: Request) {

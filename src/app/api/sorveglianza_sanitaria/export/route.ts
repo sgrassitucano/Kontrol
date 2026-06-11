@@ -4,7 +4,7 @@ import { requireModuleAccess } from "@/lib/api/access";
 import { normalizeJobCode } from "@/lib/training/normalize";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyCalibri10WithBoldHeader } from "@/lib/excel";
-import { isoToItDate } from "@/lib/it-date";
+import { isoToItDate, parseStrictIsoDateToIso } from "@/lib/it-date";
 
 type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean };
 
@@ -110,34 +110,38 @@ function extractDisplayName(value: unknown) {
   return "-";
 }
 
-function buildActiveFreezeMap(rows: FreezeRow[], today: Date) {
+function normalizeIsoDate(value: string | null | undefined) {
+  return parseStrictIsoDateToIso(String(value ?? ""));
+}
+
+function buildActiveFreezeMap(rows: FreezeRow[], todayIsoDate: string) {
   const map = new Map<number, FreezeRow>();
   rows.forEach((row) => {
-    const start = new Date(row.start_date);
-    const end = row.end_date ? new Date(row.end_date) : null;
-    if (Number.isNaN(start.getTime())) return;
-    if (start > today) return;
-    if (end && end < today) return;
+    const start = normalizeIsoDate(row.start_date);
+    const end = row.end_date ? normalizeIsoDate(row.end_date) : null;
+    if (!start) return;
+    if (start > todayIsoDate) return;
+    if (end && end < todayIsoDate) return;
     map.set(row.employee_id, row);
   });
   return map;
 }
 
 function computeState(args: {
-  today: Date;
-  thresholdDate: Date;
+  todayIsoDate: string;
+  thresholdIsoDate: string;
   requiresVisit: boolean;
   nextDueDate: string | null;
   isPlanned: boolean;
 }) {
-  const { today, thresholdDate, requiresVisit, nextDueDate, isPlanned } = args;
+  const { todayIsoDate, thresholdIsoDate, requiresVisit, nextDueDate, isPlanned } = args;
   if (!requiresVisit) return "idoneo" as const;
   if (!nextDueDate) return isPlanned ? ("programmato" as const) : ("da fare" as const);
-  const due = new Date(nextDueDate);
-  if (Number.isNaN(due.getTime())) return isPlanned ? ("programmato" as const) : ("da fare" as const);
-  if (due < today) return "scaduto" as const;
+  const dueIso = normalizeIsoDate(nextDueDate);
+  if (!dueIso) return isPlanned ? ("programmato" as const) : ("da fare" as const);
+  if (dueIso < todayIsoDate) return "scaduto" as const;
   if (isPlanned) return "programmato" as const;
-  if (due <= thresholdDate) return "in scadenza" as const;
+  if (dueIso <= thresholdIsoDate) return "in scadenza" as const;
   return "idoneo" as const;
 }
 
@@ -409,16 +413,16 @@ export async function GET(request: Request) {
     const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
 
     let today = new Date();
+    today.setHours(12, 0, 0, 0);
     if (typeof dateParam === "string") {
-      const match = dateParam.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (match) {
-        const parsed = new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00`);
-        if (!Number.isNaN(parsed.getTime())) today = parsed;
-      }
+      const parsedIso = parseStrictIsoDateToIso(dateParam);
+      if (parsedIso) today = new Date(`${parsedIso}T12:00:00`);
     }
 
     const thresholdDate = new Date(today);
     thresholdDate.setDate(thresholdDate.getDate() + expiringDaysSafe);
+    const todayIsoDate = today.toISOString().slice(0, 10);
+    const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
 
     const dataSupabase = auth.supabase;
 
@@ -437,7 +441,7 @@ export async function GET(request: Request) {
     const surveillanceByEmployeeId = new Map<number, SurveillanceRow>();
     (surveillanceRows ?? []).forEach((row) => surveillanceByEmployeeId.set(row.employee_id, row));
 
-    const activeFreezeByEmployeeId = buildActiveFreezeMap((freezeRows ?? []) as FreezeRow[], today);
+    const activeFreezeByEmployeeId = buildActiveFreezeMap((freezeRows ?? []) as FreezeRow[], todayIsoDate);
     const jobRuleByCode = new Map<string, JobRuleRow>();
     (jobRules ?? []).forEach((row) => jobRuleByCode.set(row.job_code_norm, row));
 
@@ -511,8 +515,8 @@ export async function GET(request: Request) {
         freeze && !isExcluded
           ? ("sospeso" as const)
           : computeState({
-              today,
-              thresholdDate,
+              todayIsoDate,
+              thresholdIsoDate,
               requiresVisit,
               nextDueDate: record?.next_due_date ?? null,
               isPlanned: Boolean(record?.is_planned ?? false),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { ModuleHeader } from "@/components/module-ui";
 
 type EmployeeRow = {
@@ -85,6 +85,7 @@ export default function HomeLavoratoriPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
 
   const [selected, setSelected] = useState<EmployeeRow | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("dati");
@@ -101,27 +102,61 @@ export default function HomeLavoratoriPage() {
   const [equipmentError, setEquipmentError] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function fetchChunk(params: URLSearchParams) {
+      const response = await fetch(`/api/lavoratori/anagrafica?${params.toString()}`);
+      const body = (await response.json()) as {
+        rows?: EmployeeRow[];
+        error?: string;
+        truncated?: boolean;
+      };
+      if (!response.ok || body.error) {
+        throw new Error(body.error ?? "Errore caricamento lavoratori.");
+      }
+      return {
+        rows: body.rows ?? [],
+        truncated: Boolean(body.truncated),
+      };
+    }
+
     async function loadEmployees() {
       setIsLoading(true);
       setError("");
       try {
-        const response = await fetch("/api/lavoratori/anagrafica");
-        const body = (await response.json()) as { rows?: EmployeeRow[]; error?: string };
-        if (!response.ok || body.error) {
-          throw new Error(body.error ?? "Errore caricamento lavoratori.");
+        const nextRows: EmployeeRow[] = [];
+        let offset = 0;
+        let truncated = true;
+        const q = deferredSearch.trim();
+        while (truncated) {
+          const params = new URLSearchParams();
+          params.set("limit", "1000");
+          params.set("offset", String(offset));
+          if (q) params.set("q", q);
+          const result = await fetchChunk(params);
+          nextRows.push(...result.rows);
+          truncated = result.truncated;
+          offset += result.rows.length;
+          if (result.rows.length === 0) break;
         }
-        setRows(body.rows ?? []);
+        if (!cancelled) setRows(nextRows);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Errore caricamento lavoratori.");
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Errore caricamento lavoratori.");
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     }
+
     void loadEmployees();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [deferredSearch]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((row) => {
       const searchable = [
@@ -138,7 +173,7 @@ export default function HomeLavoratoriPage() {
         .toLowerCase();
       return searchable.includes(q);
     });
-  }, [rows, search]);
+  }, [rows, deferredSearch]);
 
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "cognome", dir: "asc" });
 

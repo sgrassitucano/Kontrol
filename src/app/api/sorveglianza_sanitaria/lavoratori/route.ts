@@ -272,8 +272,7 @@ export async function GET(request: Request) {
     let excludedByRule = 0;
     let frozenEmployees = 0;
 
-    const rows: WorkerSurveillanceRow[] = [];
-    let totalRows = 0;
+    const allRows: WorkerSurveillanceRow[] = [];
     const counts = {
       idoneo: 0,
       inScadenza: 0,
@@ -363,7 +362,6 @@ export async function GET(request: Request) {
         if (!searchable.includes(query)) continue;
       }
 
-      totalRows += 1;
       if (row.stato === "idoneo") counts.idoneo += 1;
       else if (row.stato === "in scadenza") counts.inScadenza += 1;
       else if (row.stato === "scaduto") counts.scaduto += 1;
@@ -371,10 +369,12 @@ export async function GET(request: Request) {
       else if (row.stato === "programmato") counts.programmato += 1;
       else if (row.stato === "sospeso") counts.sospeso += 1;
       else counts.escluso += 1;
-      if (totalRows > offset && rows.length < limit) rows.push(row);
+      allRows.push(row);
     }
 
-    rows.sort((a, b) => a.cognome.localeCompare(b.cognome) || a.nome.localeCompare(b.nome));
+    allRows.sort((a, b) => a.cognome.localeCompare(b.cognome) || a.nome.localeCompare(b.nome));
+    const totalRows = allRows.length;
+    const rows = allRows.slice(offset, offset + limit);
 
     return NextResponse.json({
       rows,

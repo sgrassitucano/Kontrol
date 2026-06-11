@@ -438,29 +438,53 @@ export default function HomeFormazionePage() {
     const controller = new AbortController();
     loadRowsAbortRef.current = controller;
     try {
-      const params = new URLSearchParams();
-      params.set("date", dateOverride ?? simulationDate);
-      params.set("expiringDays", String(expiringDays));
-
-      params.set("panel", "formazione");
-      if (showExcludedEmployees) params.set("includeExcluded", "1");
-      const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`, { signal: controller.signal });
-      const body = (await response.json()) as {
-        rows?: WorkerCourseRow[];
-        error?: string;
-        totalActiveEmployees?: number;
-        excludedByScopeEmployees?: number;
-        frozenEmployees?: number;
-      };
-      if (!response.ok || body.error) {
-        if (response.status === 401) {
-          window.location.href = "/login";
-          return;
+      async function fetchChunk(offset: number) {
+        const params = new URLSearchParams();
+        params.set("date", dateOverride ?? simulationDate);
+        params.set("expiringDays", String(expiringDays));
+        params.set("panel", "formazione");
+        params.set("limit", "1000");
+        params.set("offset", String(offset));
+        if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
+        if (showExcludedEmployees) params.set("includeExcluded", "1");
+        const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`, { signal: controller.signal });
+        const body = (await response.json()) as {
+          rows?: WorkerCourseRow[];
+          error?: string;
+          truncated?: boolean;
+          totalActiveEmployees?: number;
+          excludedByScopeEmployees?: number;
+          frozenEmployees?: number;
+        };
+        if (!response.ok || body.error) {
+          if (response.status === 401) {
+            window.location.href = "/login";
+            return null;
+          }
+          throw new Error(body.error ?? `Errore caricamento formazione lavoratori (${response.status}).`);
         }
-        throw new Error(body.error ?? `Errore caricamento formazione lavoratori (${response.status}).`);
+        return body;
       }
 
-      const nextRows = body.rows ?? [];
+      const nextRows: WorkerCourseRow[] = [];
+      let offset = 0;
+      let truncated = true;
+      let totalActiveEmployeesNext = 0;
+      let excludedByScopeEmployeesNext = 0;
+      let frozenEmployeesNext = 0;
+
+      while (truncated) {
+        const body = await fetchChunk(offset);
+        if (!body) return;
+        nextRows.push(...(body.rows ?? []));
+        truncated = Boolean(body.truncated);
+        offset += (body.rows ?? []).length;
+        totalActiveEmployeesNext = body.totalActiveEmployees ?? totalActiveEmployeesNext;
+        excludedByScopeEmployeesNext = body.excludedByScopeEmployees ?? excludedByScopeEmployeesNext;
+        frozenEmployeesNext = body.frozenEmployees ?? frozenEmployeesNext;
+        if ((body.rows ?? []).length === 0) break;
+      }
+
       setRows(nextRows);
       const nextWorkerIds = new Set(nextRows.map((r) => r.workerId));
       setSelectedWorkerIds((prev) => {
@@ -471,9 +495,9 @@ export default function HomeFormazionePage() {
         });
         return next;
       });
-      setTotalActiveEmployees(body.totalActiveEmployees ?? 0);
-      setExcludedByScopeEmployees(body.excludedByScopeEmployees ?? 0);
-      setFrozenEmployees(body.frozenEmployees ?? 0);
+      setTotalActiveEmployees(totalActiveEmployeesNext);
+      setExcludedByScopeEmployees(excludedByScopeEmployeesNext);
+      setFrozenEmployees(frozenEmployeesNext);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(
@@ -482,7 +506,7 @@ export default function HomeFormazionePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [expiringDays, showExcludedEmployees, simulationDate]);
+  }, [deferredSearch, expiringDays, showExcludedEmployees, simulationDate]);
 
   const upsertEmployeeRows = useCallback((employeeId: number, employeeRows: WorkerCourseRow[]) => {
     setRows((prev) => {

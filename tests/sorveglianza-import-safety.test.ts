@@ -4,11 +4,12 @@ import { makeMedicalSurveillanceUpsertsSafe, parseDateToIso } from "../src/lib/i
 
 test("parseDateToIso: formato italiano", () => {
   assert.equal(parseDateToIso("01/07/2026"), "2026-07-01");
+  assert.equal(parseDateToIso("11/06/2026"), "2026-06-11");
   assert.equal(parseDateToIso("7/1/2026"), "2026-01-07");
   assert.equal(parseDateToIso("07/01/2026"), "2026-01-07");
 });
 
-test("upsert safe: non riduce scadenza", () => {
+test("upsert safe: il file puo correggere una scadenza piu alta salvata male", () => {
   const existingByEmployeeId = new Map([
     [
       1,
@@ -36,11 +37,11 @@ test("upsert safe: non riduce scadenza", () => {
     existingByEmployeeId,
   });
 
-  assert.equal(skippedOlderDueDates, 1);
+  assert.equal(skippedOlderDueDates, 0);
   assert.equal(rows.length, 1);
-  assert.equal("next_due_date" in rows[0], false);
-  assert.equal("limitations" in rows[0], false);
-  assert.equal("notes" in rows[0], false);
+  assert.equal(rows[0].next_due_date, "2026-07-01");
+  assert.equal(rows[0].limitations, "NUOVE");
+  assert.equal(rows[0].notes, "NUOVE");
 });
 
 test("upsert safe: non azzera scadenza quando manca nel file (visita SI)", () => {

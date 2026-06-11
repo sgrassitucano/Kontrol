@@ -123,5 +123,5 @@ test("processMedicalSurveillanceImport(commit): persiste import_run_errors se pr
     mock.insertedErrors.some((r) => (r as { error_type?: string }).error_type === "invalid_due_date"),
     true,
   );
-  assert.equal(mock.insertedChanges.length > 0, true);
+  assert.equal(mock.insertedChanges.length, 0);
 });
