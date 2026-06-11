@@ -35,6 +35,7 @@
 - Verifica che le RPC richieste dai moduli operativi siano presenti (se mancano alcuni endpoint tornano errore):
   - `turni_replace_shift_breaks`
   - `fleet_complete_obligation`
+  - `training_replace_baseline_matrix_rules`
 - Esegui `npm run lint`
 - Esegui `npm run build`
 - Esegui `npm test`

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { requireModuleAccess } from "@/lib/api/access";
 import { normalizeJobCode } from "@/lib/training/normalize";
 
 export const runtime = "nodejs";
+
+class MissingRpcError extends Error {}
 
 type CourseSeed = {
   code: string;
@@ -18,6 +21,26 @@ type JobRow = {
   jobCode: string;
   requirements: string[];
 };
+
+async function replaceBaselineMatrixAtomic(args: {
+  supabase: SupabaseClient;
+  baselineRules: Array<{ course_id: number }>;
+  jobRules: Array<{ course_id: number; job_code_norm: string }>;
+}) {
+  const { supabase, baselineRules, jobRules } = args;
+  const { error } = await supabase.rpc("training_replace_baseline_matrix_rules", {
+    baseline_rules: baselineRules,
+    job_rules: jobRules,
+  });
+  if (!error) return;
+  const msg = String((error as { message?: unknown } | null)?.message ?? "");
+  if (/training_replace_baseline_matrix_rules/i.test(msg)) {
+    throw new MissingRpcError(
+      "RPC training_replace_baseline_matrix_rules non disponibile. Applicare patch DB.",
+    );
+  }
+  throw new Error(msg || "Errore seed matrice.");
+}
 
 export async function POST() {
   const auth = await requireModuleAccess("gestione", true);
@@ -83,29 +106,21 @@ export async function POST() {
       if (linksError) return NextResponse.json({ error: linksError.message }, { status: 500 });
     }
 
-    const { error: disableError } = await auth.supabase
-      .from("training_matrix_rules")
-      .update({ is_required: false, source: "baseline" })
-      .eq("source", "baseline")
-      .in("scope_type", ["baseline", "job"]);
-    if (disableError) return NextResponse.json({ error: disableError.message }, { status: 500 });
-
     const baselinePayload = ["FORM_BASE", "FORM_SPEC_BASSO"]
       .map((code) => {
         const courseId = courseIdByCode.get(code);
         if (!courseId) return null;
         return {
-          scope_type: "baseline",
           course_id: courseId,
-          is_required: true,
-          source: "baseline",
-          job_code_norm: null,
-          site_id: null,
-          sub_site_id: null,
-          employee_id: null,
         };
       })
       .filter((value): value is NonNullable<typeof value> => Boolean(value));
+    if (baselinePayload.length === 0) {
+      return NextResponse.json(
+        { error: "Corsi baseline mancanti: impossibile aggiornare la matrice." },
+        { status: 400 },
+      );
+    }
 
     const missingCourseCodes = new Set<string>();
 
@@ -118,27 +133,18 @@ export async function POST() {
             return null;
           }
           return {
-            scope_type: "job",
             course_id: courseId,
-            is_required: true,
-            source: "baseline",
             job_code_norm: normalizeJobCode(jobCode),
-            site_id: null,
-            sub_site_id: null,
-            employee_id: null,
           };
         })
         .filter((value): value is NonNullable<typeof value> => Boolean(value)),
     );
 
-    if (baselinePayload.length > 0 || jobRulesPayload.length > 0) {
-      const { error: rulesError } = await auth.supabase
-        .from("training_matrix_rules")
-        .upsert([...baselinePayload, ...jobRulesPayload], {
-          onConflict: "scope_type,course_id,job_code_norm,site_id,sub_site_id,employee_id",
-        });
-      if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
-    }
+    await replaceBaselineMatrixAtomic({
+      supabase: auth.supabase,
+      baselineRules: baselinePayload,
+      jobRules: jobRulesPayload,
+    });
 
     return NextResponse.json({
       ok: true,
@@ -149,6 +155,9 @@ export async function POST() {
       unmappedLabels: Array.from(unmappedLabels).sort(),
     });
   } catch (err) {
+    if (err instanceof MissingRpcError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore seed matrice." },
       { status: 500 },

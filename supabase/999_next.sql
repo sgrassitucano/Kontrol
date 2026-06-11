@@ -1966,3 +1966,100 @@ create policy "import_undo_deleted_rows_insert_management_only"
   on public.import_undo_deleted_rows
   for insert
   with check (public.has_module_access('gestione', true));
+
+create or replace function internal.training_replace_baseline_matrix_rules(
+  baseline_rules jsonb,
+  job_rules jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  has_access boolean;
+begin
+  select public.has_module_access('gestione', true) into has_access;
+  if not has_access then
+    raise exception 'Accesso negato.' using errcode = '42501';
+  end if;
+
+  if baseline_rules is null or jsonb_typeof(baseline_rules) <> 'array' then
+    baseline_rules := '[]'::jsonb;
+  end if;
+  if job_rules is null or jsonb_typeof(job_rules) <> 'array' then
+    job_rules := '[]'::jsonb;
+  end if;
+
+  create temporary table if not exists tmp_training_matrix_seed (
+    scope_type public.training_scope_type not null,
+    course_id bigint not null,
+    job_code_norm text
+  ) on commit drop;
+
+  delete from tmp_training_matrix_seed;
+
+  insert into tmp_training_matrix_seed(scope_type, course_id, job_code_norm)
+  select
+    'baseline'::public.training_scope_type,
+    (value->>'course_id')::bigint,
+    null::text
+  from jsonb_array_elements(baseline_rules) as value;
+
+  insert into tmp_training_matrix_seed(scope_type, course_id, job_code_norm)
+  select
+    'job'::public.training_scope_type,
+    (value->>'course_id')::bigint,
+    nullif(trim(value->>'job_code_norm'), '')
+  from jsonb_array_elements(job_rules) as value;
+
+  if exists (select 1 from tmp_training_matrix_seed where scope_type = 'job' and job_code_norm is null) then
+    raise exception 'Regole job non valide (job_code_norm mancante).' using errcode = '22000';
+  end if;
+
+  update public.training_matrix_rules
+  set is_required = false, source = 'baseline'::public.training_rule_source
+  where source = 'baseline'::public.training_rule_source
+    and scope_type in ('baseline'::public.training_scope_type, 'job'::public.training_scope_type);
+
+  insert into public.training_matrix_rules (
+    scope_type,
+    course_id,
+    is_required,
+    source,
+    job_code_norm,
+    site_id,
+    sub_site_id,
+    employee_id
+  )
+  select
+    t.scope_type,
+    t.course_id,
+    true,
+    'baseline'::public.training_rule_source,
+    case when t.scope_type = 'job'::public.training_scope_type then t.job_code_norm else null end,
+    null::bigint,
+    null::bigint,
+    null::bigint
+  from (
+    select distinct scope_type, course_id, job_code_norm
+    from tmp_training_matrix_seed
+  ) t
+  on conflict on constraint training_matrix_rules_unique
+  do update set
+    is_required = excluded.is_required,
+    source = excluded.source;
+end;
+$$;
+
+create or replace function public.training_replace_baseline_matrix_rules(
+  baseline_rules jsonb,
+  job_rules jsonb
+)
+returns void
+language sql
+security invoker
+set search_path = public
+as $$
+  select internal.training_replace_baseline_matrix_rules(baseline_rules, job_rules);
+$$;
