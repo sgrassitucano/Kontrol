@@ -7,6 +7,8 @@ type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean }
 
 export const runtime = "nodejs";
 
+const MAX_FILTER_EMPLOYEE_IDS = 20000;
+
 type ShiftState = "planned" | "actual" | "cancelled";
 
 type ShiftRow = {
@@ -154,8 +156,16 @@ export async function GET(request: Request) {
       let q = supabase.from("employees").select("id").eq("status", "attivo");
       if (responsibleCodes.length > 0) q = q.in("responsible_code", responsibleCodes);
       if (referrals.length > 0) q = q.in("referral", referrals);
-      const { data, error } = await q;
+      const { data, error } = await q.limit(MAX_FILTER_EMPLOYEE_IDS + 1);
       if (error) throw new Error(error.message);
+      if ((data ?? []).length > MAX_FILTER_EMPLOYEE_IDS) {
+        return NextResponse.json(
+          {
+            error: `Filtro troppo ampio: trovati > ${MAX_FILTER_EMPLOYEE_IDS} lavoratori. Restringi responsibleCodes/referrals.`,
+          },
+          { status: 400 },
+        );
+      }
       allowedEmployeeIds = Array.from(new Set((data ?? []).map((r) => (r as { id: number }).id)));
     }
 
