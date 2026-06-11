@@ -111,6 +111,37 @@ type RuleLinkRow = {
 
 export const runtime = "nodejs";
 
+const DEFAULT_LIMIT = 500;
+const MAX_LIMIT = 5000;
+const MAX_EMPLOYEES = 20000;
+const MAX_RULES = 50000;
+const MAX_RULE_LINKS = 100000;
+const MAX_COURSES = 20000;
+const MAX_COURSE_ROWS = 200000;
+const MAX_FREEZES = 50000;
+const MAX_SCOPE_EXCLUSIONS = 100000;
+const MAX_EMPLOYEE_EXCLUSIONS = 100000;
+const MAX_COURSE_EXCLUSIONS = 200000;
+const MAX_OUTPUT_ROWS = 200000;
+
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+function parseOffsetParam(value: string | null) {
+  if (!value) return 0;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
 export async function GET(request: Request) {
   const auth = await requireAnyModuleAccess(["lavoratori", "formazione"], false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -125,6 +156,8 @@ export async function GET(request: Request) {
     const panel = url.searchParams.get("panel") ?? "lavoratori";
     const applyFormazioneExclusions = panel === "formazione";
     const includeExcluded = url.searchParams.get("includeExcluded") === "1";
+    const limit = parseLimitParam(url.searchParams.get("limit"), query ? 200 : DEFAULT_LIMIT);
+    const offset = parseOffsetParam(url.searchParams.get("offset"));
 
     const dataSupabase = auth.supabase;
 
@@ -139,13 +172,22 @@ export async function GET(request: Request) {
     const staticCached = cacheGet<{ courses: CourseRow[]; rules: MatrixRule[]; ruleLinks: RuleLinkRow[] }>(staticKey);
     const staticLoaded = staticCached ?? (await (async () => {
       const [{ data: courses, error: coursesError }, rules, ruleLinks] = await Promise.all([
-        dataSupabase.from("training_courses").select("id,code,title,is_active,validity_years,is_unlimited"),
+        dataSupabase
+          .from("training_courses")
+          .select("id,code,title,is_active,validity_years,is_unlimited")
+          .limit(MAX_COURSES + 1),
         fetchAllRules(dataSupabase),
         fetchAllRuleLinks(dataSupabase),
       ]);
       if (coursesError) throw new Error(coursesError.message);
+      const courseRows = (courses ?? []) as CourseRow[];
+      if (courseRows.length > MAX_COURSES) {
+        throw new TooManyRowsError(
+          `Troppi corsi formazione (> ${MAX_COURSES}). Restringi il dataset o applica paginazione.`,
+        );
+      }
       const out = {
-        courses: (courses ?? []) as CourseRow[],
+        courses: courseRows,
         rules: (rules ?? []) as MatrixRule[],
         ruleLinks: (ruleLinks ?? []) as RuleLinkRow[],
       };
@@ -232,6 +274,17 @@ export async function GET(request: Request) {
     const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
 
     const rows: WorkerCourseRow[] = [];
+    const pushRow = (row: WorkerCourseRow) => {
+      rows.push(row);
+      if (rows.length > MAX_OUTPUT_ROWS) {
+        throw new TooManyRowsError(
+          `Troppi risultati corsi lavoratori (> ${MAX_OUTPUT_ROWS}). Restringi il dataset o applica filtri.`,
+        );
+      }
+    };
+    const pushRows = (items: WorkerCourseRow[]) => {
+      for (const item of items) pushRow(item);
+    };
 
     const leveledFamilies: readonly (readonly string[])[] = [
       ["FORM_SPEC_ALTO", "FORM_SPEC_MEDIO", "FORM_SPEC_BASSO"],
@@ -340,7 +393,7 @@ export async function GET(request: Request) {
           if (baseSection) {
             skipRequiredCourseIds.add(formBaseCourseId);
             skipRequiredCourseIds.add(formSpecRequired.courseId);
-            rows.push(...baseSection);
+            pushRows(baseSection);
           }
         }
       }
@@ -429,7 +482,7 @@ export async function GET(request: Request) {
                 if (!searchable.includes(query)) continue;
               }
 
-              rows.push(outputRow);
+              pushRow(outputRow);
               continue;
             }
           }
@@ -496,7 +549,7 @@ export async function GET(request: Request) {
             if (!searchable.includes(query)) continue;
           }
 
-          rows.push(outputRow);
+          pushRow(outputRow);
 
           if (lost && statusEntry) {
             const lostRow: WorkerCourseRow = {
@@ -536,7 +589,7 @@ export async function GET(request: Request) {
               if (!searchable.includes(query)) continue;
             }
 
-            rows.push(lostRow);
+            pushRow(lostRow);
           }
           continue;
         }
@@ -589,7 +642,7 @@ export async function GET(request: Request) {
           if (!searchable.includes(query)) continue;
         }
 
-        rows.push(outputRow);
+        pushRow(outputRow);
       }
 
       for (const statusEntry of employeeStatusRows) {
@@ -652,7 +705,7 @@ export async function GET(request: Request) {
           if (!searchable.includes(query)) continue;
         }
 
-        rows.push(outputRow);
+        pushRow(outputRow);
       }
 
     }
@@ -665,9 +718,16 @@ export async function GET(request: Request) {
       return a.corsoCode.localeCompare(b.corsoCode);
     });
 
+    const totalRows = rows.length;
+    const pagedRows = rows.slice(offset, offset + limit);
+    const truncated = offset + limit < totalRows;
+
     return NextResponse.json({
-      rows,
-      totalRows: rows.length,
+      limit,
+      offset,
+      truncated,
+      rows: pagedRows,
+      totalRows,
       totalActiveEmployees,
       excludedByScopeEmployees,
       frozenEmployees,
@@ -676,6 +736,9 @@ export async function GET(request: Request) {
       expiringDays: Number.isFinite(expiringDays) ? expiringDays : 30,
     });
   } catch (error) {
+    if (error instanceof TooManyRowsError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       {
         error:
@@ -716,6 +779,11 @@ async function fetchAllRules(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as MatrixRule[];
     allRows.push(...rows);
+    if (allRows.length > MAX_RULES) {
+      throw new TooManyRowsError(
+        `Troppe regole matrice formazione (> ${MAX_RULES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
 
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
@@ -751,6 +819,11 @@ async function fetchCourseRowsByEmployeeIds(supabase: SupabaseClient, employeeId
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as CourseStatusRow[];
       all.push(...rows);
+      if (all.length > MAX_COURSE_ROWS) {
+        throw new TooManyRowsError(
+          `Troppi record corsi lavoratori (> ${MAX_COURSE_ROWS}). Restringi il dataset o applica filtri.`,
+        );
+      }
       if (rows.length < pageSize) hasMore = false;
       else from += pageSize;
     }
@@ -769,6 +842,11 @@ async function fetchFreezesByEmployeeIds(supabase: SupabaseClient, employeeIds: 
       .in("employee_id", chunk);
     if (error) throw new Error(error.message);
     all.push(...((data ?? []) as FreezeRow[]));
+    if (all.length > MAX_FREEZES) {
+      throw new TooManyRowsError(
+        `Troppi periodi freeze (> ${MAX_FREEZES}). Restringi il dataset o applica paginazione.`,
+      );
+    }
   }
   return all;
 }
@@ -790,6 +868,11 @@ async function fetchAllRuleLinks(supabase: SupabaseClient) {
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as RuleLinkRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_RULE_LINKS) {
+      throw new TooManyRowsError(
+        `Troppe relazioni corsi (> ${MAX_RULE_LINKS}). Restringi il dataset o applica paginazione.`,
+      );
+    }
 
     if (rows.length < pageSize) hasMore = false;
     else from += pageSize;
@@ -824,6 +907,11 @@ async function fetchAllEmployees(
 
     const rows = (data ?? []) as EmployeeRow[];
     allRows.push(...rows);
+    if (allRows.length > MAX_EMPLOYEES) {
+      throw new TooManyRowsError(
+        `Troppi lavoratori per vista corsi (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+      );
+    }
 
     if (rows.length < pageSize) {
       hasMore = false;
@@ -991,13 +1079,20 @@ async function fetchAllScopeExclusions(
   const { data, error } = await supabase
     .from("training_scope_exclusions")
     .select("scope_type,site_id,sub_site_id,is_active")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .limit(MAX_SCOPE_EXCLUSIONS + 1);
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return (data ?? []) as ScopeExclusionRow[];
+  const rows = (data ?? []) as ScopeExclusionRow[];
+  if (rows.length > MAX_SCOPE_EXCLUSIONS) {
+    throw new TooManyRowsError(
+      `Troppe esclusioni scope (> ${MAX_SCOPE_EXCLUSIONS}). Restringi il dataset o applica paginazione.`,
+    );
+  }
+  return rows;
 }
 
 async function fetchTrainingEmployeeExclusionsByEmployeeIds(supabase: SupabaseClient, employeeIds: number[]) {
@@ -1012,6 +1107,11 @@ async function fetchTrainingEmployeeExclusionsByEmployeeIds(supabase: SupabaseCl
       .in("employee_id", chunk);
     if (error) throw new Error(error.message);
     all.push(...((data ?? []) as TrainingEmployeeExclusionRow[]));
+    if (all.length > MAX_EMPLOYEE_EXCLUSIONS) {
+      throw new TooManyRowsError(
+        `Troppe esclusioni lavoratori (> ${MAX_EMPLOYEE_EXCLUSIONS}). Restringi il dataset o applica paginazione.`,
+      );
+    }
   }
   return all;
 }
@@ -1028,6 +1128,11 @@ async function fetchTrainingEmployeeCourseExclusionsByEmployeeIds(supabase: Supa
       .in("employee_id", chunk);
     if (error) throw new Error(error.message);
     all.push(...((data ?? []) as TrainingEmployeeCourseExclusionRow[]));
+    if (all.length > MAX_COURSE_EXCLUSIONS) {
+      throw new TooManyRowsError(
+        `Troppe esclusioni corsi per lavoratore (> ${MAX_COURSE_EXCLUSIONS}). Restringi il dataset o applica paginazione.`,
+      );
+    }
   }
   return all;
 }
