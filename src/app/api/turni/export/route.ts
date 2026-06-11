@@ -8,6 +8,8 @@ type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean }
 export const runtime = "nodejs";
 
 const MAX_FILTER_EMPLOYEE_IDS = 20000;
+const MAX_EXPORT_SHIFTS = 20000;
+const IN_QUERY_CHUNK_SIZE = 500;
 
 type ShiftState = "planned" | "actual" | "cancelled";
 
@@ -95,6 +97,16 @@ function intersectNumberLists(a: number[], b: number[]) {
   return a.filter((v) => setB.has(v));
 }
 
+function chunkArray<T>(items: T[], chunkSize: number) {
+  if (items.length === 0) return [] as T[][];
+  const size = Math.max(1, Math.trunc(chunkSize));
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("turni", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -179,17 +191,29 @@ export async function GET(request: Request) {
     if (explicitEmployeeIds.length > 0) {
       allowedEmployeeIds = allowedEmployeeIds ? intersectNumberLists(allowedEmployeeIds, explicitEmployeeIds) : explicitEmployeeIds;
     }
-    let shiftsQuery = supabase
-      .from("turni_employee_shifts")
-      .select(
-        "id,employee_id,site_id,sub_site_id,start_at,end_at,state,note,employees(matricola,first_name,last_name),sites(display_name)",
-      )
-      .gte("start_at", start.toISOString())
-      .lt("start_at", end.toISOString())
-      .neq("state", "cancelled")
-    if (typeof siteId === "number" && Number.isFinite(siteId)) shiftsQuery = shiftsQuery.eq("site_id", siteId);
+    const buildShiftsQuery = (employeeIdsFilter?: number[]) => {
+      let shiftsQuery = supabase
+        .from("turni_employee_shifts")
+        .select(
+          "id,employee_id,site_id,sub_site_id,start_at,end_at,state,note,employees(matricola,first_name,last_name),sites(display_name)",
+        )
+        .gte("start_at", start.toISOString())
+        .lt("start_at", end.toISOString());
+      if (typeof siteId === "number" && Number.isFinite(siteId)) shiftsQuery = shiftsQuery.eq("site_id", siteId);
 
-    if (!includeCancelled) shiftsQuery = shiftsQuery.neq("state", "cancelled");
+      if (!includeCancelled) shiftsQuery = shiftsQuery.neq("state", "cancelled");
+      if (employeeIdsFilter && employeeIdsFilter.length > 0) shiftsQuery = shiftsQuery.in("employee_id", employeeIdsFilter);
+      if (siteIds.length > 0) shiftsQuery = shiftsQuery.in("site_id", siteIds);
+
+      if (includeNullSubSite && subSiteIds.length > 0) {
+        shiftsQuery = shiftsQuery.or(`sub_site_id.is.null,sub_site_id.in.(${subSiteIds.join(",")})`);
+      } else if (includeNullSubSite) {
+        shiftsQuery = shiftsQuery.is("sub_site_id", null);
+      } else if (subSiteIds.length > 0) {
+        shiftsQuery = shiftsQuery.in("sub_site_id", subSiteIds);
+      }
+      return shiftsQuery;
+    };
     if (allowedEmployeeIds && allowedEmployeeIds.length === 0) {
       const emptyWb = XLSX.utils.book_new();
       const ws1 = XLSX.utils.json_to_sheet([], { header: ["data", "matricola", "cognome", "nome", "cantiere", "sottocantiere", "inizio", "fine", "pause_min", "ore_nette", "stato", "note"] });
@@ -211,21 +235,30 @@ export async function GET(request: Request) {
         },
       });
     }
-    if (allowedEmployeeIds && allowedEmployeeIds.length > 0) shiftsQuery = shiftsQuery.in("employee_id", allowedEmployeeIds);
-    if (siteIds.length > 0) shiftsQuery = shiftsQuery.in("site_id", siteIds);
-
-    if (includeNullSubSite && subSiteIds.length > 0) {
-      shiftsQuery = shiftsQuery.or(`sub_site_id.is.null,sub_site_id.in.(${subSiteIds.join(",")})`);
-    } else if (includeNullSubSite) {
-      shiftsQuery = shiftsQuery.is("sub_site_id", null);
-    } else if (subSiteIds.length > 0) {
-      shiftsQuery = shiftsQuery.in("sub_site_id", subSiteIds);
+    const shifts: ShiftRow[] = [];
+    if (allowedEmployeeIds && allowedEmployeeIds.length > 0) {
+      for (const employeeIdsChunk of chunkArray(allowedEmployeeIds, IN_QUERY_CHUNK_SIZE)) {
+        const { data: shiftsData, error: shiftsError } = await buildShiftsQuery(employeeIdsChunk);
+        if (shiftsError) throw new Error(shiftsError.message);
+        shifts.push(...((shiftsData ?? []) as ShiftRow[]));
+        if (shifts.length > MAX_EXPORT_SHIFTS) {
+          return NextResponse.json(
+            { error: `Troppi turni per export (> ${MAX_EXPORT_SHIFTS}). Restringi filtri o periodo.` },
+            { status: 400 },
+          );
+        }
+      }
+    } else {
+      const { data: shiftsData, error: shiftsError } = await buildShiftsQuery();
+      if (shiftsError) throw new Error(shiftsError.message);
+      shifts.push(...((shiftsData ?? []) as ShiftRow[]));
+      if (shifts.length > MAX_EXPORT_SHIFTS) {
+        return NextResponse.json(
+          { error: `Troppi turni per export (> ${MAX_EXPORT_SHIFTS}). Restringi filtri o periodo.` },
+          { status: 400 },
+        );
+      }
     }
-    const { data: shiftsData, error: shiftsError } = await shiftsQuery;
-    if (shiftsError) throw new Error(shiftsError.message);
-
-
-    const shifts = (shiftsData ?? []) as ShiftRow[];
     const shiftIds = shifts.map((s) => s.id);
 
     const subSiteIdsInShifts = Array.from(
@@ -233,27 +266,31 @@ export async function GET(request: Request) {
     );
     const subSitesById = new Map<number, string>();
     if (subSiteIdsInShifts.length > 0) {
-      const { data: subSitesData, error: subSitesError } = await supabase
-        .from("sub_sites")
-        .select("id,display_name")
-        .in("id", subSiteIdsInShifts);
-      if (subSitesError) throw new Error(subSitesError.message);
-      for (const s of (subSitesData ?? []) as Array<{ id: number; display_name: string }>) {
-        subSitesById.set(s.id, s.display_name);
+      for (const idsChunk of chunkArray(subSiteIdsInShifts, IN_QUERY_CHUNK_SIZE)) {
+        const { data: subSitesData, error: subSitesError } = await supabase
+          .from("sub_sites")
+          .select("id,display_name")
+          .in("id", idsChunk);
+        if (subSitesError) throw new Error(subSitesError.message);
+        for (const s of (subSitesData ?? []) as Array<{ id: number; display_name: string }>) {
+          subSitesById.set(s.id, s.display_name);
+        }
       }
     }
 
     const breaksByShiftId = new Map<number, BreakRow[]>();
     if (shiftIds.length > 0) {
-      const { data: breaksData, error: breaksError } = await supabase
-        .from("turni_shift_breaks")
-        .select("shift_id,break_start_at,break_end_at")
-        .in("shift_id", shiftIds);
-      if (breaksError) throw new Error(breaksError.message);
-      for (const b of (breaksData ?? []) as BreakRow[]) {
-        const list = breaksByShiftId.get(b.shift_id) ?? [];
-        list.push(b);
-        breaksByShiftId.set(b.shift_id, list);
+      for (const idsChunk of chunkArray(shiftIds, IN_QUERY_CHUNK_SIZE)) {
+        const { data: breaksData, error: breaksError } = await supabase
+          .from("turni_shift_breaks")
+          .select("shift_id,break_start_at,break_end_at")
+          .in("shift_id", idsChunk);
+        if (breaksError) throw new Error(breaksError.message);
+        for (const b of (breaksData ?? []) as BreakRow[]) {
+          const list = breaksByShiftId.get(b.shift_id) ?? [];
+          list.push(b);
+          breaksByShiftId.set(b.shift_id, list);
+        }
       }
     }
 

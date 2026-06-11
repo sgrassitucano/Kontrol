@@ -8,6 +8,14 @@ type Mode = "employee" | "site";
 type ShiftState = "planned" | "actual" | "cancelled";
 type AbsenceType = "ferie" | "malattia" | "permesso" | "infortunio" | "altro";
 
+const MAX_SYNC_RANGE_DAYS = 62;
+const MAX_SITE_SYNC_EMPLOYEES = 500;
+const MAX_DESIRED_SHIFTS_PER_EMPLOYEE = 5000;
+
+class SyncLimitError extends Error {
+  status = 400;
+}
+
 export function pickAbsenceForShift(
   absences: Array<{ id: number; absence_type: AbsenceType; start_at: string; end_at: string; note: string | null }>,
   startAt: string,
@@ -39,6 +47,14 @@ function toIsoDate(d: Date) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function diffDaysInclusive(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  const delta = end.getTime() - start.getTime();
+  if (!Number.isFinite(delta)) return null;
+  return Math.floor(delta / 86400000) + 1;
 }
 
 function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string) {
@@ -218,6 +234,12 @@ async function syncEmployeeRange(params: {
     cursor.setDate(cursor.getDate() + 1);
   }
 
+  if (desired.length > MAX_DESIRED_SHIFTS_PER_EMPLOYEE) {
+    throw new SyncLimitError(
+      `Troppi turni template da sincronizzare per un singolo lavoratore (> ${MAX_DESIRED_SHIFTS_PER_EMPLOYEE}). Restringi il range o il template.`,
+    );
+  }
+
   const desiredKey = new Set(desired.map((d) => d.key));
 
   let inserted = 0;
@@ -301,6 +323,17 @@ export async function POST(request: Request) {
     const startDate = parseIsoDate((body as { startDate?: string }).startDate);
     const endDate = parseIsoDate((body as { endDate?: string }).endDate);
     if (!startDate || !endDate) return NextResponse.json({ error: "startDate/endDate non validi." }, { status: 400 });
+    if (startDate > endDate) return NextResponse.json({ error: "Range date non valido." }, { status: 400 });
+    const rangeDays = diffDaysInclusive(startDate, endDate);
+    if (!rangeDays || rangeDays <= 0) {
+      return NextResponse.json({ error: "Range date non valido." }, { status: 400 });
+    }
+    if (rangeDays > MAX_SYNC_RANGE_DAYS) {
+      return NextResponse.json(
+        { error: `Range troppo ampio (${rangeDays} giorni). Massimo consentito: ${MAX_SYNC_RANGE_DAYS}.` },
+        { status: 400 },
+      );
+    }
 
     const supabase = auth.supabase;
 
@@ -332,12 +365,20 @@ export async function POST(request: Request) {
       .select("employee_id,start_date,end_date")
       .eq("site_id", siteId)
       .lte("start_date", endDate)
-      .or(`end_date.is.null,end_date.gte.${startDate}`);
+      .or(`end_date.is.null,end_date.gte.${startDate}`)
+      .limit(MAX_SITE_SYNC_EMPLOYEES + 1);
     if (subSiteId === null) q = q.is("sub_site_id", null);
     else if (typeof subSiteId === "number" && Number.isFinite(subSiteId)) q = q.eq("sub_site_id", subSiteId);
 
     const { data: assignments, error: assignmentsError } = await q;
     if (assignmentsError) throw new Error(assignmentsError.message);
+
+    if ((assignments ?? []).length > MAX_SITE_SYNC_EMPLOYEES) {
+      return NextResponse.json(
+        { error: `Troppi lavoratori assegnati al sito per sync (> ${MAX_SITE_SYNC_EMPLOYEES}). Restringi filtri o periodo.` },
+        { status: 400 },
+      );
+    }
 
     const employeeIds = Array.from(
       new Set((assignments ?? []).map((r) => (r as { employee_id: number }).employee_id).filter((v) => typeof v === "number")),
@@ -364,6 +405,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, employeeCount: employeeIds.length, inserted, updated, deleted, skippedManual });
   } catch (err) {
+    if (err instanceof SyncLimitError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore sync turni." },
       { status: 500 },
