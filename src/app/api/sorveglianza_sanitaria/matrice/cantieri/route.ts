@@ -23,6 +23,14 @@ function isMissingIsActiveColumnError(message: string) {
   return /is_active/i.test(message);
 }
 
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
+class MissingScopeRulesSoftDeleteSupportError extends Error {
+  status = 503;
+}
+
 export async function GET() {
   const auth = await requireAnyModuleAccess(["gestione", "sorveglianza"], false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -41,6 +49,9 @@ export async function GET() {
       supportsRules: true,
     });
   } catch (error) {
+    if (error instanceof TooManyRowsError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Errore caricamento matrice cantieri." },
       { status: 500 },
@@ -95,29 +106,21 @@ export async function PATCH(request: Request) {
             created_by: auth.userId,
           };
 
-    let { error } = await auth.supabase
+    const { error } = await auth.supabase
       .from("medical_surveillance_scope_rules")
       .upsert(payload, { onConflict: "scope_type,site_id,sub_site_id" });
     if (error && isMissingIsActiveColumnError(error.message)) {
-      const fallbackPayload =
-        scopeType === "site"
-          ? { scope_type: "site" as const, site_id: siteId, sub_site_id: null, requires_visit: requiresVisit, note, created_by: auth.userId }
-          : {
-              scope_type: "sub_site" as const,
-              site_id: null,
-              sub_site_id: subSiteId,
-              requires_visit: requiresVisit,
-              note,
-              created_by: auth.userId,
-            };
-      ({ error } = await auth.supabase
-        .from("medical_surveillance_scope_rules")
-        .upsert(fallbackPayload, { onConflict: "scope_type,site_id,sub_site_id" }));
+      throw new MissingScopeRulesSoftDeleteSupportError(
+        "Schema matrice cantieri non aggiornato. Applicare la patch DB cumulativa `supabase/999_next.sql`.",
+      );
     }
     if (error) throw new Error(error.message);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof MissingScopeRulesSoftDeleteSupportError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Errore salvataggio matrice cantieri." },
       { status: 500 },
@@ -137,43 +140,40 @@ export async function DELETE(request: Request) {
 
     if (scopeType === "site") {
       if (!siteId) return NextResponse.json({ error: "siteId non valido." }, { status: 400 });
-      let { error } = await auth.supabase
+      const { error } = await auth.supabase
         .from("medical_surveillance_scope_rules")
         .update({ is_active: false })
         .eq("scope_type", "site")
         .eq("site_id", siteId)
         .is("sub_site_id", null);
       if (error && isMissingIsActiveColumnError(error.message)) {
-        ({ error } = await auth.supabase
-          .from("medical_surveillance_scope_rules")
-          .delete()
-          .eq("scope_type", "site")
-          .eq("site_id", siteId)
-          .is("sub_site_id", null));
+        throw new MissingScopeRulesSoftDeleteSupportError(
+          "Schema matrice cantieri non aggiornato. Applicare la patch DB cumulativa `supabase/999_next.sql`.",
+        );
       }
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true });
     }
 
     if (!subSiteId) return NextResponse.json({ error: "subSiteId non valido." }, { status: 400 });
-    let { error } = await auth.supabase
+    const { error } = await auth.supabase
       .from("medical_surveillance_scope_rules")
       .update({ is_active: false })
       .eq("scope_type", "sub_site")
       .eq("sub_site_id", subSiteId)
       .is("site_id", null);
     if (error && isMissingIsActiveColumnError(error.message)) {
-      ({ error } = await auth.supabase
-        .from("medical_surveillance_scope_rules")
-        .delete()
-        .eq("scope_type", "sub_site")
-        .eq("sub_site_id", subSiteId)
-        .is("site_id", null));
+      throw new MissingScopeRulesSoftDeleteSupportError(
+        "Schema matrice cantieri non aggiornato. Applicare la patch DB cumulativa `supabase/999_next.sql`.",
+      );
     }
     if (error) throw new Error(error.message);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof MissingScopeRulesSoftDeleteSupportError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Errore reset matrice cantieri." },
       { status: 500 },
@@ -184,7 +184,9 @@ export async function DELETE(request: Request) {
 async function fetchAllSites(supabase: SupabaseClient) {
   const { data, error } = await supabase.from("sites").select("id,display_name").order("display_name").limit(MAX_SITES + 1);
   if (error) throw new Error(error.message);
-  if ((data ?? []).length > MAX_SITES) throw new Error("Troppi cantieri. Riduci il dataset o applica paginazione.");
+  if ((data ?? []).length > MAX_SITES) {
+    throw new TooManyRowsError("Troppi cantieri. Riduci il dataset o applica paginazione.");
+  }
   return (data ?? []) as SiteRow[];
 }
 
@@ -195,7 +197,9 @@ async function fetchAllSubSites(supabase: SupabaseClient) {
     .order("display_name")
     .limit(MAX_SUBSITES + 1);
   if (error) throw new Error(error.message);
-  if ((data ?? []).length > MAX_SUBSITES) throw new Error("Troppi sottocantieri. Riduci il dataset o applica paginazione.");
+  if ((data ?? []).length > MAX_SUBSITES) {
+    throw new TooManyRowsError("Troppi sottocantieri. Riduci il dataset o applica paginazione.");
+  }
   return (data ?? []) as SubSiteRow[];
 }
 
@@ -206,6 +210,8 @@ async function fetchAllRules(supabase: SupabaseClient) {
     .limit(MAX_RULES + 1);
   if (error) throw new Error(error.message);
   const rows = ((data ?? []) as RuleRow[]).filter((row) => row.is_active !== false);
-  if (rows.length > MAX_RULES) throw new Error("Troppe regole cantieri. Riduci il dataset o applica paginazione.");
+  if (rows.length > MAX_RULES) {
+    throw new TooManyRowsError("Troppe regole cantieri. Riduci il dataset o applica paginazione.");
+  }
   return rows;
 }

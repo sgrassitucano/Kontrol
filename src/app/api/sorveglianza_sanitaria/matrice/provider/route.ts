@@ -19,6 +19,10 @@ const MAX_SITES = 5000;
 const MAX_SUBSITES = 10000;
 const MAX_ASSIGNMENTS = 20000;
 
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
 export async function GET() {
   const auth = await requireAnyModuleAccess(["gestione", "sorveglianza"], false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -32,6 +36,9 @@ export async function GET() {
 
     return NextResponse.json({ sites, subSites, assignments, supportsRules: true });
   } catch (error) {
+    if (error instanceof TooManyRowsError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Errore caricamento matrice provider." },
       { status: 500 },
@@ -109,7 +116,9 @@ export async function PATCH(request: Request) {
 async function fetchAllSites(supabase: SupabaseClient) {
   const { data, error } = await supabase.from("sites").select("id,display_name").order("display_name").limit(MAX_SITES + 1);
   if (error) throw new Error(error.message);
-  if ((data ?? []).length > MAX_SITES) throw new Error("Troppi cantieri. Riduci il dataset o applica paginazione.");
+  if ((data ?? []).length > MAX_SITES) {
+    throw new TooManyRowsError("Troppi cantieri. Riduci il dataset o applica paginazione.");
+  }
   return (data ?? []) as SiteRow[];
 }
 
@@ -120,7 +129,9 @@ async function fetchAllSubSites(supabase: SupabaseClient) {
     .order("display_name")
     .limit(MAX_SUBSITES + 1);
   if (error) throw new Error(error.message);
-  if ((data ?? []).length > MAX_SUBSITES) throw new Error("Troppi sottocantieri. Riduci il dataset o applica paginazione.");
+  if ((data ?? []).length > MAX_SUBSITES) {
+    throw new TooManyRowsError("Troppi sottocantieri. Riduci il dataset o applica paginazione.");
+  }
   return (data ?? []) as SubSiteRow[];
 }
 
@@ -130,6 +141,8 @@ async function fetchAllAssignments(supabase: SupabaseClient) {
     .select("scope_type,site_id,sub_site_id,provider,is_active,note")
     .limit(MAX_ASSIGNMENTS + 1);
   if (error) throw new Error(error.message);
-  if ((data ?? []).length > MAX_ASSIGNMENTS) throw new Error("Troppe assegnazioni provider. Riduci il dataset o applica paginazione.");
+  if ((data ?? []).length > MAX_ASSIGNMENTS) {
+    throw new TooManyRowsError("Troppe assegnazioni provider. Riduci il dataset o applica paginazione.");
+  }
   return (data ?? []) as ProviderRow[];
 }
