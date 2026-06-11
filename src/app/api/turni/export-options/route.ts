@@ -21,6 +21,10 @@ const MAX_EMPLOYEES = 5000;
 const MAX_SITES = 5000;
 const MAX_SUBSITES = 10000;
 
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
 function normalizeText(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -53,13 +57,19 @@ export async function GET() {
     const subSites = (subSitesRes.data ?? []) as SubSiteRow[];
 
     if (employees.length > MAX_EMPLOYEES) {
-      throw new Error("Troppi lavoratori per opzioni export turni. Riduci il dataset o applica paginazione.");
+      throw new TooManyRowsError(
+        "Troppi lavoratori per opzioni export turni. Riduci il dataset o applica paginazione.",
+      );
     }
     if (sites.length > MAX_SITES) {
-      throw new Error("Troppi cantieri per opzioni export turni. Riduci il dataset o applica paginazione.");
+      throw new TooManyRowsError(
+        "Troppi cantieri per opzioni export turni. Riduci il dataset o applica paginazione.",
+      );
     }
     if (subSites.length > MAX_SUBSITES) {
-      throw new Error("Troppi sottocantieri per opzioni export turni. Riduci il dataset o applica paginazione.");
+      throw new TooManyRowsError(
+        "Troppi sottocantieri per opzioni export turni. Riduci il dataset o applica paginazione.",
+      );
     }
 
     const responsibleCodes = Array.from(
@@ -72,6 +82,9 @@ export async function GET() {
 
     return NextResponse.json({ employees, sites, subSites, responsibleCodes, referrals });
   } catch (err) {
+    if (err instanceof TooManyRowsError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore caricamento opzioni export turni." },
       { status: 500 },

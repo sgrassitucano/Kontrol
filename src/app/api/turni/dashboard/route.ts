@@ -59,6 +59,10 @@ type BreakRow = {
   break_end_at: string;
 };
 
+class TooManyRowsError extends Error {
+  status = 400;
+}
+
 const MAX_SITES = 5000;
 const MAX_EMPLOYEES = 10000;
 const MAX_ASSIGNMENTS = 50000;
@@ -166,7 +170,7 @@ async function fetchSites(supabase: Awaited<ReturnType<typeof createSupabaseServ
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as SiteRow[];
   if (rows.length > MAX_SITES) {
-    throw new Error("Troppi cantieri per dashboard turni. Riduci il dataset o applica paginazione.");
+    throw new TooManyRowsError("Troppi cantieri per dashboard turni. Riduci il dataset o applica paginazione.");
   }
   return rows;
 }
@@ -184,7 +188,7 @@ async function fetchEmployees(supabase: Awaited<ReturnType<typeof createSupabase
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as EmployeeRow[];
   if (rows.length > MAX_EMPLOYEES) {
-    throw new Error("Troppi lavoratori per dashboard turni. Riduci il dataset o applica paginazione.");
+    throw new TooManyRowsError("Troppi lavoratori per dashboard turni. Riduci il dataset o applica paginazione.");
   }
   return rows;
 }
@@ -203,7 +207,7 @@ async function fetchAssignmentsInRange(
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as AssignmentRow[];
   if (rows.length > MAX_ASSIGNMENTS) {
-    throw new Error("Troppi assegnamenti per dashboard turni. Restringi il periodo o il dataset.");
+    throw new TooManyRowsError("Troppi assegnamenti per dashboard turni. Restringi il periodo o il dataset.");
   }
   return rows;
 }
@@ -227,7 +231,7 @@ async function fetchTemplatesForSites(
     if (templatesError) throw new Error(templatesError.message);
     templates.push(...((templatesData ?? []) as TemplateRow[]));
     if (templates.length > MAX_TEMPLATES) {
-      throw new Error("Troppi template per dashboard turni. Restringi il dataset.");
+      throw new TooManyRowsError("Troppi template per dashboard turni. Restringi il dataset.");
     }
   }
   const templateIds = templates.map((t) => t.id);
@@ -245,7 +249,7 @@ async function fetchTemplatesForSites(
     if (slotsError) throw new Error(slotsError.message);
     slots.push(...((slotsData ?? []) as TemplateSlotRow[]));
     if (slots.length > MAX_TEMPLATE_SLOTS) {
-      throw new Error("Troppi slot template per dashboard turni. Restringi il dataset.");
+      throw new TooManyRowsError("Troppi slot template per dashboard turni. Restringi il dataset.");
     }
   }
   return { templates, slots };
@@ -267,7 +271,7 @@ async function fetchShiftsInMonth(
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as ShiftRow[];
   if (rows.length > MAX_SHIFTS) {
-    throw new Error("Troppi turni per dashboard mensile. Restringi il mese o applica filtri.");
+    throw new TooManyRowsError("Troppi turni per dashboard mensile. Restringi il mese o applica filtri.");
   }
   return rows;
 }
@@ -289,7 +293,7 @@ async function fetchBreaksByShiftIds(
     for (const row of (data ?? []) as BreakRow[]) {
       totalRows += 1;
       if (totalRows > MAX_BREAKS) {
-        throw new Error("Troppe pause per dashboard turni. Restringi il dataset.");
+        throw new TooManyRowsError("Troppe pause per dashboard turni. Restringi il dataset.");
       }
       const list = map.get(row.shift_id);
       if (!list) map.set(row.shift_id, [row]);
@@ -508,6 +512,9 @@ export async function GET(request: Request) {
       tableRows,
     });
   } catch (err) {
+    if (err instanceof TooManyRowsError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore cruscotto turni." },
       { status: 500 },
