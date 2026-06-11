@@ -39,6 +39,18 @@ function parseLimitParam(value: string | null, fallback: number) {
   return Math.min(n, 2000);
 }
 
+const IN_QUERY_CHUNK_SIZE = 500;
+
+function chunkArray<T>(items: T[], chunkSize: number) {
+  if (items.length === 0) return [] as T[][];
+  const size = Math.max(1, Math.trunc(chunkSize));
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("turni", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -50,46 +62,36 @@ export async function GET(request: Request) {
 
     const supabase = auth.supabase;
 
-    const [
-      { data: sitesData, error: sitesError },
-      { data: subSitesData, error: subSitesError },
-      { data: employeesData, error: employeesError },
-    ] = await Promise.all([
-      supabase.from("sites").select("id,display_name").order("display_name"),
-      supabase.from("sub_sites").select("id,site_id,display_name").order("display_name"),
-      (() => {
-        let query = supabase
-          .from("employees")
-          .select(
-            "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,sites(display_name),sub_sites(display_name)",
-          )
-          .eq("status", "attivo")
-          .order("last_name")
-          .limit(limit);
+    let employeesQuery = supabase
+      .from("employees")
+      .select(
+        "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,sites(display_name),sub_sites(display_name)",
+      )
+      .eq("status", "attivo")
+      .order("last_name")
+      .order("first_name")
+      .limit(limit + 1);
 
-        if (q) {
-          const like = `%${q}%`;
-          query = query.or(
-            [
-              `matricola.ilike.${like}`,
-              `last_name.ilike.${like}`,
-              `first_name.ilike.${like}`,
-              `responsible_code.ilike.${like}`,
-              `referral.ilike.${like}`,
-              `job_title.ilike.${like}`,
-            ].join(","),
-          );
-        }
+    if (q) {
+      const like = `%${q}%`;
+      employeesQuery = employeesQuery.or(
+        [
+          `matricola.ilike.${like}`,
+          `last_name.ilike.${like}`,
+          `first_name.ilike.${like}`,
+          `responsible_code.ilike.${like}`,
+          `referral.ilike.${like}`,
+          `job_title.ilike.${like}`,
+        ].join(","),
+      );
+    }
 
-        return query;
-      })(),
-    ]);
-
-    if (sitesError) throw new Error(sitesError.message);
-    if (subSitesError) throw new Error(subSitesError.message);
+    const { data: employeesData, error: employeesError } = await employeesQuery;
     if (employeesError) throw new Error(employeesError.message);
 
-    const employees = (employeesData ?? []) as EmployeeRow[];
+    const employeesRaw = (employeesData ?? []) as EmployeeRow[];
+    const truncated = employeesRaw.length > limit;
+    const employees = employeesRaw.slice(0, limit);
 
     const allowedSiteIds = new Set<number>();
     const allowedSubSiteIds = new Set<number>();
@@ -98,18 +100,36 @@ export async function GET(request: Request) {
       if (typeof e.sub_site_id === "number") allowedSubSiteIds.add(e.sub_site_id);
     }
 
-    const sites = ((sitesData ?? []) as SiteRow[])
-      .filter((s) => allowedSiteIds.has(s.id))
-      .map((s) => ({ id: s.id, label: s.display_name }));
-    const subSites = ((subSitesData ?? []) as SubSiteRow[])
-      .filter((s) => allowedSubSiteIds.has(s.id))
-      .map((s) => ({
-        id: s.id,
-        siteId: s.site_id,
-        label: s.display_name,
-      }));
+    const sites: Array<{ id: number; label: string }> = [];
+    const subSites: Array<{ id: number; siteId: number; label: string }> = [];
+
+    const siteIds = Array.from(allowedSiteIds);
+    for (const part of chunkArray(siteIds, IN_QUERY_CHUNK_SIZE)) {
+      const { data, error } = await supabase
+        .from("sites")
+        .select("id,display_name")
+        .in("id", part)
+        .order("display_name");
+      if (error) throw new Error(error.message);
+      sites.push(...((data ?? []) as SiteRow[]).map((s) => ({ id: s.id, label: s.display_name })));
+    }
+
+    const subSiteIds = Array.from(allowedSubSiteIds);
+    for (const part of chunkArray(subSiteIds, IN_QUERY_CHUNK_SIZE)) {
+      const { data, error } = await supabase
+        .from("sub_sites")
+        .select("id,site_id,display_name")
+        .in("id", part)
+        .order("display_name");
+      if (error) throw new Error(error.message);
+      subSites.push(
+        ...((data ?? []) as SubSiteRow[]).map((s) => ({ id: s.id, siteId: s.site_id, label: s.display_name })),
+      );
+    }
+
     return NextResponse.json({
       limit,
+      truncated,
       sites,
       subSites,
       employees: employees.map((e) => ({

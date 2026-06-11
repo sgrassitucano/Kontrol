@@ -9,6 +9,10 @@ const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 5000;
 const MAX_EMPLOYEES = 20000;
 const MAX_OUTPUT_ROWS = 100000;
+const MAX_DPI_ITEMS = 5000;
+const MAX_RULES = 50000;
+const MAX_DELIVERIES = 200000;
+const IN_QUERY_CHUNK_SIZE = 500;
 
 class TooManyRowsError extends Error {
   status = 400;
@@ -142,6 +146,16 @@ function parseOffsetParam(value: string | null) {
   return n;
 }
 
+function chunkArray<T>(items: T[], chunkSize: number) {
+  if (items.length === 0) return [] as T[][];
+  const size = Math.max(1, Math.trunc(chunkSize));
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("lavoratori", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -166,33 +180,33 @@ export async function GET(request: Request) {
     const employees = await fetchEmployees(supabase, employeeId);
     const employeeIds = employees.map((e) => e.id);
 
-    const [{ data: dpiData, error: dpiError }, { data: rulesData, error: rulesError }, deliveriesResult] =
-      await Promise.all([
-        supabase
-          .from("dpi_items")
-          .select("id,title,risk_activities,category,control_frequency,control_type")
-          .eq("is_active", true)
-          .order("title"),
-        supabase
-          .from("dpi_matrix_rules")
-          .select("scope_type,dpi_id,is_required,job_code_norm,employee_id")
-          .in("scope_type", ["job", "employee_override"]),
-        employeeIds.length > 0
-          ? supabase
-              .from("dpi_employee_items")
-              .select("employee_id,dpi_id,delivered_date,planned_date,next_check_date,note")
-              .in("employee_id", employeeIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
+    const [{ data: dpiData, error: dpiError }, { data: rulesData, error: rulesError }] = await Promise.all([
+      supabase
+        .from("dpi_items")
+        .select("id,title,risk_activities,category,control_frequency,control_type")
+        .eq("is_active", true)
+        .order("title")
+        .limit(MAX_DPI_ITEMS + 1),
+      supabase
+        .from("dpi_matrix_rules")
+        .select("scope_type,dpi_id,is_required,job_code_norm,employee_id")
+        .in("scope_type", ["job", "employee_override"])
+        .limit(MAX_RULES + 1),
+    ]);
 
     if (dpiError) throw new Error(dpiError.message);
     if (rulesError) throw new Error(rulesError.message);
-    if (deliveriesResult.error) throw new Error(deliveriesResult.error.message);
 
     const dpiItems = (dpiData ?? []) as DpiItemRow[];
+    if (dpiItems.length > MAX_DPI_ITEMS) {
+      throw new TooManyRowsError(`Troppi DPI attivi (> ${MAX_DPI_ITEMS}). Restringi il dataset o applica paginazione.`);
+    }
     const dpiById = new Map<number, DpiItemRow>(dpiItems.map((d) => [d.id, d]));
 
     const rules = (rulesData ?? []) as RuleRow[];
+    if (rules.length > MAX_RULES) {
+      throw new TooManyRowsError(`Troppe regole matrice DPI (> ${MAX_RULES}). Restringi il dataset o applica paginazione.`);
+    }
     const requiredDpiByJob = new Map<string, Set<number>>();
     const overrideByEmployee = new Map<number, Map<number, boolean>>();
 
@@ -212,7 +226,22 @@ export async function GET(request: Request) {
       }
     }
 
-    const deliveries = (deliveriesResult.data ?? []) as EmployeeDpiRow[];
+    const deliveries: EmployeeDpiRow[] = [];
+    if (employeeIds.length > 0) {
+      for (const part of chunkArray(employeeIds, IN_QUERY_CHUNK_SIZE)) {
+        const { data, error } = await supabase
+          .from("dpi_employee_items")
+          .select("employee_id,dpi_id,delivered_date,planned_date,next_check_date,note")
+          .in("employee_id", part);
+        if (error) throw new Error(error.message);
+        deliveries.push(...((data ?? []) as EmployeeDpiRow[]));
+        if (deliveries.length > MAX_DELIVERIES) {
+          throw new TooManyRowsError(
+            `Troppi record consegne DPI (> ${MAX_DELIVERIES}). Restringi il dataset o applica filtri.`,
+          );
+        }
+      }
+    }
     const deliveryByKey = new Map<string, EmployeeDpiRow>();
     for (const row of deliveries) {
       deliveryByKey.set(`${row.employee_id}:${row.dpi_id}`, row);
