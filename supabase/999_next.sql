@@ -2097,3 +2097,24 @@ set search_path = public
 as $$
   select internal.training_replace_baseline_matrix_rules(baseline_rules, job_rules);
 $$;
+
+drop policy if exists "medical_surveillance_job_rules_write" on public.medical_surveillance_job_rules;
+drop policy if exists "medical_surveillance_job_rules_insert_management_only" on public.medical_surveillance_job_rules;
+drop policy if exists "medical_surveillance_job_rules_update_management_only" on public.medical_surveillance_job_rules;
+drop policy if exists "medical_surveillance_job_rules_delete_management_only" on public.medical_surveillance_job_rules;
+
+create policy "medical_surveillance_job_rules_insert_management_only"
+  on public.medical_surveillance_job_rules
+  for insert
+  with check (public.has_module_access('gestione', true));
+
+create policy "medical_surveillance_job_rules_update_management_only"
+  on public.medical_surveillance_job_rules
+  for update
+  using (public.has_module_access('gestione', true))
+  with check (public.has_module_access('gestione', true));
+
+create policy "medical_surveillance_job_rules_delete_management_only"
+  on public.medical_surveillance_job_rules
+  for delete
+  using (public.has_module_access('gestione', true));
