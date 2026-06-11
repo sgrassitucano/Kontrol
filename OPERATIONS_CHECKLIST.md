@@ -34,6 +34,8 @@
   - `import_undo_deleted_rows`
 - Verifica che le RPC richieste dai moduli operativi siano presenti (se mancano alcuni endpoint tornano errore):
   - `turni_replace_shift_breaks`
+  - `turni_replace_site_template_slots`
+  - `turni_replace_employee_template_slots`
   - `fleet_complete_obligation`
   - `training_replace_baseline_matrix_rules`
 - Esegui `npm run lint`
