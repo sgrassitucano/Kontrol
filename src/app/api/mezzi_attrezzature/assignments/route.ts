@@ -3,6 +3,23 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+const DEFAULT_LIMIT = 5000;
+const MAX_LIMIT = 20000;
+
+function parseLimitParam(value: string | null, fallback = DEFAULT_LIMIT) {
+  if (!value) return fallback;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+function parseOffsetParam(value: string | null) {
+  if (!value) return 0;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
 type AssignmentDbRow = {
   id: number;
   asset_id: number;
@@ -71,8 +88,11 @@ export async function GET(request: Request) {
     const employeeIdParam = url.searchParams.get("employeeId");
     const employeeId = employeeIdParam ? Number(employeeIdParam) : null;
     const activeOnly = (url.searchParams.get("activeOnly") ?? "1") === "1";
+    const limit = parseLimitParam(url.searchParams.get("limit"));
+    const offset = parseOffsetParam(url.searchParams.get("offset"));
 
     const supabase = auth.supabase;
+    const todayIso = new Date().toISOString().slice(0, 10);
     let query = supabase
       .from("fleet_asset_assignments")
       .select(
@@ -83,21 +103,21 @@ export async function GET(request: Request) {
     if (typeof employeeId === "number" && Number.isFinite(employeeId)) {
       query = query.eq("employee_id", employeeId);
     }
+    if (activeOnly) {
+      query = query.or(`end_date.is.null,end_date.gte.${todayIso}`);
+    }
 
-    const { data, error } = await query;
+    const { data, error } = await query.range(offset, offset + limit);
     if (error) throw new Error(error.message);
 
-    const todayIso = new Date().toISOString().slice(0, 10);
-
     const rows = (data ?? []) as AssignmentDbRow[];
-
-    const filtered = rows.filter((row) => {
-      if (!activeOnly) return true;
-      if (!row.end_date) return true;
-      return row.end_date >= todayIso;
-    });
+    const truncated = rows.length > limit;
+    const filtered = rows.slice(0, limit);
 
     return NextResponse.json({
+      limit,
+      offset,
+      truncated,
       rows: filtered.map((row) => {
         const employee = firstOrNull(row.employees as EmployeeJoinRow | EmployeeJoinRow[] | null);
         const asset = firstOrNull(row.fleet_assets as AssetJoinRow | AssetJoinRow[] | null);

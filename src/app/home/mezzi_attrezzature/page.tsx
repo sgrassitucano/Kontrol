@@ -185,13 +185,11 @@ export default function HomeMezziPage() {
   async function loadAll() {
     setError("");
     try {
-      const [assetsRes, obligationsRes, employeesRes, lookupsRes, assignmentsRes] =
+      const [assetsRes, obligationsRes, lookupsRes] =
         await Promise.all([
           fetch("/api/mezzi_attrezzature/assets"),
           fetch("/api/mezzi_attrezzature/obligations?dueInDays=60&includeMissing=1"),
-          fetch("/api/lavoratori/anagrafica"),
           fetch("/api/mezzi_attrezzature/lookups"),
-          fetch("/api/mezzi_attrezzature/assignments?activeOnly=1"),
         ]);
 
       const assetsBody = (await assetsRes.json()) as { rows?: AssetRow[]; error?: string };
@@ -203,18 +201,6 @@ export default function HomeMezziPage() {
         throw new Error(obligationsBody.error ?? "Errore caricamento scadenze.");
       setObligations(obligationsBody.rows ?? []);
 
-      const employeesBody = (await employeesRes.json()) as { rows?: AnagraficaWorkerRow[]; error?: string };
-      if (!employeesRes.ok || employeesBody.error)
-        throw new Error(employeesBody.error ?? "Errore caricamento lavoratori.");
-      setEmployees(
-        (employeesBody.rows ?? []).map((r) => ({
-          workerId: r.workerId,
-          matricola: r.matricola,
-          cognome: r.cognome,
-          nome: r.nome,
-        })),
-      );
-
       const lookupsBody = (await lookupsRes.json()) as {
         sites?: LookupSite[];
         subSites?: LookupSubSite[];
@@ -224,10 +210,59 @@ export default function HomeMezziPage() {
       setSites(lookupsBody.sites ?? []);
       setSubSites(lookupsBody.subSites ?? []);
 
-      const assignmentsBody = (await assignmentsRes.json()) as { rows?: AssignmentRow[]; error?: string };
-      if (!assignmentsRes.ok || assignmentsBody.error)
-        throw new Error(assignmentsBody.error ?? "Errore caricamento assegnazioni.");
-      setAssignments(assignmentsBody.rows ?? []);
+      const nextEmployees: Array<{
+        workerId: number;
+        matricola: string;
+        cognome: string;
+        nome: string;
+      }> = [];
+      let employeeOffset = 0;
+      let employeesTruncated = true;
+      while (employeesTruncated) {
+        const employeesRes = await fetch(`/api/lavoratori/anagrafica?limit=5000&offset=${employeeOffset}`);
+        const employeesBody = (await employeesRes.json()) as {
+          rows?: AnagraficaWorkerRow[];
+          error?: string;
+          truncated?: boolean;
+        };
+        if (!employeesRes.ok || employeesBody.error) {
+          throw new Error(employeesBody.error ?? "Errore caricamento lavoratori.");
+        }
+        const chunk = (employeesBody.rows ?? []).map((r) => ({
+          workerId: r.workerId,
+          matricola: r.matricola,
+          cognome: r.cognome,
+          nome: r.nome,
+        }));
+        nextEmployees.push(...chunk);
+        employeesTruncated = Boolean(employeesBody.truncated);
+        employeeOffset += chunk.length;
+        if (chunk.length === 0) break;
+      }
+      setEmployees(nextEmployees);
+
+      const nextAssignments: AssignmentRow[] = [];
+      let assignmentOffset = 0;
+      let assignmentsTruncated = true;
+      while (assignmentsTruncated) {
+        const assignmentsRes = await fetch(
+          `/api/mezzi_attrezzature/assignments?activeOnly=1&limit=5000&offset=${assignmentOffset}`,
+        );
+        const assignmentsBody = (await assignmentsRes.json()) as {
+          rows?: AssignmentRow[];
+          error?: string;
+          truncated?: boolean;
+        };
+        if (!assignmentsRes.ok || assignmentsBody.error) {
+          throw new Error(assignmentsBody.error ?? "Errore caricamento assegnazioni.");
+        }
+        const chunk = assignmentsBody.rows ?? [];
+        nextAssignments.push(...chunk);
+        assignmentsTruncated = Boolean(assignmentsBody.truncated);
+        assignmentOffset += chunk.length;
+        if (chunk.length === 0) break;
+      }
+      setAssignments(nextAssignments);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore caricamento modulo.");
     }
