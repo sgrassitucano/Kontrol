@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import { parseStrictIsoDateToIso } from "@/lib/it-date";
 
 export const runtime = "nodejs";
 
@@ -17,10 +18,7 @@ function chunkArray<T>(items: T[], chunkSize: number) {
 }
 
 function parseDateIso(value: unknown) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-  return raw;
+  return parseStrictIsoDateToIso(String(value ?? ""));
 }
 
 function cleanText(value: unknown) {
@@ -35,6 +33,27 @@ function computeExpiryFromCompletion(completionDateIso: string, course: { validi
   const base = new Date(`${completionDateIso}T00:00:00.000Z`);
   const next = new Date(Date.UTC(base.getUTCFullYear() + years, base.getUTCMonth(), base.getUTCDate()));
   return next.toISOString().slice(0, 10);
+}
+
+async function clearCourseExclusions(args: {
+  supabase: ReturnType<typeof requireModuleAccess> extends Promise<infer R>
+    ? R extends { supabase: infer S }
+      ? S
+      : never
+    : never;
+  employeeIds: number[];
+  courseId: number;
+}) {
+  const { supabase, employeeIds, courseId } = args;
+  for (const chunk of chunkArray(employeeIds, 500)) {
+    const { error } = await supabase
+      .from("training_employee_course_exclusions")
+      .update({ is_active: false })
+      .eq("course_id", courseId)
+      .in("employee_id", chunk)
+      .eq("is_active", true);
+    if (error) throw new Error(error.message);
+  }
 }
 
 export async function POST(request: Request) {
@@ -216,6 +235,9 @@ export async function POST(request: Request) {
 
     if (type === "PROGRAMMATO") {
       const plannedDate = dateIso;
+      if (!dryRun) {
+        await clearCourseExclusions({ supabase: auth.supabase, employeeIds, courseId });
+      }
       const existing: Array<{ employee_id: number }> = [];
       for (const chunk of chunkArray(employeeIds, 500)) {
         const { data, error: existingError } = await auth.supabase
@@ -293,6 +315,8 @@ export async function POST(request: Request) {
       if (dryRun) return NextResponse.json({ ok: true, clearedPlanned: toClear.length });
       if (toClear.length === 0) return NextResponse.json({ ok: true, processed: 0, skipped: employeeIds.length });
 
+      await clearCourseExclusions({ supabase: auth.supabase, employeeIds: toClear, courseId });
+
       const payload: Record<string, unknown> = { planned_date: null, manual_state: null, updated_by: auth.userId };
       if (note !== null) payload.note = note;
 
@@ -344,6 +368,8 @@ export async function POST(request: Request) {
       if (toWrite.length === 0) {
         return NextResponse.json({ ok: true, processed: 0, skipped: employeeIds.length });
       }
+
+      await clearCourseExclusions({ supabase: auth.supabase, employeeIds: toWrite, courseId });
 
       for (const chunk of chunkArray(toWrite, 500)) {
         const { error: chunkError } = await auth.supabase.from("training_employee_courses").upsert(
@@ -398,6 +424,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, updatedPlanned: toUpdatePlanned.length, upsertsDone: toUpsertDone.length });
       }
 
+      await clearCourseExclusions({ supabase: auth.supabase, employeeIds, courseId });
+
       if (toUpdatePlanned.length > 0) {
         const payload: Record<string, unknown> = {
           planned_date: dateIso,
@@ -441,6 +469,9 @@ export async function POST(request: Request) {
     }
 
     const expiryDate = dateIso ? computeExpiryFromCompletion(dateIso, course as { validity_years: number | null; is_unlimited: boolean }) : null;
+    if (!dryRun) {
+      await clearCourseExclusions({ supabase: auth.supabase, employeeIds, courseId });
+    }
     for (const chunk of chunkArray(employeeIds, 500)) {
       const { error: writeError } = await auth.supabase
         .from("training_employee_courses")
