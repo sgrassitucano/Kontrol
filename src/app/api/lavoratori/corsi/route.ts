@@ -142,6 +142,24 @@ function parseOffsetParam(value: string | null) {
   return n;
 }
 
+function normalizeSearchText(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchSearchQuery(parts: Array<string | null | undefined>, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+  const haystack = normalizeSearchText(parts.filter(Boolean).join(" "));
+  if (!haystack) return false;
+  const tokens = normalizedQuery.split(" ").filter(Boolean);
+  return tokens.every((token) => haystack.includes(token));
+}
+
 export async function GET(request: Request) {
   const auth = await requireAnyModuleAccess(["lavoratori", "formazione"], false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -499,20 +517,26 @@ export async function GET(request: Request) {
                 origine: "obbligatorio",
               };
 
-              if (query) {
-                const searchable = [
-                  outputRow.matricola,
-                  outputRow.cantiere,
-                  outputRow.sottocantiere,
-                  outputRow.cognome,
-                  outputRow.nome,
-                  outputRow.mansione,
-                  outputRow.responsabile,
-                  outputRow.referente,
-                ]
-                  .join(" ")
-                  .toLowerCase();
-                if (!searchable.includes(query)) continue;
+              if (
+                query &&
+                !matchSearchQuery(
+                  [
+                    outputRow.matricola,
+                    outputRow.cantiere,
+                    outputRow.sottocantiere,
+                    outputRow.cognome,
+                    outputRow.nome,
+                    outputRow.mansione,
+                    outputRow.responsabile,
+                    outputRow.referente,
+                    outputRow.corsoCode,
+                    outputRow.corso,
+                    outputRow.note,
+                  ],
+                  query,
+                )
+              ) {
+                continue;
               }
 
               pushRow(outputRow);
@@ -567,20 +591,26 @@ export async function GET(request: Request) {
             origine: "obbligatorio",
           };
 
-          if (query) {
-            const searchable = [
-              outputRow.matricola,
-              outputRow.cantiere,
-              outputRow.sottocantiere,
-              outputRow.cognome,
-              outputRow.nome,
-              outputRow.mansione,
-              outputRow.responsabile,
-              outputRow.referente,
-            ]
-              .join(" ")
-              .toLowerCase();
-            if (!searchable.includes(query)) continue;
+          if (
+            query &&
+            !matchSearchQuery(
+              [
+                outputRow.matricola,
+                outputRow.cantiere,
+                outputRow.sottocantiere,
+                outputRow.cognome,
+                outputRow.nome,
+                outputRow.mansione,
+                outputRow.responsabile,
+                outputRow.referente,
+                outputRow.corsoCode,
+                outputRow.corso,
+                outputRow.note,
+              ],
+              query,
+            )
+          ) {
+            continue;
           }
 
           pushRow(outputRow);
@@ -608,20 +638,26 @@ export async function GET(request: Request) {
               origine: "obbligatorio",
             };
 
-            if (query) {
-              const searchable = [
-                lostRow.matricola,
-                lostRow.cantiere,
-                lostRow.sottocantiere,
-                lostRow.cognome,
-                lostRow.nome,
-                lostRow.mansione,
-                lostRow.responsabile,
-                lostRow.referente,
-              ]
-                .join(" ")
-                .toLowerCase();
-              if (!searchable.includes(query)) continue;
+            if (
+              query &&
+              !matchSearchQuery(
+                [
+                  lostRow.matricola,
+                  lostRow.cantiere,
+                  lostRow.sottocantiere,
+                  lostRow.cognome,
+                  lostRow.nome,
+                  lostRow.mansione,
+                  lostRow.responsabile,
+                  lostRow.referente,
+                  lostRow.corsoCode,
+                  lostRow.corso,
+                  lostRow.note,
+                ],
+                query,
+              )
+            ) {
+              continue;
             }
 
             pushRow(lostRow);
@@ -662,20 +698,26 @@ export async function GET(request: Request) {
           origine: "obbligatorio",
         };
 
-        if (query) {
-          const searchable = [
-            outputRow.matricola,
-            outputRow.cantiere,
-            outputRow.sottocantiere,
-            outputRow.cognome,
-            outputRow.nome,
-            outputRow.mansione,
-            outputRow.responsabile,
-            outputRow.referente,
-          ]
-            .join(" ")
-            .toLowerCase();
-          if (!searchable.includes(query)) continue;
+        if (
+          query &&
+          !matchSearchQuery(
+            [
+              outputRow.matricola,
+              outputRow.cantiere,
+              outputRow.sottocantiere,
+              outputRow.cognome,
+              outputRow.nome,
+              outputRow.mansione,
+              outputRow.responsabile,
+              outputRow.referente,
+              outputRow.corsoCode,
+              outputRow.corso,
+              outputRow.note,
+            ],
+            query,
+          )
+        ) {
+          continue;
         }
 
         pushRow(outputRow);
@@ -726,20 +768,26 @@ export async function GET(request: Request) {
           origine: isUpgrade ? "obbligatorio" : "aggiuntivo",
         };
 
-        if (query) {
-          const searchable = [
-            outputRow.matricola,
-            outputRow.cantiere,
-            outputRow.sottocantiere,
-            outputRow.cognome,
-            outputRow.nome,
-            outputRow.mansione,
-            outputRow.responsabile,
-            outputRow.referente,
-          ]
-            .join(" ")
-            .toLowerCase();
-          if (!searchable.includes(query)) continue;
+        if (
+          query &&
+          !matchSearchQuery(
+            [
+              outputRow.matricola,
+              outputRow.cantiere,
+              outputRow.sottocantiere,
+              outputRow.cognome,
+              outputRow.nome,
+              outputRow.mansione,
+              outputRow.responsabile,
+              outputRow.referente,
+              outputRow.corsoCode,
+              outputRow.corso,
+              outputRow.note,
+            ],
+            query,
+          )
+        ) {
+          continue;
         }
 
         pushRow(outputRow);

@@ -835,7 +835,7 @@ export default function HomeFormazionePage() {
   }
 
   const rowsForFacets = useMemo(() => {
-    const q = deferredSearch.trim().toLowerCase();
+    const q = deferredSearch.trim();
     return rows.filter((row) => {
       if (dashboardCategoryFilter) {
         const isBase = isDashboardBaseCode(row.corsoCode);
@@ -845,19 +845,26 @@ export default function HomeFormazionePage() {
       if (dashboardStateFilter && dashboardStateFilter.length > 0) {
         if (!dashboardStateFilter.includes(row.stato)) return false;
       }
-      if (q) {
-        const searchable = [
-          row.matricola,
-          row.cognome,
-          row.nome,
-          row.cantiere,
-          row.sottocantiere,
-          row.responsabile,
-          row.referente,
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!searchable.includes(q)) return false;
+      if (
+        q &&
+        !matchSearchQuery(
+          [
+            row.matricola,
+            row.cognome,
+            row.nome,
+            row.cantiere,
+            row.sottocantiere,
+            row.responsabile,
+            row.referente,
+            row.mansione,
+            row.corsoCode,
+            row.corso,
+            row.note,
+          ],
+          q,
+        )
+      ) {
+        return false;
       }
       if (columnFilters.matricola && !matchText(row.matricola, columnFilters.matricola)) return false;
       if (columnFilters.cognome) {
@@ -3259,6 +3266,24 @@ function matchText(value: string, filter: string) {
   const formattedValue = isoToItDate(value).toLowerCase();
   if (formattedValue !== normalizedValue && formattedValue.includes(normalizedFilter)) return true;
   return false;
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchSearchQuery(parts: Array<string | null | undefined>, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+  const haystack = normalizeSearchText(parts.filter(Boolean).join(" "));
+  if (!haystack) return false;
+  const tokens = normalizedQuery.split(" ").filter(Boolean);
+  return tokens.every((token) => haystack.includes(token));
 }
 
 function matchTextTokens(value: string, filter: string) {
