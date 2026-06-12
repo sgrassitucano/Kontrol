@@ -14,6 +14,15 @@ type ImportParams = {
   confirmCriticalDismissals?: boolean;
 };
 
+type ImportRunChangeInsert = {
+  import_run_id: string;
+  table_name: string;
+  action: "insert" | "update";
+  row_key: Record<string, unknown>;
+  before_row: Record<string, unknown> | null;
+  after_row: Record<string, unknown> | null;
+};
+
 type RawEmployeeRow = {
   rowNumber: number;
   matricola: string;
@@ -49,6 +58,7 @@ type ExistingEmployee = {
   matricola: string;
   tax_code: string;
   status: "attivo" | "dimesso";
+  last_imported_at: string | null;
   sex: string | null;
   birth_province: string | null;
   residence_address: string | null;
@@ -450,9 +460,11 @@ function parseWorkbook(fileBuffer: ArrayBuffer): ParsedDataset {
 function isIgnorableFooterRow(row: Array<string | number | Date>) {
   const cells = row.map((cell) => cleanCell(cell)).filter(Boolean);
   if (cells.length === 0) return true;
-  if (cells.length !== 1) return false;
-  const first = cells[0]?.toLowerCase();
-  return first === "totale" || first === "totali" || first === "fine";
+  const first = (cells[0] ?? "").toLowerCase();
+  if (first === "totale" || first === "totali" || first === "fine") return true;
+  if (first.includes("totale dipendenti")) return true;
+  if (first.includes("dipendenti selezionati")) return true;
+  return false;
 }
 
 function analyzeAgainstExisting(
@@ -568,6 +580,18 @@ async function commitImport(args: {
     importRunId = runInsert.data.id;
   }
 
+  if (importRunId && snapshotTaxCodes.length > 0) {
+    for (const part of chunkArray(snapshotTaxCodes, 500)) {
+      const { error } = await supabase.from("anagrafica_import_tax_codes").insert(
+        part.map((taxCode) => ({
+          import_run_id: importRunId,
+          tax_code: taxCode,
+        })),
+      );
+      if (error) throw new Error(error.message);
+    }
+  }
+
   if (importRunId && errors.length > 0) {
     for (const part of chunkArray(errors, 500)) {
       const { error } = await supabase.from("import_run_errors").insert(
@@ -594,6 +618,7 @@ async function commitImport(args: {
   const commitErrors: ImportErrorRow[] = [];
   let committedRows = 0;
   const existingByTaxCode = new Map(existingEmployees.map((employee) => [employee.tax_code, employee]));
+  const succeededTaxCodes: string[] = [];
 
   const payload: Array<{
     row: RawEmployeeRow;
@@ -687,6 +712,8 @@ async function commitImport(args: {
     });
   }
 
+  const afterByTaxCode = new Map(payload.map((item) => [item.record.tax_code, item.record]));
+
   for (const chunk of chunkArray(payload, 400)) {
     const { error } = await supabase
       .from("employees")
@@ -697,6 +724,7 @@ async function commitImport(args: {
 
     if (!error) {
       committedRows += chunk.length;
+      succeededTaxCodes.push(...chunk.map((item) => item.record.tax_code));
       if (importRunId) {
         await supabase
           .from("import_runs")
@@ -726,6 +754,7 @@ async function commitImport(args: {
         continue;
       }
       committedRows += 1;
+      succeededTaxCodes.push(item.record.tax_code);
     }
 
     if (importRunId) {
@@ -746,6 +775,8 @@ async function commitImport(args: {
       .filter((employee) => employee.status === "attivo" && !importedTaxCodes.has(employee.tax_code))
       .map((employee) => employee.tax_code);
 
+    const dismissedTaxCodes: string[] = [];
+
     for (const chunk of chunkArray(toDismiss, 300)) {
       const { error } = await supabase
         .from("employees")
@@ -763,6 +794,68 @@ async function commitImport(args: {
         });
         break;
       }
+      dismissedTaxCodes.push(...chunk);
+    }
+    if (importRunId && dismissedTaxCodes.length > 0) {
+      const pendingChanges: ImportRunChangeInsert[] = [];
+      for (const taxCode of dismissedTaxCodes) {
+        const existingEmployee = existingByTaxCode.get(taxCode) ?? null;
+        pendingChanges.push({
+          import_run_id: importRunId,
+          table_name: "employees",
+          action: "update",
+          row_key: { tax_code: taxCode },
+          before_row: existingEmployee
+            ? {
+                matricola: existingEmployee.matricola,
+                tax_code: existingEmployee.tax_code,
+                status: existingEmployee.status,
+                last_imported_at: existingEmployee.last_imported_at,
+              }
+            : null,
+          after_row: {
+            tax_code: taxCode,
+            status: "dimesso",
+          },
+        });
+      }
+      for (const part of chunkArray(pendingChanges, 500)) {
+        const { error } = await supabase.from("import_run_changes").insert(part);
+        if (error) throw new Error(error.message);
+      }
+    }
+  }
+
+  if (importRunId && succeededTaxCodes.length > 0) {
+    const pendingChanges: ImportRunChangeInsert[] = [];
+    for (const taxCode of succeededTaxCodes) {
+      const existingEmployee = existingByTaxCode.get(taxCode) ?? null;
+      const after = afterByTaxCode.get(taxCode);
+      if (!after) continue;
+      pendingChanges.push({
+        import_run_id: importRunId,
+        table_name: "employees",
+        action: existingEmployee ? "update" : "insert",
+        row_key: { tax_code: taxCode },
+        before_row: existingEmployee
+          ? {
+              matricola: existingEmployee.matricola,
+              tax_code: existingEmployee.tax_code,
+              status: existingEmployee.status,
+              last_imported_at: existingEmployee.last_imported_at,
+            }
+          : null,
+        after_row: {
+          matricola: after.matricola,
+          tax_code: after.tax_code,
+          status: "attivo",
+          last_imported_at: after.last_imported_at,
+        },
+      });
+    }
+    for (const part of chunkArray(pendingChanges, 500)) {
+      const { error } = await supabase.from("import_run_changes").insert(part);
+      if (error) throw new Error(error.message);
     }
   }
 
@@ -822,7 +915,7 @@ async function fetchExistingEmployees(supabase: SupabaseClient): Promise<Existin
     const { data, error } = await supabase
       .from("employees")
       .select(
-        "id,matricola,tax_code,status,sex,birth_province,residence_address,residence_postal_code,residence_city,residence_province,residence_belfiore_code",
+        "id,matricola,tax_code,status,last_imported_at,sex,birth_province,residence_address,residence_postal_code,residence_city,residence_province,residence_belfiore_code",
       )
       .range(from, to);
 
