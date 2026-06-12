@@ -80,6 +80,19 @@ type EquipmentAssignmentRow = {
 type SortKey = "cognome" | "nome" | "mansione" | "cantiere" | "sottocantiere" | "responsabile" | "referente";
 type SortDir = "asc" | "desc";
 
+type MedicalDetail = {
+  record: {
+    employee_id: number;
+    provider: string | null;
+    is_planned: boolean;
+    next_due_date: string | null;
+    limitations: string | null;
+    notes: string | null;
+  } | null;
+  exclusion: { employee_id: number; is_active: boolean; note: string | null } | null;
+  override: { employee_id: number; requires_visit: boolean; is_active: boolean; note: string | null } | null;
+};
+
 export default function HomeLavoratoriPage() {
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -96,6 +109,10 @@ export default function HomeLavoratoriPage() {
   const [dpiRows, setDpiRows] = useState<WorkerDpiRow[]>([]);
   const [dpiLoading, setDpiLoading] = useState(false);
   const [dpiError, setDpiError] = useState("");
+
+  const [medicalDetail, setMedicalDetail] = useState<MedicalDetail | null>(null);
+  const [medicalLoading, setMedicalLoading] = useState(false);
+  const [medicalError, setMedicalError] = useState("");
 
   const [equipmentRows, setEquipmentRows] = useState<EquipmentAssignmentRow[]>([]);
   const [equipmentLoading, setEquipmentLoading] = useState(false);
@@ -206,6 +223,31 @@ export default function HomeLavoratoriPage() {
     return <span className="text-[10px] text-slate-700">{sort.dir === "asc" ? "↑" : "↓"}</span>;
   };
 
+  const medicalState = (detail: MedicalDetail | null) => {
+    if (!detail) return "da fare" as const;
+    if (detail.exclusion?.is_active) return "escluso" as const;
+    if (detail.override?.is_active && detail.override.requires_visit === false) return "idoneo" as const;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const threshold = new Date();
+    threshold.setDate(threshold.getDate() + 30);
+    const thresholdIso = threshold.toISOString().slice(0, 10);
+    const due = detail.record?.next_due_date ?? null;
+    const planned = Boolean(detail.record?.is_planned ?? false);
+    if (!due) return planned ? ("programmato" as const) : ("da fare" as const);
+    if (due < todayIso) return "scaduto" as const;
+    if (planned) return "programmato" as const;
+    if (due <= thresholdIso) return "in scadenza" as const;
+    return "idoneo" as const;
+  };
+
+  const medicalStatusClassName = (state: string) => {
+    if (state === "scaduto" || state === "da fare") return "rounded-full bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700";
+    if (state === "in scadenza") return "rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700";
+    if (state === "programmato") return "rounded-full bg-sky-100 px-2 py-1 text-[10px] font-bold text-sky-700";
+    if (state === "escluso") return "rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-700";
+    return "rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700";
+  };
+
   async function openDetail(employee: EmployeeRow) {
     setSelected(employee);
     setDetailTab("dati");
@@ -215,6 +257,9 @@ export default function HomeLavoratoriPage() {
     setDpiRows([]);
     setDpiError("");
     setDpiLoading(true);
+    setMedicalDetail(null);
+    setMedicalError("");
+    setMedicalLoading(true);
     setEquipmentRows([]);
     setEquipmentError("");
     setEquipmentLoading(true);
@@ -231,6 +276,25 @@ export default function HomeLavoratoriPage() {
       setTrainingError(err instanceof Error ? err.message : "Errore caricamento formazione lavoratore.");
     } finally {
       setTrainingLoading(false);
+    }
+
+    try {
+      const response = await fetch(
+        `/api/sorveglianza_sanitaria/lavoratore?employeeId=${encodeURIComponent(String(employee.workerId))}`,
+      );
+      const body = (await response.json()) as { record?: MedicalDetail["record"]; exclusion?: MedicalDetail["exclusion"]; override?: MedicalDetail["override"]; error?: string };
+      if (!response.ok || body.error) {
+        throw new Error(body.error ?? "Errore caricamento visita medica.");
+      }
+      setMedicalDetail({
+        record: (body.record ?? null) as MedicalDetail["record"],
+        exclusion: (body.exclusion ?? null) as MedicalDetail["exclusion"],
+        override: (body.override ?? null) as MedicalDetail["override"],
+      });
+    } catch (err) {
+      setMedicalError(err instanceof Error ? err.message : "Errore caricamento visita medica.");
+    } finally {
+      setMedicalLoading(false);
     }
 
     try {
@@ -556,7 +620,46 @@ export default function HomeLavoratoriPage() {
 
                   <article className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-5 lg:col-span-2">
                     <h3 className="text-sm font-bold text-[var(--brand-ink)]">Visita medica</h3>
-                    <p className="mt-2 text-sm text-slate-500"></p>
+                    {medicalLoading ? <p className="mt-2 text-sm text-slate-500">Caricamento…</p> : null}
+                    {medicalError ? <p className="mt-2 text-sm font-medium text-red-600">{medicalError}</p> : null}
+                    {!medicalLoading && !medicalError ? (
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-xs font-semibold text-slate-700">Prossima scadenza</div>
+                            <span className={medicalStatusClassName(medicalState(medicalDetail))}>
+                              {medicalState(medicalDetail)}
+                            </span>
+                          </div>
+                          <div className="mt-2 text-sm font-semibold tabular-nums text-slate-900">
+                            {formatDateIt(medicalDetail?.record?.next_due_date ?? null)}
+                          </div>
+                          <div className="mt-2 text-xs text-slate-500">
+                            Provider: {medicalDetail?.record?.provider ? medicalDetail.record.provider : "-"}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            Programmato: {medicalDetail?.record?.is_planned ? "si" : "no"}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
+                          <div className="text-xs font-semibold text-slate-700">Note / Limitazioni</div>
+                          <div className="mt-2 text-xs text-slate-600">
+                            Limitazioni: {String(medicalDetail?.record?.limitations ?? "").trim() || "-"}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-600">
+                            Note: {String(medicalDetail?.record?.notes ?? "").trim() || "-"}
+                          </div>
+                          {medicalDetail?.override?.is_active ? (
+                            <div className="mt-3 text-xs font-semibold text-slate-700">
+                              Override: {medicalDetail.override.requires_visit ? "visita SI" : "visita NO"}
+                            </div>
+                          ) : null}
+                          {medicalDetail?.exclusion?.is_active ? (
+                            <div className="mt-3 text-xs font-semibold text-slate-700">Escluso: si</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
                   </article>
 
                   <article className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-5 lg:col-span-2">

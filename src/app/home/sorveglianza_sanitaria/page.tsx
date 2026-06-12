@@ -165,7 +165,7 @@ export default function HomeSorveglianzaPage() {
       async function fetchChunk(offset: number) {
         const params = new URLSearchParams();
         params.set("expiringDays", String(expiringDays));
-        params.set("limit", "1000");
+        params.set("limit", "2000");
         params.set("offset", String(offset));
         if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
         if (includeExcluded) params.set("includeExcluded", "1");

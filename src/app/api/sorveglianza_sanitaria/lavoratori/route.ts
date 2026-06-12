@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { normalizeJobCode } from "@/lib/training/normalize";
 import { requireModuleAccess } from "@/lib/api/access";
+import { cacheGet, cacheSet } from "@/lib/server-cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type EmployeeRow = {
@@ -218,6 +219,35 @@ export async function GET(request: Request) {
     const todayIsoDate = today.toISOString().slice(0, 10);
     const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
 
+    const rowsCacheKey = `surveillance_rows_v1:${auth.userId}:${includeExcluded ? 1 : 0}:${query || "-"}:${todayIsoDate}:${expiringDaysSafe}`;
+    const rowsCached = cacheGet<{
+      rows: WorkerSurveillanceRow[];
+      meta: {
+        totalActiveEmployees: number;
+        excludedByRule: number;
+        frozenEmployees: number;
+        counts: Record<string, number>;
+        expiringDays: number;
+      };
+    }>(rowsCacheKey);
+    if (rowsCached) {
+      const totalRows = rowsCached.rows.length;
+      const rows = rowsCached.rows.slice(offset, offset + limit);
+      const truncated = offset + limit < totalRows;
+      return NextResponse.json({
+        limit,
+        offset,
+        truncated,
+        rows,
+        totalRows,
+        totalActiveEmployees: rowsCached.meta.totalActiveEmployees,
+        excludedByRule: rowsCached.meta.excludedByRule,
+        frozenEmployees: rowsCached.meta.frozenEmployees,
+        expiringDays: rowsCached.meta.expiringDays,
+        counts: rowsCached.meta.counts,
+      });
+    }
+
     const dataSupabase = auth.supabase;
 
     const [employees, jobRules, scopeRules, providerAssignments] = await Promise.all([
@@ -375,6 +405,21 @@ export async function GET(request: Request) {
     allRows.sort((a, b) => a.cognome.localeCompare(b.cognome) || a.nome.localeCompare(b.nome));
     const totalRows = allRows.length;
     const rows = allRows.slice(offset, offset + limit);
+
+    cacheSet(
+      rowsCacheKey,
+      {
+        rows: allRows,
+        meta: {
+          totalActiveEmployees: employees.length,
+          excludedByRule,
+          frozenEmployees,
+          counts,
+          expiringDays: expiringDaysSafeRaw,
+        },
+      },
+      30 * 1000,
+    );
 
     return NextResponse.json({
       rows,

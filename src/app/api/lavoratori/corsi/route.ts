@@ -159,6 +159,43 @@ export async function GET(request: Request) {
     const limit = parseLimitParam(url.searchParams.get("limit"), query ? 200 : DEFAULT_LIMIT);
     const offset = parseOffsetParam(url.searchParams.get("offset"));
 
+    const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
+    const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
+    const todayIso =
+      typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
+
+    const rowsCacheKey = `training_rows_v1:${auth.userId}:${panel}:${includeExcluded ? 1 : 0}:${String(
+      typeof employeeId === "number" && Number.isFinite(employeeId) ? employeeId : "all",
+    )}:${query || "-"}:${todayIso}:${expiringDaysSafe}`;
+    const rowsCached = cacheGet<{
+      rows: WorkerCourseRow[];
+      meta: {
+        totalActiveEmployees: number;
+        excludedByScopeEmployees: number;
+        frozenEmployees: number;
+        eligibleEmployees: number;
+        eligibleOperativiEmployees: number;
+      };
+    }>(rowsCacheKey);
+    if (rowsCached) {
+      const totalRows = rowsCached.rows.length;
+      const pagedRows = rowsCached.rows.slice(offset, offset + limit);
+      const truncated = offset + limit < totalRows;
+      return NextResponse.json({
+        limit,
+        offset,
+        truncated,
+        rows: pagedRows,
+        totalRows,
+        totalActiveEmployees: rowsCached.meta.totalActiveEmployees,
+        excludedByScopeEmployees: rowsCached.meta.excludedByScopeEmployees,
+        frozenEmployees: rowsCached.meta.frozenEmployees,
+        eligibleEmployees: rowsCached.meta.eligibleEmployees,
+        eligibleOperativiEmployees: rowsCached.meta.eligibleOperativiEmployees,
+        expiringDays: expiringDaysSafeRaw,
+      });
+    }
+
     const dataSupabase = auth.supabase;
 
     const employees =
@@ -218,8 +255,6 @@ export async function GET(request: Request) {
     ]);
     if (applyFormazioneExclusions && scopeCached === null) cacheSet(scopeKey, scopeExclusions, 60 * 1000);
 
-    const todayIso =
-      typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
     const activeFreeze = buildActiveFreezeMap((freezes ?? []) as FreezeRow[], todayIso);
     const courseMap = new Map(staticLoaded.courses.map((course) => [course.id, course]));
     const statusRows = (courseRows ?? []) as CourseStatusRow[];
@@ -269,9 +304,6 @@ export async function GET(request: Request) {
       if (includeExcluded) return false;
       return isEmployeeExcludedByScopeForList(employee);
     };
-
-    const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
-    const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
 
     const rows: WorkerCourseRow[] = [];
     const pushRow = (row: WorkerCourseRow) => {
@@ -722,6 +754,21 @@ export async function GET(request: Request) {
       if (byName !== 0) return byName;
       return a.corsoCode.localeCompare(b.corsoCode);
     });
+
+    cacheSet(
+      rowsCacheKey,
+      {
+        rows,
+        meta: {
+          totalActiveEmployees,
+          excludedByScopeEmployees,
+          frozenEmployees,
+          eligibleEmployees,
+          eligibleOperativiEmployees,
+        },
+      },
+      30 * 1000,
+    );
 
     const totalRows = rows.length;
     const pagedRows = rows.slice(offset, offset + limit);

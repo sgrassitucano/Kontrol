@@ -443,7 +443,7 @@ export default function HomeFormazionePage() {
         params.set("date", dateOverride ?? simulationDate);
         params.set("expiringDays", String(expiringDays));
         params.set("panel", "formazione");
-        params.set("limit", "1000");
+        params.set("limit", "5000");
         params.set("offset", String(offset));
         if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
         if (showExcludedEmployees) params.set("includeExcluded", "1");
