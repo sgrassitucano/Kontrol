@@ -76,6 +76,13 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const employeeId = Number(url.searchParams.get("employeeId") ?? "");
+    const expiringDaysRaw = url.searchParams.get("expiringDays");
+    const expiringDays = (() => {
+      const n = Number(expiringDaysRaw ?? "");
+      if (!expiringDaysRaw) return 30;
+      if (!Number.isFinite(n) || n <= 0) return 30;
+      return Math.min(365, Math.floor(n));
+    })();
     if (!employeeId || Number.isNaN(employeeId)) {
       return NextResponse.json({ error: "employeeId non valido." }, { status: 400 });
     }
@@ -95,7 +102,7 @@ export async function GET(request: Request) {
     const today = new Date();
     today.setHours(12, 0, 0, 0);
     const thresholdDate = new Date(today);
-    thresholdDate.setDate(thresholdDate.getDate() + 30);
+    thresholdDate.setDate(thresholdDate.getDate() + expiringDays);
     const todayIsoDate = today.toISOString().slice(0, 10);
     const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
     const jobCodeNorm = normalizeJobCode(e.job_title ?? "");

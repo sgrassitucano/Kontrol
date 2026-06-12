@@ -156,6 +156,24 @@ function createCommitSupabaseMock() {
         };
       }
 
+      if (table === "anagrafica_import_tax_codes") {
+        return {
+          insert(_payload: unknown) {
+            void _payload;
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+
+      if (table === "import_run_changes") {
+        return {
+          insert(_payload: unknown) {
+            void _payload;
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+
       throw new Error(`Unexpected table: ${table}`);
     },
   } as unknown as SupabaseClient;
@@ -212,4 +230,3 @@ test("processAnagraficaImport(commit): persiste import_run_errors se presenti", 
   assert.equal(row.error_type, "row_imported_with_issues");
   assert.equal(row.row_number, 3);
 });
-

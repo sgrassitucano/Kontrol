@@ -622,7 +622,7 @@ export default function HomeFormazionePage() {
       setInlineSaveError("");
       setInlineSaving(key, true);
       try {
-        const courseCodes = row.corsoCode.startsWith("FORM_BASE+")
+        const courseCodes = row.corsoCode.startsWith("FORM_BASE+") && !row.courseId
           ? ["FORM_BASE", row.corsoCode.slice("FORM_BASE+".length)]
           : [row.corsoCode];
         await Promise.all(
@@ -651,7 +651,7 @@ export default function HomeFormazionePage() {
       setInlineSaveError("");
       setInlineSaving(key, true);
       try {
-        const courseCodes = row.corsoCode.startsWith("FORM_BASE+")
+        const courseCodes = row.corsoCode.startsWith("FORM_BASE+") && !row.courseId
           ? ["FORM_BASE", row.corsoCode.slice("FORM_BASE+".length)]
           : [row.corsoCode];
         const normalizedNote = note.trim() ? note : null;
@@ -2640,7 +2640,7 @@ export default function HomeFormazionePage() {
                             })}
                           {workerDetailRows.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-500">
+                              <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
                                 Nessun corso disponibile.
                               </td>
                             </tr>

@@ -496,7 +496,10 @@ export default function HomeSorveglianzaPage() {
     const controller = new AbortController();
     loadDetailAbortRef.current = controller;
     try {
-      const response = await fetch(`/api/sorveglianza_sanitaria/lavoratore?employeeId=${employeeId}`, { signal: controller.signal });
+      const params = new URLSearchParams();
+      params.set("employeeId", String(employeeId));
+      params.set("expiringDays", String(expiringDays));
+      const response = await fetch(`/api/sorveglianza_sanitaria/lavoratore?${params.toString()}`, { signal: controller.signal });
       const body = (await response.json()) as { error?: string };
       if (!response.ok || body.error) throw new Error(body.error ?? "Errore caricamento lavoratore.");
       const typed = body as typeof workerDetail;
@@ -524,7 +527,7 @@ export default function HomeSorveglianzaPage() {
     } finally {
       setWorkerDetailLoading(false);
     }
-  }, []);
+  }, [expiringDays]);
 
   const openWorkerDetail = useCallback(
     async (employeeId: number) => {
@@ -1053,7 +1056,7 @@ export default function HomeSorveglianzaPage() {
 
             <div className="flex-1 overflow-y-auto p-5">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <span className="text-xs text-slate-500">Totale lavoratori {meta.totalActiveEmployees}</span>
+                <span className="text-xs text-slate-500">Lavoratori in tabella {rows.length}</span>
                 <span className="text-xs text-slate-500">Gruppi {dashboardDetailGroups.length}</span>
               </div>
               <div className="overflow-hidden rounded-xl border border-[var(--brand-line)] bg-white">
