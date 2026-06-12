@@ -56,6 +56,22 @@ type SortKey =
   | "medico";
 type SortDir = "asc" | "desc";
 
+function computeCounts(rows: WorkerSurveillanceRow[]) {
+  return rows.reduce(
+    (acc, row) => {
+      if (row.stato === "idoneo") acc.idoneo += 1;
+      else if (row.stato === "in scadenza") acc.inScadenza += 1;
+      else if (row.stato === "scaduto") acc.scaduto += 1;
+      else if (row.stato === "da fare") acc.daFare += 1;
+      else if (row.stato === "programmato") acc.programmato += 1;
+      else if (row.stato === "sospeso") acc.sospeso += 1;
+      else acc.escluso += 1;
+      return acc;
+    },
+    { idoneo: 0, inScadenza: 0, scaduto: 0, daFare: 0, programmato: 0, sospeso: 0, escluso: 0 },
+  );
+}
+
 export default function HomeSorveglianzaPage() {
   const [rows, setRows] = useState<WorkerSurveillanceRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -154,6 +170,7 @@ export default function HomeSorveglianzaPage() {
 
   const loadRowsAbortRef = useRef<AbortController | null>(null);
   const loadDetailAbortRef = useRef<AbortController | null>(null);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadRows = useCallback(async () => {
     setIsLoading(true);
@@ -215,6 +232,59 @@ export default function HomeSorveglianzaPage() {
       setIsLoading(false);
     }
   }, [deferredSearch, expiringDays, includeExcluded]);
+
+  const scheduleLoadRows = useCallback(() => {
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(() => {
+      void loadRows();
+    }, 800);
+  }, [loadRows]);
+
+  const refreshRowsByEmployeeIds = useCallback(
+    async (employeeIds: number[]) => {
+      const ids = Array.from(new Set(employeeIds.filter((id) => Number.isFinite(id) && id > 0)));
+      if (ids.length === 0) return;
+
+      const refreshedRows: WorkerSurveillanceRow[] = [];
+      let offset = 0;
+      let truncated = true;
+
+      while (truncated) {
+        const params = new URLSearchParams();
+        params.set("employeeIds", ids.join(","));
+        params.set("expiringDays", String(expiringDays));
+        params.set("limit", "2000");
+        params.set("offset", String(offset));
+        if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
+        if (includeExcluded) params.set("includeExcluded", "1");
+
+        const response = await fetch(`/api/sorveglianza_sanitaria/lavoratori?${params.toString()}`);
+        const body = (await response.json()) as ApiResponse & { truncated?: boolean };
+        if (!response.ok || body.error) {
+          throw new Error(body.error ?? "Errore aggiornamento righe sorveglianza.");
+        }
+        refreshedRows.push(...(body.rows ?? []));
+        truncated = Boolean(body.truncated);
+        offset += (body.rows ?? []).length;
+        if ((body.rows ?? []).length === 0) break;
+      }
+
+      setRows((prev) => {
+        const nextById = new Map(prev.map((row) => [row.workerId, row]));
+        ids.forEach((id) => nextById.delete(id));
+        for (const row of refreshedRows) {
+          nextById.set(row.workerId, row);
+        }
+        const nextRows = Array.from(nextById.values());
+        setMeta((prevMeta) => ({
+          ...prevMeta,
+          counts: computeCounts(nextRows),
+        }));
+        return nextRows;
+      });
+    },
+    [deferredSearch, expiringDays, includeExcluded],
+  );
 
   useEffect(() => {
     void loadRows();
@@ -413,8 +483,9 @@ export default function HomeSorveglianzaPage() {
       });
       const body = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio.");
+      await refreshRowsByEmployeeIds([workerDetailId]);
       await loadWorkerDetail(workerDetailId);
-      await loadRows();
+      scheduleLoadRows();
     } catch (err) {
       setWorkerDetailError(err instanceof Error ? err.message : "Errore salvataggio.");
     } finally {
@@ -427,8 +498,9 @@ export default function HomeSorveglianzaPage() {
     detailOverrideNote,
     detailPlanned,
     detailProvider,
-    loadRows,
     loadWorkerDetail,
+    refreshRowsByEmployeeIds,
+    scheduleLoadRows,
     workerDetailId,
   ]);
 
@@ -841,9 +913,11 @@ export default function HomeSorveglianzaPage() {
         clearSelection={clearSelection}
         workerOptions={workerOptions}
         onSaved={async () => {
+          const selectedIds = Array.from(selectedWorkerIds);
           setEventModalOpen(false);
           clearSelection();
-          await loadRows();
+          await refreshRowsByEmployeeIds(selectedIds);
+          scheduleLoadRows();
         }}
       />
 

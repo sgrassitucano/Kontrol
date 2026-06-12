@@ -40,6 +40,15 @@ function parseOffsetParam(value: string | null) {
   return n;
 }
 
+function parseEmployeeIdsParam(value: string | null) {
+  if (!value) return [];
+  const ids = value
+    .split(",")
+    .map((part) => Math.trunc(Number(part.trim())))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return Array.from(new Set(ids));
+}
+
 const MAX_EMPLOYEES = 20000;
 const MAX_SURVEILLANCE_ROWS = 50000;
 const MAX_FREEZES = 50000;
@@ -197,6 +206,7 @@ export async function GET(request: Request) {
     const query = (url.searchParams.get("q") ?? "").toLowerCase().trim();
     const limit = parseLimitParam(url.searchParams.get("limit"), query ? 200 : 500);
     const offset = parseOffsetParam(url.searchParams.get("offset"));
+    const employeeIdsFilter = parseEmployeeIdsParam(url.searchParams.get("employeeIds"));
     const expiringDays = Number(url.searchParams.get("expiringDays") ?? "30");
     const dateParam = url.searchParams.get("date");
     const includeExcluded = url.searchParams.get("includeExcluded") === "1";
@@ -219,39 +229,44 @@ export async function GET(request: Request) {
     const todayIsoDate = today.toISOString().slice(0, 10);
     const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
 
+    const shouldUseCache = employeeIdsFilter.length === 0;
     const rowsCacheKey = `surveillance_rows_v1:${auth.userId}:${includeExcluded ? 1 : 0}:${query || "-"}:${todayIsoDate}:${expiringDaysSafe}`;
-    const rowsCached = cacheGet<{
-      rows: WorkerSurveillanceRow[];
-      meta: {
-        totalActiveEmployees: number;
-        excludedByRule: number;
-        frozenEmployees: number;
-        counts: Record<string, number>;
-        expiringDays: number;
-      };
-    }>(rowsCacheKey);
-    if (rowsCached) {
-      const totalRows = rowsCached.rows.length;
-      const rows = rowsCached.rows.slice(offset, offset + limit);
-      const truncated = offset + limit < totalRows;
-      return NextResponse.json({
-        limit,
-        offset,
-        truncated,
-        rows,
-        totalRows,
-        totalActiveEmployees: rowsCached.meta.totalActiveEmployees,
-        excludedByRule: rowsCached.meta.excludedByRule,
-        frozenEmployees: rowsCached.meta.frozenEmployees,
-        expiringDays: rowsCached.meta.expiringDays,
-        counts: rowsCached.meta.counts,
-      });
+    if (shouldUseCache) {
+      const rowsCached = cacheGet<{
+        rows: WorkerSurveillanceRow[];
+        meta: {
+          totalActiveEmployees: number;
+          excludedByRule: number;
+          frozenEmployees: number;
+          counts: Record<string, number>;
+          expiringDays: number;
+        };
+      }>(rowsCacheKey);
+      if (rowsCached) {
+        const totalRows = rowsCached.rows.length;
+        const rows = rowsCached.rows.slice(offset, offset + limit);
+        const truncated = offset + limit < totalRows;
+        return NextResponse.json({
+          limit,
+          offset,
+          truncated,
+          rows,
+          totalRows,
+          totalActiveEmployees: rowsCached.meta.totalActiveEmployees,
+          excludedByRule: rowsCached.meta.excludedByRule,
+          frozenEmployees: rowsCached.meta.frozenEmployees,
+          expiringDays: rowsCached.meta.expiringDays,
+          counts: rowsCached.meta.counts,
+        });
+      }
     }
 
     const dataSupabase = auth.supabase;
 
     const [employees, jobRules, scopeRules, providerAssignments] = await Promise.all([
-      fetchAllEmployees(dataSupabase),
+      employeeIdsFilter.length > 0
+        ? fetchEmployeesByIds(dataSupabase, employeeIdsFilter)
+        : fetchAllEmployees(dataSupabase),
       fetchAllJobRules(dataSupabase),
       fetchAllScopeRules(dataSupabase),
       fetchAllProviderAssignments(dataSupabase),
@@ -406,20 +421,22 @@ export async function GET(request: Request) {
     const totalRows = allRows.length;
     const rows = allRows.slice(offset, offset + limit);
 
-    cacheSet(
-      rowsCacheKey,
-      {
-        rows: allRows,
-        meta: {
-          totalActiveEmployees: employees.length,
-          excludedByRule,
-          frozenEmployees,
-          counts,
-          expiringDays: expiringDaysSafeRaw,
+    if (shouldUseCache) {
+      cacheSet(
+        rowsCacheKey,
+        {
+          rows: allRows,
+          meta: {
+            totalActiveEmployees: employees.length,
+            excludedByRule,
+            frozenEmployees,
+            counts,
+            expiringDays: expiringDaysSafeRaw,
+          },
         },
-      },
-      30 * 1000,
-    );
+        30 * 1000,
+      );
+    }
 
     return NextResponse.json({
       rows,
@@ -473,6 +490,29 @@ async function fetchAllEmployees(supabase: SupabaseClient) {
   }
 
   return allRows;
+}
+
+async function fetchEmployeesByIds(supabase: SupabaseClient, employeeIds: number[]) {
+  const rows: EmployeeRow[] = [];
+  for (let i = 0; i < employeeIds.length; i += 500) {
+    const part = employeeIds.slice(i, i + 500);
+    const { data, error } = await supabase
+      .from("employees")
+      .select(
+        "id,matricola,first_name,last_name,responsible_code,referral,job_title,theoretical_weekly_minutes,site_id,sub_site_id,sites(display_name),sub_sites(display_name)",
+      )
+      .eq("status", "attivo")
+      .in("id", part);
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as EmployeeRow[]));
+    if (rows.length > MAX_EMPLOYEES) {
+      throw new TooManyRowsError(
+        `Troppi lavoratori per sorveglianza sanitaria (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+      );
+    }
+  }
+  rows.sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+  return rows;
 }
 
 async function fetchSurveillanceRowsForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
