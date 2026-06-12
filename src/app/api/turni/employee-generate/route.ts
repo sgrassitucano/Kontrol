@@ -90,6 +90,7 @@ export async function POST(request: Request) {
       .from("turni_employee_shifts")
       .select("id,employee_id,site_id,start_at,end_at")
       .eq("employee_id", employeeId)
+      .neq("state", "cancelled")
       .lt("start_at", end.toISOString())
       .gt("end_at", start.toISOString())
       .limit(MAX_EXISTING_SHIFTS + 1);

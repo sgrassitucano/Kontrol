@@ -65,6 +65,7 @@ class TooManyRowsError extends Error {
 type SurveillanceRow = {
   employee_id: number;
   provider: string | null;
+  requires_visit: boolean;
   is_planned: boolean;
   next_due_date: string | null;
   limitations: string | null;
@@ -350,7 +351,12 @@ export async function GET(request: Request) {
       const siteRule = scopeRule ? null : scopeRuleBySiteId.get(employee.site_id) ?? null;
 
       const derivedRequiresVisit = scopeRule?.requires_visit ?? siteRule?.requires_visit ?? !excludedByJob;
-      const requiresVisit = isExcluded ? false : override ? override.requires_visit : derivedRequiresVisit;
+      const recordRequiresVisit = typeof record?.requires_visit === "boolean" ? record.requires_visit : null;
+      const requiresVisit = isExcluded
+        ? false
+        : override
+          ? override.requires_visit
+          : recordRequiresVisit ?? derivedRequiresVisit;
 
       const baseState =
         freeze && !isExcluded
@@ -521,7 +527,7 @@ async function fetchSurveillanceRowsForEmployees(supabase: SupabaseClient, emplo
     const part = employeeIds.slice(i, i + 500);
     const { data, error } = await supabase
       .from("medical_surveillance_records")
-      .select("employee_id,provider,is_planned,next_due_date,limitations,notes")
+      .select("employee_id,provider,requires_visit,is_planned,next_due_date,limitations,notes")
       .in("employee_id", part);
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as SurveillanceRow[]));

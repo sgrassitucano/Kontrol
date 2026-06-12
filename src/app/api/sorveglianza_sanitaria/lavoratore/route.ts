@@ -21,6 +21,7 @@ type DetailEmployeeRow = {
 type RecordRow = {
   employee_id: number;
   provider: string | null;
+  requires_visit: boolean;
   is_planned: boolean;
   next_due_date: string | null;
   limitations: string | null;
@@ -69,6 +70,24 @@ function computeState(args: {
   return "idoneo" as const;
 }
 
+function shouldExcludeForJobRule(employee: DetailEmployeeRow, rule: JobRuleRow | null) {
+  const defaultExemptJobs = new Set(["IMP.CUP", "IMP.CC", "IMP.AMM"]);
+  const jobCode = normalizeJobCode(employee.job_title ?? "");
+  const isDefaultExemptJob = defaultExemptJobs.has(jobCode);
+  const defaultThreshold = 20 * 60;
+  const defaultExempt = isDefaultExemptJob && employee.theoretical_weekly_minutes < defaultThreshold;
+  if (!rule) return defaultExempt;
+  if (rule.always_exempt) return true;
+  if (
+    typeof rule.exempt_below_weekly_minutes === "number" &&
+    Number.isFinite(rule.exempt_below_weekly_minutes) &&
+    employee.theoretical_weekly_minutes < rule.exempt_below_weekly_minutes
+  ) {
+    return true;
+  }
+  return defaultExempt;
+}
+
 export async function GET(request: Request) {
   const auth = await requireAnyModuleAccess(["gestione", "sorveglianza"], false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -110,7 +129,7 @@ export async function GET(request: Request) {
     const [record, exclusion, override, freezeRows, jobRule, scopeRules] = await Promise.all([
       dataSupabase
         .from("medical_surveillance_records")
-        .select("employee_id,provider,is_planned,next_due_date,limitations,notes")
+        .select("employee_id,provider,requires_visit,is_planned,next_due_date,limitations,notes")
         .eq("employee_id", employeeId)
         .maybeSingle(),
       dataSupabase
@@ -169,13 +188,14 @@ export async function GET(request: Request) {
         ? sr.find((row) => row.scope_type === "sub_site" && row.sub_site_id === e.sub_site_id) ?? null
         : null;
     const siteRule = sr.find((row) => row.scope_type === "site" && row.site_id === e.site_id) ?? null;
-    const excludedByJob =
-      Boolean(jr?.always_exempt) ||
-      (typeof jr?.exempt_below_weekly_minutes === "number" && e.theoretical_weekly_minutes < jr.exempt_below_weekly_minutes);
+    const isExcludedFreeze = freeze?.freeze_status === "maternita" || freeze?.freeze_status === "distacco_sindacale";
+    const excludedByJob = shouldExcludeForJobRule(e, jr);
+    const isExcluded = Boolean(ex?.is_active) || isExcludedFreeze || excludedByJob;
     const derivedRequiresVisit = subSiteRule?.requires_visit ?? siteRule?.requires_visit ?? !excludedByJob;
-    const requiresVisit = ex?.is_active ? false : ov ? ov.requires_visit : derivedRequiresVisit;
+    const recordRequiresVisit = typeof r?.requires_visit === "boolean" ? r.requires_visit : null;
+    const requiresVisit = isExcluded ? false : ov ? ov.requires_visit : recordRequiresVisit ?? derivedRequiresVisit;
     const baseState =
-      freeze && !ex?.is_active
+      freeze && !isExcluded
         ? ("sospeso" as const)
         : computeState({
             todayIsoDate,
@@ -184,7 +204,7 @@ export async function GET(request: Request) {
             nextDueDate: r?.next_due_date ?? null,
             isPlanned: Boolean(r?.is_planned ?? false),
           });
-    const state = ex?.is_active ? "escluso" : baseState;
+    const state = isExcluded ? "escluso" : baseState;
 
     return NextResponse.json({
       employee: {

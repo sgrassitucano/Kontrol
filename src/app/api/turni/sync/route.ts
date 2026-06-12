@@ -91,26 +91,18 @@ function isShiftOverlapConflict(error: { code?: string; message?: string } | nul
 async function findConflictingShift(params: {
   supabase: SupabaseClient;
   employeeId: number;
-  siteId: number;
-  subSiteId: number | null;
   startAt: string;
   endAt: string;
 }) {
-  const { supabase, employeeId, siteId, subSiteId, startAt, endAt } = params;
-  let query = supabase
+  const { supabase, employeeId, startAt, endAt } = params;
+  const { data, error } = await supabase
     .from("turni_employee_shifts")
     .select("id,site_id,sub_site_id,start_at,end_at,state,source,note")
     .eq("employee_id", employeeId)
-    .eq("site_id", siteId)
     .neq("state", "cancelled")
     .lt("start_at", endAt)
     .gt("end_at", startAt)
     .limit(5);
-
-  if (subSiteId === null) query = query.is("sub_site_id", null);
-  else query = query.eq("sub_site_id", subSiteId);
-
-  const { data, error } = await query;
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as ExistingShiftRow[];
@@ -194,6 +186,7 @@ async function syncEmployeeRange(params: {
       .from("turni_employee_shifts")
       .select("id,employee_id,site_id,sub_site_id,start_at,end_at,state,source,note,created_by")
       .eq("employee_id", employeeId)
+      .neq("state", "cancelled")
       .lt("start_at", endAtRange.toISOString())
       .gt("end_at", startAtRange.toISOString()),
   ]);
@@ -326,14 +319,18 @@ async function syncEmployeeRange(params: {
       const conflicting = await findConflictingShift({
         supabase,
         employeeId,
-        siteId: d.siteId,
-        subSiteId: d.subSiteId,
         startAt: d.startAt,
         endAt: d.endAt,
       });
       if (!conflicting) throw new Error(error.message);
 
-      if (conflicting.source !== "template") {
+      const sameDesiredSlot =
+        conflicting.site_id === d.siteId &&
+        (conflicting.sub_site_id ?? null) === (d.subSiteId ?? null) &&
+        conflicting.start_at === d.startAt &&
+        conflicting.end_at === d.endAt;
+
+      if (!sameDesiredSlot || conflicting.source !== "template") {
         skippedManual += 1;
         continue;
       }

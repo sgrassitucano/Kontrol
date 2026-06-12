@@ -498,6 +498,18 @@ function analyzeAgainstExisting(
       continue;
     }
 
+    if (sameTaxCode && sameTaxCode.matricola !== row.matricola) {
+      conflictErrors.push(
+        mkError(
+          row.rowNumber,
+          row,
+          "tax_code_matricola_mismatch_db",
+          "Codice fiscale gia presente con una matricola diversa nel database.",
+        ),
+      );
+      continue;
+    }
+
     if (!sameTaxCode) {
       newRows += 1;
     } else if (sameTaxCode.status === "dimesso") {

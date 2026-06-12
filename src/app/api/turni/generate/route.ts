@@ -176,6 +176,7 @@ export async function POST(request: Request) {
       .select("id,employee_id,site_id,start_at,end_at")
       .eq("site_id", siteId)
       .in("employee_id", employeeIds)
+      .neq("state", "cancelled")
       .lt("start_at", end.toISOString())
       .gt("end_at", start.toISOString())
       .limit(MAX_EXISTING_SHIFTS + 1);

@@ -231,7 +231,7 @@ export async function POST(request: Request) {
         }
       }
 
-      return NextResponse.json({
+      return successJson({
         ok: true,
         excluded: toExclude.length,
         clearedPlanned: toClearPlanned.length,
