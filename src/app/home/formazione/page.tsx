@@ -4,6 +4,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { normalizeJobCode } from "@/lib/training/normalize";
 import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
+import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 
 const FORMAZIONE_NOTE_COL_WIDTH = 720;
 const FORMAZIONE_TABLE_WIDTH =
@@ -417,19 +418,35 @@ export default function HomeFormazionePage() {
     }
   }, []);
 
+  const refreshImportLastRun = useCallback(async () => {
+    const response = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
+    const body = await readJsonSafely<{ run: ImportLastRun | null; error?: string }>(response);
+    if (!response.ok) {
+      throw new Error(buildHttpErrorMessage(response, body, "Errore caricamento ultimo import"));
+    }
+    if (extractResponseError(body)) {
+      throw new Error(extractResponseError(body) ?? "Errore caricamento ultimo import.");
+    }
+    setImportLastRun(body?.run ?? null);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const response = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
-      const body = (await response.json()) as { run: ImportLastRun | null; error?: string };
-      if (cancelled) return;
-      if (!response.ok || body.error) return;
-      setImportLastRun(body.run);
+      try {
+        const response = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
+        const body = await readJsonSafely<{ run: ImportLastRun | null; error?: string }>(response);
+        if (cancelled) return;
+        if (!response.ok || extractResponseError(body)) return;
+        setImportLastRun(body?.run ?? null);
+      } catch {
+        if (cancelled) return;
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshImportLastRun]);
 
   const loadRows = useCallback(async (dateOverride?: string) => {
     setIsLoading(true);
@@ -448,20 +465,20 @@ export default function HomeFormazionePage() {
         if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
         if (showExcludedEmployees) params.set("includeExcluded", "1");
         const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`, { signal: controller.signal });
-        const body = (await response.json()) as {
+        const body = await readJsonSafely<{
           rows?: WorkerCourseRow[];
           error?: string;
           truncated?: boolean;
           totalActiveEmployees?: number;
           excludedByScopeEmployees?: number;
           frozenEmployees?: number;
-        };
-        if (!response.ok || body.error) {
+        }>(response);
+        if (!response.ok || extractResponseError(body)) {
           if (response.status === 401) {
             window.location.href = "/login";
             return null;
           }
-          throw new Error(body.error ?? `Errore caricamento formazione lavoratori (${response.status}).`);
+          throw new Error(buildHttpErrorMessage(response, body, "Errore caricamento formazione lavoratori"));
         }
         return body;
       }
@@ -1245,11 +1262,11 @@ export default function HomeFormazionePage() {
         method: "POST",
         body: formData,
       });
-      const body = (await response.json()) as ImportPreviewResult & { error?: string };
-      if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore preview import massivo.");
+      const body = await readJsonSafely<ImportPreviewResult & { error?: string }>(response);
+      if (!response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore preview import massivo"));
       }
-      setImportPreview(body);
+      setImportPreview(body as ImportPreviewResult);
       if (importRunTokenRef.current === token && importProgressTimerRef.current !== null) {
         window.clearInterval(importProgressTimerRef.current);
         importProgressTimerRef.current = null;
@@ -1299,20 +1316,18 @@ export default function HomeFormazionePage() {
         method: "POST",
         body: formData,
       });
-      const body = (await response.json()) as ImportPreviewResult & { error?: string };
-      if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore commit import massivo.");
+      const body = await readJsonSafely<ImportPreviewResult & { error?: string }>(response);
+      if (!response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore commit import massivo"));
       }
-      setImportPreview(body);
+      setImportPreview(body as ImportPreviewResult);
       if (importRunTokenRef.current === token && importProgressTimerRef.current !== null) {
         window.clearInterval(importProgressTimerRef.current);
         importProgressTimerRef.current = null;
       }
       setImportProgress(100);
 
-      const last = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
-      const lastBody = (await last.json()) as { run: ImportLastRun | null; error?: string };
-      if (last.ok && !lastBody.error) setImportLastRun(lastBody.run);
+      await refreshImportLastRun();
       await loadRows();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Errore commit import massivo.");
@@ -1332,18 +1347,16 @@ export default function HomeFormazionePage() {
     setImportUndoMessage("");
     try {
       const response = await fetch("/api/formazione/import/undo", { method: "POST" });
-      const body = (await response.json()) as
-        | { ok: true; deletedRows: number; restoredRows: number; skippedRows: number; source: string }
-        | { error: string };
-      if (!response.ok || "error" in body) {
-        throw new Error("error" in body ? body.error : "Errore annullamento import.");
+      const body = await readJsonSafely<
+        { ok: true; deletedRows: number; restoredRows: number; skippedRows: number; source: string } | { error: string }
+      >(response);
+      if (!response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore annullamento import"));
       }
       setImportUndoMessage(
-        `Annullamento completato (${body.source}): ripristinate ${body.restoredRows}, eliminate ${body.deletedRows}, saltate ${body.skippedRows}.`,
+        `Annullamento completato (${(body as { source: string }).source}): ripristinate ${(body as { restoredRows: number }).restoredRows}, eliminate ${(body as { deletedRows: number }).deletedRows}, saltate ${(body as { skippedRows: number }).skippedRows}.`,
       );
-      const last = await fetch("/api/import-runs/last?source=formazione_legacy", { method: "GET" });
-      const lastBody = (await last.json()) as { run: ImportLastRun | null; error?: string };
-      if (last.ok && !lastBody.error) setImportLastRun(lastBody.run);
+      await refreshImportLastRun();
       await loadRows();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Errore annullamento import.");

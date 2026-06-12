@@ -7,6 +7,17 @@ export const runtime = "nodejs";
 type Mode = "employee" | "site";
 type ShiftState = "planned" | "actual" | "cancelled";
 type AbsenceType = "ferie" | "malattia" | "permesso" | "infortunio" | "altro";
+type ShiftSource = "template" | "manual" | "import";
+type ExistingShiftRow = {
+  id: number;
+  site_id: number;
+  sub_site_id: number | null;
+  start_at: string;
+  end_at: string;
+  state: ShiftState;
+  source: ShiftSource;
+  note: string | null;
+};
 
 const MAX_SYNC_RANGE_DAYS = 62;
 const MAX_SITE_SYNC_EMPLOYEES = 500;
@@ -64,6 +75,46 @@ function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string) {
   const bE = new Date(bEnd).getTime();
   if (!Number.isFinite(aS) || !Number.isFinite(aE) || !Number.isFinite(bS) || !Number.isFinite(bE)) return false;
   return aS < bE && aE > bS;
+}
+
+function isShiftOverlapConflict(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false;
+  if (error.code === "23P01") return true;
+  const message = String(error.message ?? "").toLowerCase();
+  return (
+    message.includes("turni_employee_shifts_no_overlap") ||
+    message.includes("exclusion constraint") ||
+    message.includes("conflicting key value")
+  );
+}
+
+async function findConflictingShift(params: {
+  supabase: SupabaseClient;
+  employeeId: number;
+  siteId: number;
+  subSiteId: number | null;
+  startAt: string;
+  endAt: string;
+}) {
+  const { supabase, employeeId, siteId, subSiteId, startAt, endAt } = params;
+  let query = supabase
+    .from("turni_employee_shifts")
+    .select("id,site_id,sub_site_id,start_at,end_at,state,source,note")
+    .eq("employee_id", employeeId)
+    .eq("site_id", siteId)
+    .neq("state", "cancelled")
+    .lt("start_at", endAt)
+    .gt("end_at", startAt)
+    .limit(5);
+
+  if (subSiteId === null) query = query.is("sub_site_id", null);
+  else query = query.eq("sub_site_id", subSiteId);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as ExistingShiftRow[];
+  return rows.find((row) => row.start_at === startAt && row.end_at === endAt) ?? rows[0] ?? null;
 }
 
 async function loadActiveTemplate(
@@ -157,16 +208,7 @@ async function syncEmployeeRange(params: {
     note: string | null;
   }>;
 
-  const allExisting = (existingData ?? []) as Array<{
-    id: number;
-    site_id: number;
-    sub_site_id: number | null;
-    start_at: string;
-    end_at: string;
-    state: ShiftState;
-    source: "template" | "manual" | "import";
-    note: string | null;
-  }>;
+  const allExisting = (existingData ?? []) as ExistingShiftRow[];
 
   const allowedSite = typeof siteId === "number" && Number.isFinite(siteId) ? siteId : null;
   const allowedSub = subSiteId === undefined ? undefined : subSiteId;
@@ -278,7 +320,38 @@ async function syncEmployeeRange(params: {
       note: d.note,
       created_by: template.created_by,
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (!isShiftOverlapConflict(error)) throw new Error(error.message);
+
+      const conflicting = await findConflictingShift({
+        supabase,
+        employeeId,
+        siteId: d.siteId,
+        subSiteId: d.subSiteId,
+        startAt: d.startAt,
+        endAt: d.endAt,
+      });
+      if (!conflicting) throw new Error(error.message);
+
+      if (conflicting.source !== "template") {
+        skippedManual += 1;
+        continue;
+      }
+
+      const patch: Record<string, unknown> = {};
+      if (conflicting.state !== d.state) patch.state = d.state;
+      if ((conflicting.note ?? null) !== (d.note ?? null)) patch.note = d.note;
+      if (Object.keys(patch).length > 0) {
+        const { error: updateError } = await supabase
+          .from("turni_employee_shifts")
+          .update(patch)
+          .eq("id", conflicting.id)
+          .eq("source", "template");
+        if (updateError) throw new Error(updateError.message);
+        updated += 1;
+      }
+      continue;
+    }
     inserted += 1;
   }
 
@@ -288,9 +361,15 @@ async function syncEmployeeRange(params: {
     const chunkSize = 200;
     for (let i = 0; i < ids.length; i += chunkSize) {
       const chunk = ids.slice(i, i + chunkSize);
-      const { error } = await supabase.from("turni_employee_shifts").update({ state: "cancelled" }).in("id", chunk);
+      const { data, error } = await supabase
+        .from("turni_employee_shifts")
+        .update({ state: "cancelled" })
+        .eq("source", "template")
+        .neq("state", "cancelled")
+        .in("id", chunk)
+        .select("id");
       if (error) throw new Error(error.message);
-      deleted += chunk.length;
+      deleted += (data ?? []).length;
     }
   }
 

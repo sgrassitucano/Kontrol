@@ -8,6 +8,7 @@ import type {
   SurveillanceImportSummary,
 } from "@/lib/import/sorveglianza";
 import { ModuleHeader, PanelCard } from "@/components/module-ui";
+import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 
 type ImportResponse = {
   mode: "preview" | "commit";
@@ -47,6 +48,18 @@ export default function SorveglianzaImportPage() {
   const [lastRun, setLastRun] = useState<LastImportRun | null>(null);
   const progressTimerRef = useRef<number | null>(null);
   const runTokenRef = useRef(0);
+
+  const refreshLastRun = useCallback(async () => {
+    const response = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
+    const body = await readJsonSafely<{ run: LastImportRun | null; error?: string }>(response);
+    if (!response.ok) {
+      throw new Error(buildHttpErrorMessage(response, body, "Errore caricamento ultimo import"));
+    }
+    if (extractResponseError(body)) {
+      throw new Error(extractResponseError(body) ?? "Errore caricamento ultimo import.");
+    }
+    setLastRun(body?.run ?? null);
+  }, []);
 
   const downloadFrom = useCallback(async (url: string) => {
     setIsDownloadingReport(true);
@@ -97,16 +110,20 @@ export default function SorveglianzaImportPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const response = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
-      const body = (await response.json()) as { run: LastImportRun | null; error?: string };
-      if (cancelled) return;
-      if (!response.ok || body.error) return;
-      setLastRun(body.run);
+      try {
+        const response = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
+        const body = await readJsonSafely<{ run: LastImportRun | null; error?: string }>(response);
+        if (cancelled) return;
+        if (!response.ok || extractResponseError(body)) return;
+        setLastRun(body?.run ?? null);
+      } catch {
+        if (cancelled) return;
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshLastRun]);
 
   useEffect(() => {
     return () => {
@@ -149,21 +166,19 @@ export default function SorveglianzaImportPage() {
         body: formData,
       });
 
-      const payload = (await response.json()) as ImportResponse | { error: string };
-      if (!response.ok || "error" in payload) {
-        throw new Error("error" in payload ? payload.error : "Errore in fase di import.");
+      const payload = await readJsonSafely<ImportResponse | { error: string }>(response);
+      if (!response.ok || extractResponseError(payload)) {
+        throw new Error(buildHttpErrorMessage(response, payload, "Errore in fase di import"));
       }
 
-      setResult(payload);
+      setResult(payload as ImportResponse);
       if (runTokenRef.current === token && progressTimerRef.current !== null) {
         window.clearInterval(progressTimerRef.current);
         progressTimerRef.current = null;
       }
       setProgress(100);
       if (mode === "commit") {
-        const response = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
-        const body = (await response.json()) as { run: LastImportRun | null; error?: string };
-        if (response.ok && !body.error) setLastRun(body.run);
+        await refreshLastRun();
       }
     } catch (error) {
       setServerError(error instanceof Error ? error.message : "Errore imprevisto durante l'import.");
@@ -183,18 +198,16 @@ export default function SorveglianzaImportPage() {
     setUndoMessage("");
     try {
       const response = await fetch("/api/sorveglianza_sanitaria/import/undo", { method: "POST" });
-      const body = (await response.json()) as
-        | { ok: true; deletedRows: number; restoredRows: number; skippedRows: number; source: string }
-        | { error: string };
-      if (!response.ok || "error" in body) {
-        throw new Error("error" in body ? body.error : "Errore annullamento import.");
+      const body = await readJsonSafely<
+        { ok: true; deletedRows: number; restoredRows: number; skippedRows: number; source: string } | { error: string }
+      >(response);
+      if (!response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore annullamento import"));
       }
       setUndoMessage(
-        `Annullamento completato (${body.source}): ripristinate ${body.restoredRows}, eliminate ${body.deletedRows}, saltate ${body.skippedRows}.`,
+        `Annullamento completato (${(body as { source: string }).source}): ripristinate ${(body as { restoredRows: number }).restoredRows}, eliminate ${(body as { deletedRows: number }).deletedRows}, saltate ${(body as { skippedRows: number }).skippedRows}.`,
       );
-      const last = await fetch("/api/import-runs/last?source=sorveglianza", { method: "GET" });
-      const lastBody = (await last.json()) as { run: LastImportRun | null; error?: string };
-      if (last.ok && !lastBody.error) setLastRun(lastBody.run);
+      await refreshLastRun();
     } catch (err) {
       setServerError(err instanceof Error ? err.message : "Errore annullamento import.");
     } finally {
