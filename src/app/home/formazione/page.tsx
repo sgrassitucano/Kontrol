@@ -753,9 +753,13 @@ export default function HomeFormazionePage() {
     [loadWorkerDetail, workerDetailEmployeeId],
   );
 
-  const deleteCourseExclusion = useCallback(
+  const deleteExcludedCourse = useCallback(
     async (courseId: number) => {
       if (!workerDetailEmployeeId) return;
+      const ok = window.confirm(
+        "Eliminare definitivamente questo corso dal lavoratore? L'operazione rimuove sia il corso sia la relativa esclusione.",
+      );
+      if (!ok) return;
       try {
         const response = await fetch("/api/formazione/esclusioni", {
           method: "DELETE",
@@ -763,10 +767,10 @@ export default function HomeFormazionePage() {
           body: JSON.stringify({ kind: "course", employeeId: workerDetailEmployeeId, courseId }),
         });
         const body = (await response.json()) as { ok?: boolean; error?: string };
-        if (!response.ok || body.error) throw new Error(body.error ?? "Errore cancellazione esclusione.");
+        if (!response.ok || body.error) throw new Error(body.error ?? "Errore eliminazione corso.");
         await loadWorkerDetail(workerDetailEmployeeId);
       } catch (err) {
-        setWorkerDetailError(err instanceof Error ? err.message : "Errore cancellazione esclusione.");
+        setWorkerDetailError(err instanceof Error ? err.message : "Errore eliminazione corso.");
       }
     },
     [loadWorkerDetail, workerDetailEmployeeId],
@@ -2618,7 +2622,7 @@ export default function HomeFormazionePage() {
                                         <button
                                           type="button"
                                           disabled={employeeExclusion.isActive}
-                                          onClick={() => void deleteCourseExclusion(courseId)}
+                                          onClick={() => void deleteExcludedCourse(courseId)}
                                           className={[
                                             "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
                                             employeeExclusion.isActive
@@ -2822,10 +2826,10 @@ export default function HomeFormazionePage() {
                                     <td className="px-3 py-2 text-right">
                                       <button
                                         type="button"
-                                        onClick={() => void deleteCourseExclusion(r.courseId)}
+                                        onClick={() => void deleteExcludedCourse(r.courseId)}
                                         className="rounded-lg bg-[var(--brand-primary)] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                                       >
-                                        Cancella
+                                        Elimina corso
                                       </button>
                                     </td>
                                   </tr>

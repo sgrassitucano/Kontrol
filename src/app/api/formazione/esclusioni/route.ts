@@ -196,18 +196,25 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "courseId non valido." }, { status: 400 });
     }
 
+    const { error: deleteCourseError } = await auth.supabase
+      .from("training_employee_courses")
+      .delete()
+      .eq("employee_id", employeeId)
+      .eq("course_id", courseId);
+    if (deleteCourseError) throw new Error(deleteCourseError.message);
+
     const { error } = await auth.supabase
       .from("training_employee_course_exclusions")
-      .update({ is_active: false })
+      .delete()
       .eq("employee_id", employeeId)
       .eq("course_id", courseId);
     if (error) throw new Error(error.message);
 
     cacheDeleteByPrefix("training_rows_v1:");
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, deletedCourse: true });
   } catch (err) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Errore cancellazione esclusione." },
+      { error: err instanceof Error ? err.message : "Errore eliminazione corso escluso." },
       { status: 500 },
     );
   }
