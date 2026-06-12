@@ -44,6 +44,7 @@ type ApiResponse = {
 };
 
 type StatusFilter = "" | WorkerSurveillanceRow["stato"] | "critico";
+type DashboardGroupBy = "mansione" | "cantiere" | "provider";
 type SortKey =
   | "cognome"
   | "nome"
@@ -134,6 +135,10 @@ export default function HomeSorveglianzaPage() {
     counts: { idoneo: 0, inScadenza: 0, scaduto: 0, daFare: 0, programmato: 0, sospeso: 0, escluso: 0 },
   });
 
+  const [isDashboardDetailOpen, setIsDashboardDetailOpen] = useState(false);
+  const [dashboardGroupBy, setDashboardGroupBy] = useState<DashboardGroupBy>("mansione");
+  const [dashboardOnlyCritical, setDashboardOnlyCritical] = useState(true);
+
   const [workerDetailId, setWorkerDetailId] = useState<number | null>(null);
   const [workerDetailLoading, setWorkerDetailLoading] = useState(false);
   const [workerDetailError, setWorkerDetailError] = useState("");
@@ -171,6 +176,79 @@ export default function HomeSorveglianzaPage() {
   const loadRowsAbortRef = useRef<AbortController | null>(null);
   const loadDetailAbortRef = useRef<AbortController | null>(null);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const dashboardDetailGroups = useMemo(() => {
+    const normalizeKey = (value: string) => String(value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+    const buildGroupKey = (row: WorkerSurveillanceRow) => {
+      if (dashboardGroupBy === "cantiere") return normalizeKey(row.cantiere) || "NON_INDICATO";
+      if (dashboardGroupBy === "provider") return normalizeKey(row.medico) || "NON_ASSEGNATO";
+      return normalizeKey(row.mansione) || "NON_INDICATO";
+    };
+    const buildGroupLabel = (row: WorkerSurveillanceRow) => {
+      if (dashboardGroupBy === "cantiere") return String(row.cantiere ?? "").trim() || "Non indicato";
+      if (dashboardGroupBy === "provider") return String(row.medico ?? "").trim() || "Non assegnato";
+      return String(row.mansione ?? "").trim() || "Non indicato";
+    };
+
+    const byKey = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        workerIds: Set<number>;
+        counts: Record<WorkerSurveillanceRow["stato"], Set<number>>;
+      }
+    >();
+
+    const emptyCounts = () => ({
+      "idoneo": new Set<number>(),
+      "in scadenza": new Set<number>(),
+      "scaduto": new Set<number>(),
+      "da fare": new Set<number>(),
+      "programmato": new Set<number>(),
+      "sospeso": new Set<number>(),
+      "escluso": new Set<number>(),
+    });
+
+    rows.forEach((row) => {
+      const key = buildGroupKey(row);
+      const existing = byKey.get(key);
+      const group =
+        existing ??
+        (() => {
+          const created = {
+            key,
+            label: buildGroupLabel(row),
+            workerIds: new Set<number>(),
+            counts: emptyCounts(),
+          };
+          byKey.set(key, created);
+          return created;
+        })();
+
+      group.workerIds.add(row.workerId);
+      group.counts[row.stato].add(row.workerId);
+    });
+
+    const list = Array.from(byKey.values()).map((group) => {
+      const total = group.workerIds.size;
+      const counts = {
+        idoneo: group.counts["idoneo"].size,
+        inScadenza: group.counts["in scadenza"].size,
+        scaduto: group.counts["scaduto"].size,
+        daFare: group.counts["da fare"].size,
+        programmato: group.counts["programmato"].size,
+        sospeso: group.counts["sospeso"].size,
+        escluso: group.counts["escluso"].size,
+      };
+      const critico = counts.scaduto + counts.daFare;
+      return { key: group.key, label: group.label, total, counts, critico };
+    });
+
+    const filtered = dashboardOnlyCritical ? list.filter((g) => g.critico > 0) : list;
+    filtered.sort((a, b) => b.critico - a.critico || a.label.localeCompare(b.label, "it", { sensitivity: "base" }));
+    return filtered;
+  }, [dashboardGroupBy, dashboardOnlyCritical, rows]);
 
   const loadRows = useCallback(async () => {
     setIsLoading(true);
@@ -534,6 +612,20 @@ export default function HomeSorveglianzaPage() {
               className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
             >
               + Evento
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDashboardGroupBy("mansione");
+                setDashboardOnlyCritical(true);
+                setIsDashboardDetailOpen(true);
+              }}
+              data-soft="true"
+              data-tone="purple"
+              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
+              title="Dettaglio aggregato per mansione/cantiere/provider."
+            >
+              Dettaglio
             </button>
             <button
               type="button"
@@ -904,6 +996,180 @@ export default function HomeSorveglianzaPage() {
         </div>
       </section>
 
+      {isDashboardDetailOpen ? (
+        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+          <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-white px-5 py-4">
+              <div className="space-y-0.5">
+                <h2 className="text-lg font-bold text-[var(--brand-ink)]">Dettaglio cruscotto</h2>
+                <p className="text-xs text-slate-500">Conteggi su lavoratori attivi caricati in tabella.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDashboardDetailOpen(false)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
+                title="Chiudi"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="border-b border-[var(--brand-line)] px-5 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Raggruppa per</span>
+                  {(
+                    [
+                      { key: "mansione" as const, label: "Mansione" },
+                      { key: "cantiere" as const, label: "Cantiere" },
+                      { key: "provider" as const, label: "Provider" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setDashboardGroupBy(opt.key)}
+                      className={[
+                        "rounded-full px-4 py-2 text-sm font-semibold transition",
+                        dashboardGroupBy === opt.key
+                          ? "bg-[var(--brand-primary)] text-white"
+                          : "border border-[var(--brand-line)] bg-white text-slate-700 hover:bg-slate-50",
+                      ].join(" ")}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={dashboardOnlyCritical}
+                    onChange={(e) => setDashboardOnlyCritical(e.target.checked)}
+                  />
+                  Solo critici
+                </label>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <span className="text-xs text-slate-500">Totale lavoratori {meta.totalActiveEmployees}</span>
+                <span className="text-xs text-slate-500">Gruppi {dashboardDetailGroups.length}</span>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-[var(--brand-line)] bg-white">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full table-fixed text-left text-xs">
+                    <thead className="sticky top-0 z-10 bg-[var(--brand-panel)] text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="sticky left-0 z-20 w-[420px] bg-[var(--brand-panel)] px-3 py-2">
+                          {dashboardGroupBy === "provider"
+                            ? "Provider"
+                            : dashboardGroupBy === "cantiere"
+                              ? "Cantiere"
+                              : "Mansione"}
+                        </th>
+                        <th className="w-[72px] px-2 py-2 text-right">Dip</th>
+                        <th className="w-[92px] px-2 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <span className="h-2 w-2 rounded-full bg-red-600" />
+                            Critico
+                          </span>
+                        </th>
+                        <th className="w-[92px] px-2 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <span className="h-2 w-2 rounded-full bg-amber-500" />
+                            In scad.
+                          </span>
+                        </th>
+                        <th className="w-[92px] px-2 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <span className="h-2 w-2 rounded-full bg-sky-500" />
+                            Prog.
+                          </span>
+                        </th>
+                        <th className="w-[92px] px-2 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                            Idoneo
+                          </span>
+                        </th>
+                        <th className="w-[92px] px-2 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <span className="h-2 w-2 rounded-full bg-slate-500" />
+                            Sosp.
+                          </span>
+                        </th>
+                        <th className="w-[92px] px-2 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <span className="h-2 w-2 rounded-full bg-slate-500" />
+                            Escluso
+                          </span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardDetailGroups.map((g, index) => (
+                        <tr
+                          key={`${dashboardGroupBy}-${g.key}`}
+                          className={[
+                            "border-t border-[var(--brand-line)]",
+                            index % 2 === 1 ? "bg-[var(--brand-panel)]/40" : "bg-white",
+                            "hover:bg-[var(--brand-panel)]/70",
+                          ].join(" ")}
+                        >
+                          <td
+                            className={[
+                              "sticky left-0 z-10 max-w-[420px] px-3 py-2 font-semibold",
+                              index % 2 === 1 ? "bg-[var(--brand-panel)]/40" : "bg-white",
+                              "text-[var(--brand-ink)]",
+                            ].join(" ")}
+                            title={g.label}
+                          >
+                            {g.label}
+                          </td>
+                          <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">{g.total}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                            <SurveillanceStateCell count={g.critico} pct={percentage(g.critico, g.total)} />
+                          </td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                            <SurveillanceStateCell
+                              count={g.counts.inScadenza}
+                              pct={percentage(g.counts.inScadenza, g.total)}
+                            />
+                          </td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                            <SurveillanceStateCell
+                              count={g.counts.programmato}
+                              pct={percentage(g.counts.programmato, g.total)}
+                            />
+                          </td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                            <SurveillanceStateCell count={g.counts.idoneo} pct={percentage(g.counts.idoneo, g.total)} />
+                          </td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                            <SurveillanceStateCell count={g.counts.sospeso} pct={percentage(g.counts.sospeso, g.total)} />
+                          </td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                            <SurveillanceStateCell count={g.counts.escluso} pct={percentage(g.counts.escluso, g.total)} />
+                          </td>
+                        </tr>
+                      ))}
+                      {dashboardDetailGroups.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-500">
+                            Nessun dato disponibile.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <SurveillanceEventModal
         isOpen={eventModalOpen}
         token={eventModalToken}
@@ -1061,5 +1327,20 @@ export default function HomeSorveglianzaPage() {
         </section>
       ) : null}
     </div>
+  );
+}
+
+function percentage(count: number, total: number) {
+  if (!total) return "0%";
+  return `${Number(((count / total) * 100).toFixed(1))}%`;
+}
+
+function SurveillanceStateCell(props: { count: number; pct: string }) {
+  if (!props.count) return <span className="text-slate-400">0</span>;
+  return (
+    <span className="inline-flex items-center justify-end gap-2">
+      <span className="font-semibold tabular-nums text-slate-800">{props.count}</span>
+      <span className="text-[10px] text-slate-500">{props.pct}</span>
+    </span>
   );
 }
