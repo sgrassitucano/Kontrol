@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { requireModuleAccess } from "@/lib/api/access";
 import { normalizeJobCode } from "@/lib/training/normalize";
+import { cacheDelete, cacheDeleteByPrefix } from "@/lib/server-cache";
 
 export const runtime = "nodejs";
 
@@ -146,6 +147,8 @@ export async function POST() {
       jobRules: jobRulesPayload,
     });
 
+    cacheDelete("training_static_v1");
+    cacheDeleteByPrefix("training_rows_v1:");
     return NextResponse.json({
       ok: true,
       seededCourses: courseSeeds.length,

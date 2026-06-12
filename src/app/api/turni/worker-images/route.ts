@@ -423,8 +423,11 @@ export async function GET(request: Request) {
       let q = supabase.from("employees").select("id").eq("status", "attivo");
       if (responsibleCodes.length > 0) q = q.in("responsible_code", responsibleCodes);
       if (referrals.length > 0) q = q.in("referral", referrals);
-      const { data, error } = await q;
+      const { data, error } = await q.order("id").limit(maxEmployees + 1);
       if (error) throw new Error(error.message);
+      if ((data ?? []).length > maxEmployees) {
+        return NextResponse.json({ error: `Troppi lavoratori selezionati (>${maxEmployees}). Riduci i filtri.` }, { status: 400 });
+      }
       allowedEmployeeIds = Array.from(new Set((data ?? []).map((r) => (r as { id: number }).id)));
     }
     if (employeeIdsCsv.length > 0) {

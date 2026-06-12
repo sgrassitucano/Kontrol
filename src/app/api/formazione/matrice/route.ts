@@ -3,6 +3,7 @@ import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { readMansioniCsv } from "@/lib/training/mansioni";
 import { requireModuleAccess } from "@/lib/api/access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cacheDelete, cacheDeleteByPrefix } from "@/lib/server-cache";
 
 type ScopeType = "job" | "site" | "sub_site";
 
@@ -177,6 +178,8 @@ export async function POST(request: Request) {
       }
     }
 
+    cacheDelete("training_static_v1");
+    cacheDeleteByPrefix("training_rows_v1:");
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
