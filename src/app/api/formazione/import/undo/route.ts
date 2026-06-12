@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import { cacheDelete, cacheDeleteByPrefix } from "@/lib/server-cache";
 import {
   archiveImportUndoDeletedRows,
   fetchImportRunChanges,
@@ -145,6 +146,8 @@ export async function POST() {
       if (error) throw new Error(error.message);
     }
 
+    cacheDelete("training_scope_exclusions_v1");
+    cacheDeleteByPrefix("training_rows_v1:");
     await markImportRunUndone({ supabase: auth.supabase, importRunId: run.id, undoneBy: auth.userId });
 
     const deletedRows = Array.from(toDeleteByEmployeeId.values()).reduce((acc, list) => acc + list.length, 0);

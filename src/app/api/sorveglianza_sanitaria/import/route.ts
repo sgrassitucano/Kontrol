@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
 import { processMedicalSurveillanceImport } from "@/lib/import/sorveglianza";
+import { cacheDeleteByPrefix } from "@/lib/server-cache";
 
 export const runtime = "nodejs";
 
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
           })
           .eq("id", importRunId);
       }
+      cacheDeleteByPrefix("surveillance_rows_v1:");
     }
 
     return NextResponse.json(result);

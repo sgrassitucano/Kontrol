@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAnyModuleAccess, requireModuleAccess } from "@/lib/api/access";
+import { cacheDeleteByPrefix } from "@/lib/server-cache";
+import { normalizeJobCode } from "@/lib/training/normalize";
 
 export const runtime = "nodejs";
 
@@ -27,6 +29,9 @@ type RecordRow = {
 
 type ExclusionRow = { employee_id: number; is_active: boolean; note: string | null };
 type OverrideRow = { employee_id: number; requires_visit: boolean; is_active: boolean; note: string | null };
+type FreezeRow = { employee_id: number; freeze_status: string; start_date: string; end_date: string | null };
+type JobRuleRow = { job_code_norm: string; always_exempt: boolean; exempt_below_weekly_minutes: number | null };
+type ScopeRuleRow = { scope_type: "site" | "sub_site"; site_id: number | null; sub_site_id: number | null; requires_visit: boolean };
 
 function extractDisplayName(value: unknown) {
   if (!value) return "-";
@@ -38,6 +43,30 @@ function extractDisplayName(value: unknown) {
     return (value as { display_name?: string }).display_name ?? "-";
   }
   return "-";
+}
+
+function normalizeIsoDate(value: string | null | undefined) {
+  const s = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  return s;
+}
+
+function computeState(args: {
+  todayIsoDate: string;
+  thresholdIsoDate: string;
+  requiresVisit: boolean;
+  nextDueDate: string | null;
+  isPlanned: boolean;
+}) {
+  const { todayIsoDate, thresholdIsoDate, requiresVisit, nextDueDate, isPlanned } = args;
+  if (!requiresVisit) return "idoneo" as const;
+  if (!nextDueDate) return isPlanned ? ("programmato" as const) : ("da fare" as const);
+  const dueIso = normalizeIsoDate(nextDueDate);
+  if (!dueIso) return isPlanned ? ("programmato" as const) : ("da fare" as const);
+  if (dueIso < todayIsoDate) return "scaduto" as const;
+  if (isPlanned) return "programmato" as const;
+  if (dueIso <= thresholdIsoDate) return "in scadenza" as const;
+  return "idoneo" as const;
 }
 
 export async function GET(request: Request) {
@@ -52,15 +81,26 @@ export async function GET(request: Request) {
     }
 
     const dataSupabase = auth.supabase;
+    const employee = await dataSupabase
+      .from("employees")
+      .select(
+        "id,matricola,first_name,last_name,job_title,theoretical_weekly_minutes,site_id,sub_site_id,sites(display_name),sub_sites(display_name)",
+      )
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (employee.error) throw new Error(employee.error.message);
+    if (!employee.data) return NextResponse.json({ error: "Lavoratore non trovato." }, { status: 404 });
 
-    const [employee, record, exclusion, override] = await Promise.all([
-      dataSupabase
-        .from("employees")
-        .select(
-          "id,matricola,first_name,last_name,job_title,theoretical_weekly_minutes,site_id,sub_site_id,sites(display_name),sub_sites(display_name)",
-        )
-        .eq("id", employeeId)
-        .maybeSingle(),
+    const e = employee.data as unknown as DetailEmployeeRow;
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const thresholdDate = new Date(today);
+    thresholdDate.setDate(thresholdDate.getDate() + 30);
+    const todayIsoDate = today.toISOString().slice(0, 10);
+    const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
+    const jobCodeNorm = normalizeJobCode(e.job_title ?? "");
+
+    const [record, exclusion, override, freezeRows, jobRule, scopeRules] = await Promise.all([
       dataSupabase
         .from("medical_surveillance_records")
         .select("employee_id,provider,is_planned,next_due_date,limitations,notes")
@@ -78,18 +118,66 @@ export async function GET(request: Request) {
         .eq("employee_id", employeeId)
         .eq("is_active", true)
         .maybeSingle(),
+      dataSupabase
+        .from("employee_freeze_periods")
+        .select("employee_id,freeze_status,start_date,end_date")
+        .eq("employee_id", employeeId),
+      dataSupabase
+        .from("medical_surveillance_job_rules")
+        .select("job_code_norm,always_exempt,exempt_below_weekly_minutes")
+        .eq("job_code_norm", jobCodeNorm)
+        .maybeSingle(),
+      dataSupabase
+        .from("medical_surveillance_scope_rules")
+        .select("scope_type,site_id,sub_site_id,requires_visit")
+        .or(
+          typeof e.sub_site_id === "number" && e.sub_site_id
+            ? `and(scope_type.eq.sub_site,sub_site_id.eq.${e.sub_site_id}),and(scope_type.eq.site,site_id.eq.${e.site_id})`
+            : `and(scope_type.eq.site,site_id.eq.${e.site_id})`,
+        ),
     ]);
 
-    if (employee.error) throw new Error(employee.error.message);
-    if (!employee.data) return NextResponse.json({ error: "Lavoratore non trovato." }, { status: 404 });
     if (record.error) throw new Error(record.error.message);
     if (exclusion.error) throw new Error(exclusion.error.message);
     if (override.error) throw new Error(override.error.message);
+    if (freezeRows.error) throw new Error(freezeRows.error.message);
+    if (jobRule.error) throw new Error(jobRule.error.message);
+    if (scopeRules.error) throw new Error(scopeRules.error.message);
 
-    const e = employee.data as unknown as DetailEmployeeRow;
     const r = (record.data ?? null) as unknown as RecordRow | null;
     const ex = (exclusion.data ?? null) as unknown as ExclusionRow | null;
     const ov = (override.data ?? null) as unknown as OverrideRow | null;
+    const freeze = ((freezeRows.data ?? []) as FreezeRow[]).find((row) => {
+      const start = normalizeIsoDate(row.start_date);
+      const end = row.end_date ? normalizeIsoDate(row.end_date) : null;
+      if (!start) return false;
+      if (start > todayIsoDate) return false;
+      if (end && end < todayIsoDate) return false;
+      return true;
+    }) ?? null;
+    const jr = (jobRule.data ?? null) as unknown as JobRuleRow | null;
+    const sr = (scopeRules.data ?? []) as unknown as ScopeRuleRow[];
+    const subSiteRule =
+      typeof e.sub_site_id === "number" && e.sub_site_id
+        ? sr.find((row) => row.scope_type === "sub_site" && row.sub_site_id === e.sub_site_id) ?? null
+        : null;
+    const siteRule = sr.find((row) => row.scope_type === "site" && row.site_id === e.site_id) ?? null;
+    const excludedByJob =
+      Boolean(jr?.always_exempt) ||
+      (typeof jr?.exempt_below_weekly_minutes === "number" && e.theoretical_weekly_minutes < jr.exempt_below_weekly_minutes);
+    const derivedRequiresVisit = subSiteRule?.requires_visit ?? siteRule?.requires_visit ?? !excludedByJob;
+    const requiresVisit = ex?.is_active ? false : ov ? ov.requires_visit : derivedRequiresVisit;
+    const baseState =
+      freeze && !ex?.is_active
+        ? ("sospeso" as const)
+        : computeState({
+            todayIsoDate,
+            thresholdIsoDate,
+            requiresVisit,
+            nextDueDate: r?.next_due_date ?? null,
+            isPlanned: Boolean(r?.is_planned ?? false),
+          });
+    const state = ex?.is_active ? "escluso" : baseState;
 
     return NextResponse.json({
       employee: {
@@ -105,6 +193,9 @@ export async function GET(request: Request) {
       record: r,
       exclusion: ex,
       override: ov,
+      state,
+      requiresVisit,
+      freezeStatus: freeze?.freeze_status ?? null,
     });
   } catch (error) {
     return NextResponse.json(
@@ -206,6 +297,7 @@ export async function PATCH(request: Request) {
       throw new Error((firstError as { error?: { message: string } }).error?.message);
     }
 
+    cacheDeleteByPrefix("surveillance_rows_v1:");
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

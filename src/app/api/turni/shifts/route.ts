@@ -387,7 +387,7 @@ export async function POST(request: Request) {
       try {
         await replaceBreaksAtomic({ supabase, shiftId, breaks: normalizedBreaks });
       } catch (err) {
-        await supabase.from("turni_employee_shifts").update({ state: "cancelled" }).eq("id", shiftId);
+        await supabase.from("turni_employee_shifts").delete().eq("id", shiftId);
         throw err;
       }
     }

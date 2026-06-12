@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseStrictIsoDateToIso } from "@/lib/it-date";
 
 type ImportMode = "preview" | "commit";
 
@@ -569,7 +570,7 @@ async function commitImport(args: {
 
   if (importRunId && errors.length > 0) {
     for (const part of chunkArray(errors, 500)) {
-      await supabase.from("import_run_errors").insert(
+      const { error } = await supabase.from("import_run_errors").insert(
         part.map((error) => ({
           import_run_id: importRunId,
           row_number: error.rowNumber,
@@ -581,6 +582,7 @@ async function commitImport(args: {
           error_message: error.errorMessage,
         })),
       );
+      if (error) throw new Error(error.message);
     }
   }
 
@@ -776,7 +778,7 @@ async function commitImport(args: {
 
     if (commitErrors.length > 0) {
       for (const part of chunkArray(commitErrors, 500)) {
-        await supabase.from("import_run_errors").insert(
+        const { error } = await supabase.from("import_run_errors").insert(
           part.map((error) => ({
             import_run_id: importRunId,
             row_number: error.rowNumber,
@@ -788,6 +790,7 @@ async function commitImport(args: {
             error_message: error.errorMessage,
           })),
         );
+        if (error) throw new Error(error.message);
       }
     }
   }
@@ -1023,29 +1026,32 @@ function toTitleCase(value: string) {
 }
 
 function parseDateToIso(value: unknown) {
+  const toValidIso = (yyyy: string | number, mm: string | number, dd: string | number) =>
+    parseStrictIsoDateToIso(
+      `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`,
+    );
+
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    return parseStrictIsoDateToIso(value.toISOString().slice(0, 10));
   }
 
   const str = cleanCell(value);
   if (!str) return null;
 
   const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) return str;
+  if (isoMatch) return parseStrictIsoDateToIso(str);
 
   const dmyMatch = str.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
   if (dmyMatch) {
     const [, day, month, year] = dmyMatch;
-    return `${year}-${month}-${day}`;
+    return toValidIso(year, month, day);
   }
 
   const numeric = Number(str);
   if (!Number.isNaN(numeric) && numeric > 59) {
     const parsed = XLSX.SSF.parse_date_code(numeric);
     if (parsed) {
-      const month = String(parsed.m).padStart(2, "0");
-      const day = String(parsed.d).padStart(2, "0");
-      return `${parsed.y}-${month}-${day}`;
+      return toValidIso(parsed.y, parsed.m, parsed.d);
     }
   }
 

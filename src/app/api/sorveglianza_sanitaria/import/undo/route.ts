@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import { cacheDeleteByPrefix } from "@/lib/server-cache";
 import {
   archiveImportUndoDeletedRows,
   fetchImportRunChanges,
@@ -45,13 +46,20 @@ export async function POST() {
 
     const currentByEmployeeId = new Map<
       number,
-      { employee_id: number; requires_visit: boolean; next_due_date: string | null; limitations: string | null; notes: string | null }
+      {
+        employee_id: number;
+        provider: string | null;
+        is_planned: boolean;
+        next_due_date: string | null;
+        limitations: string | null;
+        notes: string | null;
+      }
     >();
     for (let i = 0; i < employeeIds.length; i += 500) {
       const part = employeeIds.slice(i, i + 500);
       const { data, error } = await auth.supabase
         .from("medical_surveillance_records")
-        .select("employee_id,requires_visit,next_due_date,limitations,notes")
+        .select("employee_id,provider,is_planned,next_due_date,limitations,notes")
         .in("employee_id", part);
       if (error) throw new Error(error.message);
       (data ?? []).forEach((row) => {
@@ -59,7 +67,7 @@ export async function POST() {
       });
     }
 
-    const comparableFields = ["requires_visit", "next_due_date", "limitations", "notes"];
+    const comparableFields = ["provider", "is_planned", "next_due_date", "limitations", "notes"];
     const toDelete: number[] = [];
     const deletedRowArchives: Array<{
       rowKey: Record<string, unknown>;
@@ -67,7 +75,8 @@ export async function POST() {
     }> = [];
     const toRestore: Array<{
       employee_id: number;
-      requires_visit: boolean;
+      provider: string | null;
+      is_planned: boolean;
       next_due_date: string | null;
       limitations: string | null;
       notes: string | null;
@@ -89,7 +98,8 @@ export async function POST() {
             rowKey: { employee_id: employeeId },
             rowData: {
               employee_id: current.employee_id,
-              requires_visit: current.requires_visit,
+              provider: current.provider,
+              is_planned: current.is_planned,
               next_due_date: current.next_due_date,
               limitations: current.limitations,
               notes: current.notes,
@@ -113,7 +123,8 @@ export async function POST() {
 
       toRestore.push({
         employee_id: employeeId,
-        requires_visit: Boolean(before.requires_visit),
+        provider: (before.provider as string | null) ?? null,
+        is_planned: Boolean(before.is_planned),
         next_due_date: (before.next_due_date as string | null) ?? null,
         limitations: (before.limitations as string | null) ?? null,
         notes: (before.notes as string | null) ?? null,
@@ -142,6 +153,7 @@ export async function POST() {
       if (error) throw new Error(error.message);
     }
 
+    cacheDeleteByPrefix("surveillance_rows_v1:");
     await markImportRunUndone({ supabase: auth.supabase, importRunId: run.id, undoneBy: auth.userId });
 
     return NextResponse.json({

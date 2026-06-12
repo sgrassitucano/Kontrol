@@ -643,7 +643,7 @@ function parseWorkbook(
     });
   });
 
-  return { validRows, errors, totalRows: validRows.length + errors.length };
+  return { validRows, errors, totalRows: dataRows.length };
 }
 
 async function buildEmployeeLookup(supabase: SupabaseClient, rows: RawRow[]) {

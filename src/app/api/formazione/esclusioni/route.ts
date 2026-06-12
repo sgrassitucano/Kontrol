@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import { cacheDeleteByPrefix } from "@/lib/server-cache";
 
 export const runtime = "nodejs";
 
@@ -124,6 +125,7 @@ export async function POST(request: Request) {
           { onConflict: "employee_id" },
         );
       if (error) throw new Error(error.message);
+      cacheDeleteByPrefix("training_rows_v1:");
       return NextResponse.json({ ok: true });
     }
 
@@ -161,6 +163,7 @@ export async function POST(request: Request) {
           { onConflict: "employee_id,course_id" },
         );
       if (error) throw new Error(error.message);
+      cacheDeleteByPrefix("training_rows_v1:");
       return NextResponse.json({ ok: true });
     }
 
@@ -200,6 +203,7 @@ export async function DELETE(request: Request) {
       .eq("course_id", courseId);
     if (error) throw new Error(error.message);
 
+    cacheDeleteByPrefix("training_rows_v1:");
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

@@ -3,6 +3,8 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+const MAX_EXISTING_SHIFTS = 5000;
+
 function normalizeText(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -89,8 +91,12 @@ export async function POST(request: Request) {
       .select("id,employee_id,site_id,start_at,end_at")
       .eq("employee_id", employeeId)
       .lt("start_at", end.toISOString())
-      .gt("end_at", start.toISOString());
+      .gt("end_at", start.toISOString())
+      .limit(MAX_EXISTING_SHIFTS + 1);
     if (existingError) throw new Error(existingError.message);
+    if ((existingData ?? []).length > MAX_EXISTING_SHIFTS) {
+      return NextResponse.json({ error: `Troppi turni esistenti nel periodo (> ${MAX_EXISTING_SHIFTS}). Restringi il range.` }, { status: 400 });
+    }
 
     const existingKey = new Set<string>();
     for (const r of (existingData ?? []) as Array<{ employee_id: number; site_id: number; start_at: string; end_at: string }>) {
@@ -121,6 +127,7 @@ export async function POST(request: Request) {
       for (const slot of daySlots) {
         const startAt = new Date(`${dayIso}T${slot.start_time.slice(0, 5)}:00`);
         const endAt = new Date(`${dayIso}T${slot.end_time.slice(0, 5)}:00`);
+        if (endAt <= startAt) endAt.setDate(endAt.getDate() + 1);
         const startIso = startAt.toISOString();
         const endIso = endAt.toISOString();
         const key = `${employeeId}:${slot.site_id}:${startIso}:${endIso}`;

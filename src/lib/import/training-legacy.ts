@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseStrictIsoDateToIso } from "@/lib/it-date";
 
 type LegacyPreviewParams = {
   fileBuffer: ArrayBuffer;
@@ -149,8 +150,9 @@ export async function previewLegacyTrainingImport({
     fetchAllCourses(supabase),
   ]);
 
+  const activeEmployees = employees.filter((employee) => employee.status !== "dimesso");
   const employeeByMatricola = new Map<string, EmployeeRow>();
-  for (const row of employees) {
+  for (const row of activeEmployees) {
     const key = normalizeMatricola(row.matricola);
     if (!key) continue;
     if (!employeeByMatricola.has(key)) {
@@ -721,29 +723,32 @@ function normalizeText(value: string) {
 }
 
 function parseDateToIso(value: unknown) {
+  const toValidIso = (yyyy: string | number, mm: string | number, dd: string | number) =>
+    parseStrictIsoDateToIso(
+      `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`,
+    );
+
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    return parseStrictIsoDateToIso(value.toISOString().slice(0, 10));
   }
 
   const str = cleanCell(value);
   if (!str) return null;
 
   const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) return str;
+  if (isoMatch) return parseStrictIsoDateToIso(str);
 
   const dmyMatch = str.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
   if (dmyMatch) {
     const [, day, month, year] = dmyMatch;
-    return `${year}-${month}-${day}`;
+    return toValidIso(year, month, day);
   }
 
   const numeric = Number(str);
   if (!Number.isNaN(numeric) && numeric > 59) {
     const parsed = XLSX.SSF.parse_date_code(numeric);
     if (parsed) {
-      const month = String(parsed.m).padStart(2, "0");
-      const day = String(parsed.d).padStart(2, "0");
-      return `${parsed.y}-${month}-${day}`;
+      return toValidIso(parsed.y, parsed.m, parsed.d);
     }
   }
 

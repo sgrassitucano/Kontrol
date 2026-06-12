@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { commitLegacyTrainingImport, previewLegacyTrainingImport } from "@/lib/import/training-legacy";
 import { requireModuleAccess } from "@/lib/api/access";
+import { cacheDelete, cacheDeleteByPrefix } from "@/lib/server-cache";
 
 export const runtime = "nodejs";
 
@@ -94,6 +95,8 @@ export async function POST(request: Request) {
           })
           .eq("id", importRunId);
       }
+      cacheDelete("training_scope_exclusions_v1");
+      cacheDeleteByPrefix("training_rows_v1:");
     }
 
     return NextResponse.json(result);

@@ -4,6 +4,9 @@ import { requireModuleAccess } from "@/lib/api/access";
 
 export const runtime = "nodejs";
 
+const MAX_ASSIGNMENTS = 5000;
+const MAX_EXISTING_SHIFTS = 20000;
+
 function normalizeText(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -142,7 +145,10 @@ export async function POST(request: Request) {
     const { data: assignmentsData, error: assignmentsError } = await supabase
       .from("turni_employee_site_assignments")
       .select("id,employee_id,sub_site_id,start_date,end_date")
-      .eq("site_id", siteId);
+      .eq("site_id", siteId)
+      .lte("start_date", endDate)
+      .or(`end_date.is.null,end_date.gte.${startDate}`)
+      .limit(MAX_ASSIGNMENTS + 1);
     if (assignmentsError) throw new Error(assignmentsError.message);
 
     const assignments = (assignmentsData ?? []) as Array<{
@@ -151,6 +157,9 @@ export async function POST(request: Request) {
       start_date: string;
       end_date: string | null;
     }>;
+    if (assignments.length > MAX_ASSIGNMENTS) {
+      return NextResponse.json({ error: `Troppi assegnamenti nel periodo (> ${MAX_ASSIGNMENTS}). Restringi il range.` }, { status: 400 });
+    }
 
     const scopedAssignments =
       typeof subSiteId === "number" && Number.isFinite(subSiteId)
@@ -168,8 +177,12 @@ export async function POST(request: Request) {
       .eq("site_id", siteId)
       .in("employee_id", employeeIds)
       .lt("start_at", end.toISOString())
-      .gt("end_at", start.toISOString());
+      .gt("end_at", start.toISOString())
+      .limit(MAX_EXISTING_SHIFTS + 1);
     if (existingError) throw new Error(existingError.message);
+    if ((existingData ?? []).length > MAX_EXISTING_SHIFTS) {
+      return NextResponse.json({ error: `Troppi turni esistenti nel periodo (> ${MAX_EXISTING_SHIFTS}). Restringi il range.` }, { status: 400 });
+    }
 
     const existingKey = new Set<string>();
     for (const r of (existingData ?? []) as Array<{ employee_id: number; site_id: number; start_at: string; end_at: string }>) {
@@ -221,6 +234,7 @@ export async function POST(request: Request) {
         for (const slot of daySlots) {
           const startAt = new Date(`${dayIso}T${slot.start_time.slice(0, 5)}:00`);
           const endAt = new Date(`${dayIso}T${slot.end_time.slice(0, 5)}:00`);
+          if (endAt <= startAt) endAt.setDate(endAt.getDate() + 1);
           const startIso = startAt.toISOString();
           const endIso = endAt.toISOString();
           const key = `${employeeId}:${siteId}:${startIso}:${endIso}`;

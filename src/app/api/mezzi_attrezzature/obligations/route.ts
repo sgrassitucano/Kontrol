@@ -217,6 +217,9 @@ export async function PATCH(request: Request) {
     if (!body.obligationId) {
       return NextResponse.json({ error: "obligationId mancante." }, { status: 400 });
     }
+    if (body.nextDueDate !== undefined && body.nextDueDate !== null && !normalizeIsoDate(body.nextDueDate)) {
+      return NextResponse.json({ error: "nextDueDate non valida (atteso YYYY-MM-DD)." }, { status: 400 });
+    }
 
     const payload = {
       next_due_date: body.nextDueDate ? normalizeIsoDate(body.nextDueDate) : null,
@@ -255,6 +258,9 @@ export async function POST(request: Request) {
     };
 
     const doneDate = normalizeIsoDate(body.doneDate);
+    if (body.nextDueDate !== undefined && body.nextDueDate !== null && !normalizeIsoDate(body.nextDueDate)) {
+      return NextResponse.json({ error: "nextDueDate non valida (atteso YYYY-MM-DD)." }, { status: 400 });
+    }
     const nextDueDate = body.nextDueDate ? normalizeIsoDate(body.nextDueDate) : null;
     if (!body.obligationId || !doneDate) {
       return NextResponse.json({ error: "Dati mancanti." }, { status: 400 });

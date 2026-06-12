@@ -332,7 +332,7 @@ export default function HomeSorveglianzaPage() {
     return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   }
 
-  const criticoCount = meta.counts.scaduto + meta.counts.daFare + meta.counts.programmato;
+  const criticoCount = meta.counts.scaduto + meta.counts.daFare;
   const excludedCount = meta.excludedByRule;
   const totalWorkers = meta.totalActiveEmployees;
 

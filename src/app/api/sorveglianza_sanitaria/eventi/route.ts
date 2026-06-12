@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
 import { parseStrictIsoDateToIso } from "@/lib/it-date";
+import { cacheDeleteByPrefix } from "@/lib/server-cache";
 
 export const runtime = "nodejs";
 
@@ -164,6 +165,7 @@ export async function POST(request: Request) {
     const firstError = results.find((r) => r.error)?.error ?? null;
     if (firstError) return NextResponse.json({ error: firstError }, { status: 500 });
 
+    cacheDeleteByPrefix("surveillance_rows_v1:");
     return NextResponse.json({
       ok: true,
       employees: employeeIds.length,

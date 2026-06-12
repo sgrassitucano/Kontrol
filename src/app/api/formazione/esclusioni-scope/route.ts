@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import { cacheDelete, cacheDeleteByPrefix } from "@/lib/server-cache";
 
 type ScopeType = "site" | "sub_site";
 
@@ -133,6 +134,8 @@ export async function POST(request: Request) {
       if (error) throw new Error(error.message);
     }
 
+    cacheDelete("training_scope_exclusions_v1");
+    cacheDeleteByPrefix("training_rows_v1:");
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

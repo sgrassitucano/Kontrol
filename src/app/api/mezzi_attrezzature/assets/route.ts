@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,26 @@ function extractDisplayName(value: unknown) {
 
 function normalizeText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+async function resolveValidatedSubSiteId(args: {
+  supabase: SupabaseClient;
+  siteId: number | null;
+  subSiteId: number | null;
+}) {
+  const { supabase, siteId, subSiteId } = args;
+  if (subSiteId === null) return null;
+  if (siteId === null) throw new Error("siteId obbligatorio quando è valorizzato subSiteId.");
+  const { data, error } = await supabase
+    .from("sub_sites")
+    .select("id,site_id")
+    .eq("id", subSiteId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const row = data as { id: number; site_id: number } | null;
+  if (!row) throw new Error("subSiteId non valido.");
+  if (row.site_id !== siteId) throw new Error("Il sottocantiere non appartiene al cantiere selezionato.");
+  return subSiteId;
 }
 
 const DEFAULT_LIMIT = 5000;
@@ -152,6 +173,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ownershipType non valido." }, { status: 400 });
     }
 
+    const siteId = typeof body.siteId === "number" ? body.siteId : null;
+    const subSiteId = typeof body.subSiteId === "number" ? body.subSiteId : null;
+    const validatedSubSiteId = await resolveValidatedSubSiteId({ supabase, siteId, subSiteId });
+
     const payload = {
       asset_type: assetType,
       ownership_type: ownershipType,
@@ -164,8 +189,8 @@ export async function POST(request: Request) {
       internal_code: normalizeText(body.internalCode) || null,
       serial_number: normalizeText(body.serialNumber) || null,
       registration_date: body.registrationDate ?? null,
-      site_id: typeof body.siteId === "number" ? body.siteId : null,
-      sub_site_id: typeof body.subSiteId === "number" ? body.subSiteId : null,
+      site_id: siteId,
+      sub_site_id: validatedSubSiteId,
       rental_supplier: normalizeText(body.rentalSupplier) || null,
       rental_start_date: body.rentalStartDate ?? null,
       rental_end_date: body.rentalEndDate ?? null,

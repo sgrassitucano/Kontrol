@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
 import { parseStrictItDateToIso } from "@/lib/it-date";
+import { cacheDeleteByPrefix } from "@/lib/server-cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -705,6 +706,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
       updatedRecords = rowsToUpsert.length;
+      cacheDeleteByPrefix("surveillance_rows_v1:");
     }
 
     const errorsForRun = [...errors];

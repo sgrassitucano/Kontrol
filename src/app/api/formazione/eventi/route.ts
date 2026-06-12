@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireModuleAccess } from "@/lib/api/access";
 import { parseStrictIsoDateToIso } from "@/lib/it-date";
+import { cacheDeleteByPrefix } from "@/lib/server-cache";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,11 @@ async function clearCourseExclusions(args: {
       .eq("is_active", true);
     if (error) throw new Error(error.message);
   }
+}
+
+function successJson(payload: Record<string, unknown>) {
+  cacheDeleteByPrefix("training_rows_v1:");
+  return NextResponse.json(payload);
 }
 
 export async function POST(request: Request) {
@@ -140,7 +146,7 @@ export async function POST(request: Request) {
         );
         if (noteError) return NextResponse.json({ error: noteError.message }, { status: 500 });
       }
-      return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
+      return successJson({ ok: true, processed: employeeIds.length, skipped: 0 });
     }
 
     if (type === "ANNULLA") {
@@ -289,7 +295,7 @@ export async function POST(request: Request) {
         }
       }
 
-      return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
+      return successJson({ ok: true, processed: employeeIds.length, skipped: 0 });
     }
 
     if (type === "RIMUOVI_PROGRAMMATO") {
@@ -329,7 +335,7 @@ export async function POST(request: Request) {
         if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
       }
 
-      return NextResponse.json({ ok: true, processed: toClear.length, skipped: employeeIds.length - toClear.length });
+      return successJson({ ok: true, processed: toClear.length, skipped: employeeIds.length - toClear.length });
     }
 
     if (type === "DA_FARE") {
@@ -388,7 +394,7 @@ export async function POST(request: Request) {
         if (chunkError) return NextResponse.json({ error: chunkError.message }, { status: 500 });
       }
 
-      return NextResponse.json({ ok: true, processed: toWrite.length, skipped: completedIds.size });
+      return successJson({ ok: true, processed: toWrite.length, skipped: completedIds.size });
     }
 
     if (type === "MODIFICA_DATA") {
@@ -465,7 +471,7 @@ export async function POST(request: Request) {
         }
       }
 
-      return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
+      return successJson({ ok: true, processed: employeeIds.length, skipped: 0 });
     }
 
     const expiryDate = dateIso ? computeExpiryFromCompletion(dateIso, course as { validity_years: number | null; is_unlimited: boolean }) : null;
@@ -491,7 +497,7 @@ export async function POST(request: Request) {
       if (writeError) return NextResponse.json({ error: writeError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, processed: employeeIds.length, skipped: 0 });
+    return successJson({ ok: true, processed: employeeIds.length, skipped: 0 });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore salvataggio evento." },

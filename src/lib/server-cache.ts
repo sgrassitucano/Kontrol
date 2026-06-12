@@ -32,3 +32,11 @@ export function cacheDelete(key: string) {
   store.delete(key);
 }
 
+export function cacheDeleteByPrefix(prefix: string) {
+  const store = getStore();
+  for (const key of store.keys()) {
+    if (key.startsWith(prefix)) {
+      store.delete(key);
+    }
+  }
+}

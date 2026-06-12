@@ -91,6 +91,9 @@ type MedicalDetail = {
   } | null;
   exclusion: { employee_id: number; is_active: boolean; note: string | null } | null;
   override: { employee_id: number; requires_visit: boolean; is_active: boolean; note: string | null } | null;
+  state?: "idoneo" | "in scadenza" | "scaduto" | "da fare" | "programmato" | "sospeso" | "escluso";
+  requiresVisit?: boolean;
+  freezeStatus?: string | null;
 };
 
 export default function HomeLavoratoriPage() {
@@ -225,6 +228,7 @@ export default function HomeLavoratoriPage() {
 
   const medicalState = (detail: MedicalDetail | null) => {
     if (!detail) return "da fare" as const;
+    if (detail.state) return detail.state;
     if (detail.exclusion?.is_active) return "escluso" as const;
     if (detail.override?.is_active && detail.override.requires_visit === false) return "idoneo" as const;
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -282,7 +286,15 @@ export default function HomeLavoratoriPage() {
       const response = await fetch(
         `/api/sorveglianza_sanitaria/lavoratore?employeeId=${encodeURIComponent(String(employee.workerId))}`,
       );
-      const body = (await response.json()) as { record?: MedicalDetail["record"]; exclusion?: MedicalDetail["exclusion"]; override?: MedicalDetail["override"]; error?: string };
+      const body = (await response.json()) as {
+        record?: MedicalDetail["record"];
+        exclusion?: MedicalDetail["exclusion"];
+        override?: MedicalDetail["override"];
+        state?: MedicalDetail["state"];
+        requiresVisit?: boolean;
+        freezeStatus?: string | null;
+        error?: string;
+      };
       if (!response.ok || body.error) {
         throw new Error(body.error ?? "Errore caricamento visita medica.");
       }
@@ -290,6 +302,9 @@ export default function HomeLavoratoriPage() {
         record: (body.record ?? null) as MedicalDetail["record"],
         exclusion: (body.exclusion ?? null) as MedicalDetail["exclusion"],
         override: (body.override ?? null) as MedicalDetail["override"],
+        state: body.state,
+        requiresVisit: body.requiresVisit,
+        freezeStatus: body.freezeStatus ?? null,
       });
     } catch (err) {
       setMedicalError(err instanceof Error ? err.message : "Errore caricamento visita medica.");
@@ -640,6 +655,9 @@ export default function HomeLavoratoriPage() {
                           <div className="mt-1 text-xs text-slate-500">
                             Programmato: {medicalDetail?.record?.is_planned ? "si" : "no"}
                           </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            Visita richiesta: {medicalDetail?.requiresVisit ? "SI" : "NO"}
+                          </div>
                         </div>
                         <div className="rounded-2xl border border-[var(--brand-line)] bg-white p-4">
                           <div className="text-xs font-semibold text-slate-700">Note / Limitazioni</div>
@@ -652,6 +670,11 @@ export default function HomeLavoratoriPage() {
                           {medicalDetail?.override?.is_active ? (
                             <div className="mt-3 text-xs font-semibold text-slate-700">
                               Override: {medicalDetail.override.requires_visit ? "visita SI" : "visita NO"}
+                            </div>
+                          ) : null}
+                          {medicalDetail?.freezeStatus ? (
+                            <div className="mt-3 text-xs font-semibold text-slate-700">
+                              Freeze: {medicalDetail.freezeStatus}
                             </div>
                           ) : null}
                           {medicalDetail?.exclusion?.is_active ? (
