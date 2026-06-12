@@ -339,7 +339,7 @@ export async function GET(request: Request) {
       const isExcludedManual = excludedEmployeeIdSet.has(employee.id);
       const isExcluded = isExcludedFreeze || excludedByJob || isExcludedManual;
       if (isExcluded) excludedByRule += 1;
-      if (isExcluded && !includeExcluded) continue;
+      if (isExcluded && !includeExcluded && !query) continue;
 
       const record = surveillanceByEmployeeId.get(employee.id) ?? null;
       const override = overridesByEmployeeId.get(employee.id) ?? null;

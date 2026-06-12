@@ -320,6 +320,7 @@ export async function GET(request: Request) {
     const shouldExcludeEmployee = (employee: EmployeeRow) => {
       if (!applyFormazioneExclusions) return false;
       if (includeExcluded) return false;
+      if (query) return false;
       return isEmployeeExcludedByScopeForList(employee);
     };
 
