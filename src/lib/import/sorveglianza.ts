@@ -125,6 +125,8 @@ export function makeMedicalSurveillanceUpsertsSafe(args: {
   rows: MedicalSurveillanceUpsertRow[];
   existingByEmployeeId: Map<number, ExistingMedicalSurveillanceRow>;
 }) {
+  let skippedOlderDueDates = 0;
+
   const safeRows = args.rows.map((row) => {
     const out: MedicalSurveillanceUpsertRow = { ...row };
 
@@ -140,10 +142,20 @@ export function makeMedicalSurveillanceUpsertsSafe(args: {
     const candNotes = String(out.notes ?? "").trim();
     if (!candNotes) delete out.notes;
 
+    const existing = args.existingByEmployeeId.get(out.employee_id) ?? null;
+    if (existing && out.requires_visit && existing.requires_visit) {
+      const candDue = out.next_due_date ?? null;
+      const prevDue = existing.next_due_date ?? null;
+      if (candDue && prevDue && candDue > prevDue) {
+        delete out.next_due_date;
+        skippedOlderDueDates += 1;
+      }
+    }
+
     return out;
   });
 
-  return { rows: safeRows, skippedOlderDueDates: 0 };
+  return { rows: safeRows, skippedOlderDueDates };
 }
 
 export async function processMedicalSurveillanceImport({
@@ -272,7 +284,7 @@ export async function processMedicalSurveillanceImport({
         lastName: "",
         firstName: "",
         errorType: "skipped_older_due_date",
-        errorMessage: `Saltate ${skippedOlderDueDates} scadenze più vecchie rispetto a quelle già presenti.`,
+        errorMessage: `Saltate ${skippedOlderDueDates} scadenze più alte rispetto a quelle già presenti.`,
       });
     }
 

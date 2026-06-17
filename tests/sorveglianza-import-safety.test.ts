@@ -44,6 +44,39 @@ test("upsert safe: il file puo correggere una scadenza piu alta salvata male", (
   assert.equal(rows[0].notes, "NUOVE");
 });
 
+test("upsert safe: non peggiora una scadenza gia piu vicina (file posticipa)", () => {
+  const existingByEmployeeId = new Map([
+    [
+      1,
+      {
+        employee_id: 1,
+        requires_visit: true,
+        next_due_date: "2026-07-01",
+        limitations: null,
+        notes: null,
+      },
+    ],
+  ]);
+
+  const { rows, skippedOlderDueDates } = makeMedicalSurveillanceUpsertsSafe({
+    rows: [
+      {
+        employee_id: 1,
+        requires_visit: true,
+        next_due_date: "2027-01-01",
+        limitations: null,
+        notes: null,
+        created_by: null,
+      },
+    ],
+    existingByEmployeeId,
+  });
+
+  assert.equal(skippedOlderDueDates, 1);
+  assert.equal(rows.length, 1);
+  assert.equal("next_due_date" in rows[0], false);
+});
+
 test("upsert safe: non azzera scadenza quando manca nel file (visita SI)", () => {
   const existingByEmployeeId = new Map([
     [

@@ -298,9 +298,29 @@ export async function makePdfImportUpsertsSafe(args: {
     upsert: { employee_id: number; created_by: string | null; next_due_date?: string | null; limitations?: string | null };
   }>;
 }) {
-  const { rows } = args;
+  const { rows, supabase } = args;
 
+  let skippedOlderDueDates = 0;
   const safeRows: typeof rows = [];
+
+  const employeeIds = Array.from(new Set(rows.map((r) => r.upsert.employee_id)));
+  const existingByEmployeeId = new Map<number, { next_due_date: string | null }>();
+
+  const chunkSize = 500;
+  for (let i = 0; i < employeeIds.length; i += chunkSize) {
+    const part = employeeIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from("medical_surveillance_records")
+      .select("employee_id,next_due_date")
+      .in("employee_id", part);
+    if (error) throw new Error(error.message);
+    (data ?? []).forEach((row) => {
+      existingByEmployeeId.set(
+        (row as { employee_id: number }).employee_id,
+        row as { next_due_date: string | null },
+      );
+    });
+  }
 
   rows.forEach((row) => {
     const out = { ...row.upsert };
@@ -308,11 +328,19 @@ export async function makePdfImportUpsertsSafe(args: {
     const candLim = String(out.limitations ?? "").trim();
     if (!candLim) delete out.limitations;
 
+    const existing = existingByEmployeeId.get(out.employee_id) ?? null;
+    const candDue = out.next_due_date ?? null;
+    const prevDue = existing?.next_due_date ?? null;
+    if (candDue && prevDue && candDue > prevDue) {
+      delete out.next_due_date;
+      skippedOlderDueDates += 1;
+    }
+
     if (!out.next_due_date && !out.limitations) return;
     safeRows.push({ page: row.page, upsert: out });
   });
 
-  return { rows: safeRows, skippedOlderDueDates: 0 };
+  return { rows: safeRows, skippedOlderDueDates };
 }
 
 export async function insertImportRunErrors(args: {
@@ -482,7 +510,7 @@ export async function POST(request: Request) {
           page: 0,
           taxCode: "",
           errorType: "skipped_older_due_date",
-          errorMessage: `Saltate ${safe.skippedOlderDueDates} scadenze più vecchie rispetto a quelle già presenti.`,
+          errorMessage: `Saltate ${safe.skippedOlderDueDates} scadenze più alte rispetto a quelle già presenti.`,
         });
       }
 
@@ -521,7 +549,7 @@ export async function POST(request: Request) {
         errors: errors.slice(0, 200),
         message:
           safe.skippedOlderDueDates > 0
-            ? `Import PDF completato: aggiornati ${updatedRecords} lavoratori. Saltate ${safe.skippedOlderDueDates} scadenze più vecchie.`
+            ? `Import PDF completato: aggiornati ${updatedRecords} lavoratori. Saltate ${safe.skippedOlderDueDates} scadenze più alte.`
             : `Import PDF completato: aggiornati ${updatedRecords} lavoratori.`,
       };
       return NextResponse.json(response);
@@ -715,7 +743,7 @@ export async function POST(request: Request) {
         page: 0,
         taxCode: "",
         errorType: "skipped_older_due_date",
-        errorMessage: `Saltate ${safe.skippedOlderDueDates} scadenze più vecchie rispetto a quelle già presenti.`,
+        errorMessage: `Saltate ${safe.skippedOlderDueDates} scadenze più alte rispetto a quelle già presenti.`,
       });
     }
 
@@ -733,7 +761,7 @@ export async function POST(request: Request) {
     const message =
       mode === "commit"
         ? safe.skippedOlderDueDates > 0
-          ? `Import PDF completato: aggiornati ${updatedRecords} lavoratori. Saltate ${safe.skippedOlderDueDates} scadenze più vecchie.`
+          ? `Import PDF completato: aggiornati ${updatedRecords} lavoratori. Saltate ${safe.skippedOlderDueDates} scadenze più alte.`
           : `Import PDF completato: aggiornati ${updatedRecords} lavoratori.`
         : `Anteprima PDF completata: ${matchedEmployees} pagine associate.`;
 
