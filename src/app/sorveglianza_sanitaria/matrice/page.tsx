@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModuleHeader } from "@/components/module-ui";
+import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 
 type JobCode = { code: string; label: string };
 
@@ -91,8 +92,10 @@ export default function SorveglianzaMatricePage() {
     setError("");
     try {
       const response = await fetch("/api/sorveglianza_sanitaria/matrice");
-      const body = (await response.json()) as MansioniPayload;
-      if (!response.ok || body.error) throw new Error(body.error ?? "Errore caricamento matrice.");
+      const body = await readJsonSafely<MansioniPayload>(response);
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore caricamento matrice"));
+      }
       setMansioniPayload(body);
 
       const nextDrafts: Record<string, { alwaysExempt: boolean; exemptBelowWeeklyMinutes: string; note: string }> = {};
@@ -124,8 +127,10 @@ export default function SorveglianzaMatricePage() {
     setError("");
     try {
       const response = await fetch("/api/sorveglianza_sanitaria/matrice/cantieri");
-      const body = (await response.json()) as CantieriPayload;
-      if (!response.ok || body.error) throw new Error(body.error ?? "Errore caricamento matrice cantieri.");
+      const body = await readJsonSafely<CantieriPayload>(response);
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore caricamento matrice cantieri"));
+      }
       setCantieriPayload(body);
 
       const bySiteId = new Map<number, CantieriRuleRow>();
@@ -167,8 +172,10 @@ export default function SorveglianzaMatricePage() {
     setError("");
     try {
       const response = await fetch("/api/sorveglianza_sanitaria/matrice/provider");
-      const body = (await response.json()) as ProviderPayload;
-      if (!response.ok || body.error) throw new Error(body.error ?? "Errore caricamento matrice provider.");
+      const body = await readJsonSafely<ProviderPayload>(response);
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore caricamento matrice provider"));
+      }
       setProviderPayload(body);
 
       const bySiteId = new Map<number, ProviderAssignmentRow>();
@@ -230,8 +237,10 @@ export default function SorveglianzaMatricePage() {
             note: draft.note.trim() || null,
           }),
         });
-        const body = (await response.json()) as { ok?: boolean; error?: string };
-        if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio.");
+        const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+        if (!body || !response.ok || extractResponseError(body)) {
+          throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio"));
+        }
         await loadMansioni();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Errore salvataggio.");
@@ -261,8 +270,10 @@ export default function SorveglianzaMatricePage() {
               prefix === "site" ? { scopeType: "site", siteId: id } : { scopeType: "sub_site", subSiteId: id },
             ),
           });
-          const body = (await response.json()) as { ok?: boolean; error?: string };
-          if (!response.ok || body.error) throw new Error(body.error ?? "Errore reset.");
+          const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+          if (!body || !response.ok || extractResponseError(body)) {
+            throw new Error(buildHttpErrorMessage(response, body, "Errore reset"));
+          }
         } else {
           const response = await fetch("/api/sorveglianza_sanitaria/matrice/cantieri", {
             method: "PATCH",
@@ -275,8 +286,10 @@ export default function SorveglianzaMatricePage() {
               note: draft.note.trim() || null,
             }),
           });
-          const body = (await response.json()) as { ok?: boolean; error?: string };
-          if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio.");
+          const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+          if (!body || !response.ok || extractResponseError(body)) {
+            throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio"));
+          }
         }
 
         await loadCantieri();
@@ -312,8 +325,10 @@ export default function SorveglianzaMatricePage() {
             note: draft.note.trim() || null,
           }),
         });
-        const body = (await response.json()) as { ok?: boolean; error?: string };
-        if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio.");
+        const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+        if (!body || !response.ok || extractResponseError(body)) {
+          throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio"));
+        }
         await loadProvider();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Errore salvataggio.");
@@ -327,13 +342,15 @@ export default function SorveglianzaMatricePage() {
   const seedProvider = useCallback(
     async (file: File) => {
       setProviderSeedLoading(true);
-    setError("");
+      setError("");
       try {
         const formData = new FormData();
         formData.set("file", file);
         const response = await fetch("/api/sorveglianza_sanitaria/matrice/provider/seed", { method: "POST", body: formData });
-        const body = (await response.json()) as { ok?: boolean; error?: string; seeded?: number; source?: string };
-        if (!response.ok || body.error) throw new Error(body.error ?? "Errore seed.");
+        const body = await readJsonSafely<{ ok?: boolean; error?: string; seeded?: number; source?: string }>(response);
+        if (!body || !response.ok || extractResponseError(body)) {
+          throw new Error(buildHttpErrorMessage(response, body, "Errore seed"));
+        }
         await loadProvider();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Errore seed provider.");

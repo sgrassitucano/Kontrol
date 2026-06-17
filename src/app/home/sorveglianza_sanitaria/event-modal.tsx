@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 
 type WorkerOption = {
   workerId: number;
@@ -133,8 +134,10 @@ export function SurveillanceEventModal(props: {
           override: { action: overrideAction, note: overrideNote.trim() || null },
         }),
       });
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio evento.");
+      const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio evento"));
+      }
       await onSaved(employeeIds);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Errore salvataggio evento.");

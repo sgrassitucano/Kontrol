@@ -541,13 +541,13 @@ export default function HomeFormazionePage() {
       params.set("date", simulationDate);
       params.set("expiringDays", String(expiringDays));
       const response = await fetch(`/api/lavoratori/corsi?${params.toString()}`);
-      const body = (await response.json()) as { rows?: WorkerCourseRow[]; error?: string };
-      if (!response.ok || body.error) {
-        if (response.status === 401) {
-          window.location.href = "/login";
-          return [];
-        }
-        throw new Error(body.error ?? "Errore caricamento dettaglio lavoratore.");
+      const body = await readJsonSafely<{ rows?: WorkerCourseRow[]; error?: string }>(response);
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return [];
+      }
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore caricamento dettaglio lavoratore"));
       }
       const employeeRows = body.rows ?? [];
       upsertEmployeeRows(employeeId, employeeRows);
@@ -580,13 +580,13 @@ export default function HomeFormazionePage() {
           fetch(`/api/formazione/esclusioni?employeeId=${employeeId}`),
         ]);
 
-        const exclusionsBody = (await exclusionsResponse.json()) as {
+        const exclusionsBody = await readJsonSafely<{
           employee?: { isActive: boolean; note: string };
           excludedCourses?: Array<{ courseId: number; note: string }>;
           error?: string;
-        };
-        if (!exclusionsResponse.ok || exclusionsBody.error) {
-          throw new Error(exclusionsBody.error ?? "Errore caricamento esclusioni.");
+        }>(exclusionsResponse);
+        if (!exclusionsBody || !exclusionsResponse.ok || extractResponseError(exclusionsBody)) {
+          throw new Error(buildHttpErrorMessage(exclusionsResponse, exclusionsBody, "Errore caricamento esclusioni"));
         }
 
         setWorkerDetailRows(rowsResponse);
@@ -625,9 +625,9 @@ export default function HomeFormazionePage() {
           note: payload.note ?? null,
         }),
       });
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore salvataggio.");
+      const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio"));
       }
     },
     [],
@@ -730,8 +730,10 @@ export default function HomeFormazionePage() {
           ...(payload.kind === "course" ? { courseId: payload.courseId } : {}),
         }),
       });
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio esclusione.");
+      const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio esclusione"));
+      }
       await loadWorkerDetail(workerDetailEmployeeId);
     },
     [loadWorkerDetail, workerDetailEmployeeId],
@@ -756,8 +758,10 @@ export default function HomeFormazionePage() {
             courseCode: code,
           }),
         });
-        const body = (await response.json()) as { ok?: boolean; error?: string };
-        if (!response.ok || body.error) throw new Error(body.error ?? "Errore salvataggio deroga.");
+        const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+        if (!body || !response.ok || extractResponseError(body)) {
+          throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio deroga"));
+        }
         setExclusionCourseCode("");
         setExclusionCourseNote("");
         await loadWorkerDetail(workerDetailEmployeeId);
@@ -783,8 +787,10 @@ export default function HomeFormazionePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind: "course", employeeId: workerDetailEmployeeId, courseId }),
         });
-        const body = (await response.json()) as { ok?: boolean; error?: string };
-        if (!response.ok || body.error) throw new Error(body.error ?? "Errore eliminazione corso.");
+        const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+        if (!body || !response.ok || extractResponseError(body)) {
+          throw new Error(buildHttpErrorMessage(response, body, "Errore eliminazione corso"));
+        }
         await loadWorkerDetail(workerDetailEmployeeId);
       } catch (err) {
         setWorkerDetailError(err instanceof Error ? err.message : "Errore eliminazione corso.");

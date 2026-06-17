@@ -343,11 +343,15 @@ export default function SorveglianzaPdfImportPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const response = await fetch("/api/import-runs/last?source=sorveglianza_pdf", { method: "GET" });
-      const body = (await response.json()) as { run: LastImportRun | null; error?: string };
-      if (cancelled) return;
-      if (!response.ok || body.error) return;
-      setLastRun(body.run);
+      try {
+        const response = await fetch("/api/import-runs/last?source=sorveglianza_pdf", { method: "GET" });
+        const body = (await readJsonOrThrow(response)) as { run: LastImportRun | null; error?: string };
+        if (cancelled) return;
+        if (!response.ok || body.error) return;
+        setLastRun(body.run);
+      } catch {
+        if (cancelled) return;
+      }
     })();
     return () => {
       cancelled = true;
@@ -550,7 +554,7 @@ export default function SorveglianzaPdfImportPage() {
       setProgress(100);
 
       const last = await fetch("/api/import-runs/last?source=sorveglianza_pdf", { method: "GET" });
-      const body = (await last.json()) as { run: LastImportRun | null; error?: string };
+      const body = (await readJsonOrThrow(last)) as { run: LastImportRun | null; error?: string };
       if (last.ok && !body.error) setLastRun(body.run);
     } catch (error) {
       setServerError(error instanceof Error ? error.message : "Errore imprevisto durante l'import.");

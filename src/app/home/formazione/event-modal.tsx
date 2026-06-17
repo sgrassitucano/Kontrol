@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ItDateInput } from "@/components/it-date-input";
+import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 
 type CourseOption = { code: string; title: string };
 type WorkerOption = { workerId: number; matricola: string; fullName: string; cantiere: string; sottocantiere: string };
@@ -191,9 +192,9 @@ export function EventModal(props: {
               note: eventNote,
             }),
           });
-          const body = (await response.json()) as { ok?: boolean; error?: string };
-          if (!response.ok || body.error) {
-            throw new Error(body.error ?? "Errore salvataggio evento.");
+          const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+          if (!body || !response.ok || extractResponseError(body)) {
+            throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio evento"));
           }
         }),
       );

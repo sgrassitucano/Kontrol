@@ -59,7 +59,10 @@ export async function POST(request: Request) {
 
     const { error } = await supabase
       .from("turni_month_locks")
-      .upsert({ year, month, note: (body.note ?? "").trim() || null }, { onConflict: "year,month" });
+      .upsert(
+        { year, month, note: (body.note ?? "").trim() || null, locked_by: auth.userId },
+        { onConflict: "year,month" },
+      );
     if (error) throw new Error(error.message);
     return NextResponse.json({ ok: true });
   } catch (err) {

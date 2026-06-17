@@ -27,6 +27,10 @@ class SyncLimitError extends Error {
   status = 400;
 }
 
+class MonthLockedError extends Error {
+  status = 409;
+}
+
 export function pickAbsenceForShift(
   absences: Array<{ id: number; absence_type: AbsenceType; start_at: string; end_at: string; note: string | null }>,
   startAt: string,
@@ -66,6 +70,39 @@ function diffDaysInclusive(startDate: string, endDate: string) {
   const delta = end.getTime() - start.getTime();
   if (!Number.isFinite(delta)) return null;
   return Math.floor(delta / 86400000) + 1;
+}
+
+function listTouchedMonths(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T12:00:00`);
+  const end = new Date(`${endDate}T12:00:00`);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return [];
+  start.setDate(1);
+  start.setHours(12, 0, 0, 0);
+  end.setHours(12, 0, 0, 0);
+
+  const out: Array<{ year: number; month: number }> = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    out.push({ year: cursor.getFullYear(), month: cursor.getMonth() + 1 });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return out;
+}
+
+async function ensureRangeNotLocked(supabase: SupabaseClient, startDate: string, endDate: string) {
+  const months = listTouchedMonths(startDate, endDate);
+  for (const m of months) {
+    const { data, error } = await supabase
+      .from("turni_month_locks")
+      .select("id")
+      .eq("year", m.year)
+      .eq("month", m.month)
+      .limit(1);
+    if (error) throw new Error(error.message);
+    if ((data ?? []).length > 0) {
+      throw new MonthLockedError(`Mese bloccato: ${String(m.month).padStart(2, "0")}/${m.year}.`);
+    }
+  }
 }
 
 function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string) {
@@ -412,6 +449,7 @@ export async function POST(request: Request) {
     }
 
     const supabase = auth.supabase;
+    await ensureRangeNotLocked(supabase, startDate, endDate);
 
     if (mode === "employee") {
       const employeeId = Number((body as { employeeId?: number }).employeeId);
@@ -482,6 +520,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, employeeCount: employeeIds.length, inserted, updated, deleted, skippedManual });
   } catch (err) {
     if (err instanceof SyncLimitError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    if (err instanceof MonthLockedError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
     return NextResponse.json(

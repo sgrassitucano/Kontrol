@@ -5,6 +5,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { DashboardCard, KpiCard, KpiGrid, ModuleHeader } from "@/components/module-ui";
 import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
 import { isoToItDate } from "@/lib/it-date";
+import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 
 type WorkerSurveillanceRow = {
   workerId: number;
@@ -263,11 +264,12 @@ export default function HomeSorveglianzaPage() {
         params.set("limit", "2000");
         params.set("offset", String(offset));
         if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
+        params.set("extendedSearch", extendedSearch ? "1" : "0");
         if (includeExcluded) params.set("includeExcluded", "1");
         const response = await fetch(`/api/sorveglianza_sanitaria/lavoratori?${params.toString()}`, { signal: controller.signal });
-        const body = (await response.json()) as ApiResponse & { truncated?: boolean };
-        if (!response.ok || body.error) {
-          throw new Error(body.error ?? "Errore caricamento sorveglianza sanitaria.");
+        const body = await readJsonSafely<ApiResponse & { truncated?: boolean; error?: string }>(response);
+        if (!body || !response.ok || extractResponseError(body)) {
+          throw new Error(buildHttpErrorMessage(response, body, "Errore caricamento sorveglianza sanitaria"));
         }
         return body;
       }
@@ -309,7 +311,7 @@ export default function HomeSorveglianzaPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [deferredSearch, expiringDays, includeExcluded]);
+  }, [deferredSearch, expiringDays, includeExcluded, extendedSearch]);
 
   const scheduleLoadRows = useCallback(() => {
     if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
@@ -334,12 +336,13 @@ export default function HomeSorveglianzaPage() {
         params.set("limit", "2000");
         params.set("offset", String(offset));
         if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
+        params.set("extendedSearch", extendedSearch ? "1" : "0");
         if (includeExcluded) params.set("includeExcluded", "1");
 
         const response = await fetch(`/api/sorveglianza_sanitaria/lavoratori?${params.toString()}`);
-        const body = (await response.json()) as ApiResponse & { truncated?: boolean };
-        if (!response.ok || body.error) {
-          throw new Error(body.error ?? "Errore aggiornamento righe sorveglianza.");
+        const body = await readJsonSafely<ApiResponse & { truncated?: boolean; error?: string }>(response);
+        if (!body || !response.ok || extractResponseError(body)) {
+          throw new Error(buildHttpErrorMessage(response, body, "Errore aggiornamento righe sorveglianza"));
         }
         refreshedRows.push(...(body.rows ?? []));
         truncated = Boolean(body.truncated);
@@ -361,7 +364,7 @@ export default function HomeSorveglianzaPage() {
         return nextRows;
       });
     },
-    [deferredSearch, expiringDays, includeExcluded],
+    [deferredSearch, expiringDays, includeExcluded, extendedSearch],
   );
 
   useEffect(() => {

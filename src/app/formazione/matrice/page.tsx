@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ModuleHeader, PanelCard } from "@/components/module-ui";
+import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 
 type ScopeType = "job" | "site" | "sub_site";
 
@@ -111,21 +112,17 @@ export default function FormazioneMatricePage() {
           : Promise.resolve(null),
       ]);
 
-      const matrixBody = (await matrixResponse.json()) as MatrixPayload | { error: string };
-      if (!matrixResponse.ok || "error" in matrixBody) {
-        throw new Error("error" in matrixBody ? matrixBody.error : "Errore caricamento matrice.");
+      const matrixBody = await readJsonSafely<MatrixPayload & { error?: string }>(matrixResponse);
+      if (!matrixBody || !matrixResponse.ok || extractResponseError(matrixBody)) {
+        throw new Error(buildHttpErrorMessage(matrixResponse, matrixBody, "Errore caricamento matrice"));
       }
 
       setPayload(matrixBody);
 
       if (exclusionsResponse) {
-        const exclusionsBody = (await exclusionsResponse.json()) as
-          | { excludedKeys: string[] }
-          | { error: string };
-        if (!exclusionsResponse.ok || "error" in exclusionsBody) {
-          throw new Error(
-            "error" in exclusionsBody ? exclusionsBody.error : "Errore caricamento esclusioni scope.",
-          );
+        const exclusionsBody = await readJsonSafely<{ excludedKeys: string[]; error?: string }>(exclusionsResponse);
+        if (!exclusionsBody || !exclusionsResponse.ok || extractResponseError(exclusionsBody)) {
+          throw new Error(buildHttpErrorMessage(exclusionsResponse, exclusionsBody, "Errore caricamento esclusioni scope"));
         }
         setExcludedScopeKeys(exclusionsBody.excludedKeys ?? []);
       } else {
@@ -153,9 +150,9 @@ export default function FormazioneMatricePage() {
           subSiteId: scopeType === "sub_site" ? Number(entityKey) : undefined,
         }),
       });
-      const body = (await response.json()) as { ok: true } | { error: string };
-      if (!response.ok || "error" in body) {
-        throw new Error("error" in body ? body.error : "Errore aggiornamento esclusione.");
+      const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore aggiornamento esclusione"));
       }
 
       setExcludedScopeKeys((prev) => {
@@ -204,9 +201,9 @@ export default function FormazioneMatricePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || body.error) {
-        throw new Error(body.error ?? "Errore salvataggio cella.");
+      const body = await readJsonSafely<{ ok?: boolean; error?: string }>(response);
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio cella"));
       }
 
       await loadMatrix(scopeType);
@@ -222,7 +219,7 @@ export default function FormazioneMatricePage() {
     setError("");
     try {
       const response = await fetch("/api/formazione/matrice/seed", { method: "POST" });
-      const body = (await response.json()) as
+      const body = (await readJsonSafely<
         | {
             ok: true;
             seededCourses: number;
@@ -231,9 +228,20 @@ export default function FormazioneMatricePage() {
             missingCourseCodes: string[];
             unmappedLabels: string[];
           }
-        | { error: string };
-      if (!response.ok || "error" in body) {
-        throw new Error("error" in body ? body.error : "Errore seed matrice.");
+        | { error?: string; ok?: boolean }
+      >(response)) as
+        | {
+            ok: true;
+            seededCourses: number;
+            seededBaselineRules: number;
+            seededJobRules: number;
+            missingCourseCodes: string[];
+            unmappedLabels: string[];
+          }
+        | { error?: string; ok?: boolean }
+        | null;
+      if (!body || !response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore seed matrice"));
       }
       if (body.missingCourseCodes.length > 0 || body.unmappedLabels.length > 0) {
         throw new Error(

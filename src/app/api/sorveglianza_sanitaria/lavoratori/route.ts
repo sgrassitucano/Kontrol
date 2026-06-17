@@ -205,6 +205,7 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const query = (url.searchParams.get("q") ?? "").toLowerCase().trim();
+    const extendedSearch = url.searchParams.get("extendedSearch") === "1";
     const limit = parseLimitParam(url.searchParams.get("limit"), query ? 200 : 500);
     const offset = parseOffsetParam(url.searchParams.get("offset"));
     const employeeIdsFilter = parseEmployeeIdsParam(url.searchParams.get("employeeIds"));
@@ -231,7 +232,7 @@ export async function GET(request: Request) {
     const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
 
     const shouldUseCache = employeeIdsFilter.length === 0;
-    const rowsCacheKey = `surveillance_rows_v1:${auth.userId}:${includeExcluded ? 1 : 0}:${query || "-"}:${todayIsoDate}:${expiringDaysSafe}`;
+    const rowsCacheKey = `surveillance_rows_v1:${auth.userId}:${includeExcluded ? 1 : 0}:${extendedSearch ? 1 : 0}:${query || "-"}:${todayIsoDate}:${expiringDaysSafe}`;
     if (shouldUseCache) {
       const rowsCached = cacheGet<{
         rows: WorkerSurveillanceRow[];
@@ -395,19 +396,22 @@ export async function GET(request: Request) {
       };
 
       if (query) {
-        const searchable = [
-          row.matricola,
-          row.cognome,
-          row.nome,
-          row.mansione,
-          row.cantiere,
-          row.sottocantiere,
-          row.responsabile,
-          row.referente,
-          row.medico,
-          row.limitazioni,
-          row.note,
-        ]
+        const searchable = (extendedSearch
+          ? [
+              row.matricola,
+              row.cognome,
+              row.nome,
+              row.mansione,
+              row.cantiere,
+              row.sottocantiere,
+              row.responsabile,
+              row.referente,
+              row.medico,
+              row.limitazioni,
+              row.note,
+            ]
+          : [row.matricola, row.cognome, row.nome]
+        )
           .join(" ")
           .toLowerCase();
         if (!searchable.includes(query)) continue;
