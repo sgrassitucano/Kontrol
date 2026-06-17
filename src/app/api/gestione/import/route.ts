@@ -14,6 +14,8 @@ export async function POST(request: Request) {
     const file = formData.get("file");
     const confirmHighDismissals = String(formData.get("confirmHighDismissals") ?? "") === "1";
     const confirmCriticalDismissals = String(formData.get("confirmCriticalDismissals") ?? "") === "1";
+    const overrideBlockedDismissals = String(formData.get("overrideBlockedDismissals") ?? "") === "1";
+    const confirmDismissalPhrase = String(formData.get("confirmDismissalPhrase") ?? "");
 
     if (mode !== "preview" && mode !== "commit") {
       return NextResponse.json(
@@ -46,6 +48,8 @@ export async function POST(request: Request) {
       importedBy,
       confirmHighDismissals,
       confirmCriticalDismissals,
+      overrideBlockedDismissals,
+      confirmDismissalPhrase,
     });
 
     return NextResponse.json(result);

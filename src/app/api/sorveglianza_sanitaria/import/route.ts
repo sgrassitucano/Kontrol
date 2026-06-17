@@ -35,7 +35,7 @@ export async function POST(request: Request) {
           total_rows: 0,
           processed_rows: 0,
           error_rows: 0,
-          status: "preview",
+          status: "processing",
         })
         .select("id")
         .single();
@@ -57,9 +57,10 @@ export async function POST(request: Request) {
     });
 
     if (mode === "commit") {
+      let importRunUpdateError: string | null = null;
       if (importRunId) {
         const status = result.message.startsWith("Import fallito:") ? "failed" : "completed";
-        await auth.supabase
+        const { error } = await auth.supabase
           .from("import_runs")
           .update({
             total_rows: result.summary.totalRows,
@@ -68,17 +69,30 @@ export async function POST(request: Request) {
             status,
           })
           .eq("id", importRunId);
+        if (error) importRunUpdateError = error.message;
       }
       cacheDeleteByPrefix("surveillance_rows_v1:");
+      if (importRunUpdateError) {
+        return NextResponse.json({
+          ...result,
+          message: `${result.message} (Warning: import_runs non aggiornato: ${importRunUpdateError})`,
+        });
+      }
     }
 
     return NextResponse.json(result);
   } catch (err) {
     if (importRunId) {
-      await auth.supabase
+      const { error } = await auth.supabase
         .from("import_runs")
         .update({ status: "failed" })
         .eq("id", importRunId);
+      if (error) {
+        return NextResponse.json(
+          { error: `Errore import e aggiornamento stato fallito: ${error.message}` },
+          { status: 500 },
+        );
+      }
     }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Errore import." },

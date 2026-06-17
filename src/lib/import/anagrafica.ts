@@ -12,6 +12,8 @@ type ImportParams = {
   importedBy?: string | null;
   confirmHighDismissals?: boolean;
   confirmCriticalDismissals?: boolean;
+  overrideBlockedDismissals?: boolean;
+  confirmDismissalPhrase?: string | null;
 };
 
 type ImportRunChangeInsert = {
@@ -57,6 +59,8 @@ type ExistingEmployee = {
   id: number;
   matricola: string;
   tax_code: string;
+  first_name: string;
+  last_name: string;
   status: "attivo" | "dimesso";
   last_imported_at: string | null;
   sex: string | null;
@@ -108,13 +112,40 @@ export type ImportSummary = {
   dismissedRows: number;
   existingActiveEmployees: number;
   snapshotTaxCodes: number;
-  dismissalRisk: "none" | "warning" | "critical";
+  dismissalRisk: "none" | "warning" | "critical" | "blocked";
+};
+
+export type DismissalPreviewRow = {
+  matricola: string;
+  cognome: string;
+  nome: string;
+  codiceFiscale: string;
+  lastImportedAt: string | null;
+};
+
+export type DismissalGuardrail = {
+  level: "none" | "warning" | "critical" | "blocked";
+  reasons: string[];
+  dismissedRows: number;
+  existingActiveEmployees: number;
+  dismissalRate: number;
+  snapshotTaxCodes: number;
+  previousSnapshotTaxCodes: number | null;
+  averageSnapshotTaxCodes: number | null;
+  recentRunCount: number;
+  requiresHighConfirmation: boolean;
+  requiresCriticalConfirmation: boolean;
+  requiresPhraseConfirmation: boolean;
+  requiresBlockOverride: boolean;
+  confirmationPhrase: string | null;
 };
 
 export type ImportResult = {
   mode: ImportMode;
   summary: ImportSummary;
   previewRows: ImportPreviewRow[];
+  dismissalPreviewRows: DismissalPreviewRow[];
+  dismissalGuardrail: DismissalGuardrail;
   errors: ImportErrorRow[];
   importRunId: string | null;
   message: string;
@@ -133,12 +164,19 @@ const DEFAULT_JOB_TITLE = "MANSIONE_NON_ASSEGNATA";
 const DEFAULT_TEXT_VALUE = "NON_INDICATO";
 const DEFAULT_BIRTH_DATE = "1900-01-01";
 const DEFAULT_SITE = "NON_ASSEGNATO";
+const DISMISSAL_CONFIRMATION_PHRASE = "CONFERMO DIMISSIONE MASSIVA";
 const DISMISSAL_BLOCKING_ERROR_TYPES = new Set([
   "required_identity_fields",
   "duplicate_tax_code_file",
   "matricola_tax_mismatch_file",
   "matricola_tax_mismatch_db",
 ]);
+
+type RecentAnagraficaBaseline = {
+  importRunId: string;
+  createdAt: string;
+  snapshotTaxCodes: number;
+};
 
 export async function processAnagraficaImport({
   fileBuffer,
@@ -148,9 +186,12 @@ export async function processAnagraficaImport({
   importedBy,
   confirmHighDismissals,
   confirmCriticalDismissals,
+  overrideBlockedDismissals,
+  confirmDismissalPhrase,
 }: ImportParams): Promise<ImportResult> {
   const parsed = parseWorkbook(fileBuffer);
   const existingEmployees = await fetchExistingEmployees(supabase);
+  const recentBaselines = await fetchRecentAnagraficaBaselinesSafe(supabase);
   const existingActiveEmployees = existingEmployees.filter((e) => e.status === "attivo").length;
 
   const analysis = analyzeAgainstExisting(
@@ -162,6 +203,24 @@ export async function processAnagraficaImport({
   const validRows = analysis.filteredValidRows;
   const dismissalsBlocked = allErrors.some((error) => DISMISSAL_BLOCKING_ERROR_TYPES.has(error.errorType));
   const dismissedRows = dismissalsBlocked ? 0 : analysis.dismissedRows;
+  const incomingTaxCodes = new Set(parsed.snapshotTaxCodes);
+  const previousSnapshotTaxCodes = recentBaselines[0]?.snapshotTaxCodes ?? null;
+  const averageSnapshotTaxCodes =
+    recentBaselines.length > 0
+      ? Math.round(recentBaselines.reduce((sum, item) => sum + item.snapshotTaxCodes, 0) / recentBaselines.length)
+      : null;
+  const dismissalPreviewRows = dismissalsBlocked
+    ? []
+    : existingEmployees
+        .filter((employee) => employee.status === "attivo" && !incomingTaxCodes.has(employee.tax_code))
+        .slice(0, 20)
+        .map((employee) => ({
+          matricola: employee.matricola,
+          cognome: employee.last_name,
+          nome: employee.first_name,
+          codiceFiscale: employee.tax_code,
+          lastImportedAt: employee.last_imported_at,
+        }));
   const previewRows = validRows.slice(0, 150).map((row) => ({
     matricola: row.matricola,
     cognome: row.lastName,
@@ -170,6 +229,15 @@ export async function processAnagraficaImport({
     responsabile: row.responsibleCode,
     cantiere: row.siteDisplayName,
   }));
+
+  const dismissalGuardrail = assessDismissalGuardrail({
+    existingActiveEmployees,
+    dismissedRows,
+    snapshotTaxCodes: parsed.snapshotTaxCodes.length,
+    previousSnapshotTaxCodes,
+    averageSnapshotTaxCodes,
+    recentRunCount: recentBaselines.length,
+  });
 
   const summaryBase: ImportSummary = {
     totalRows: parsed.totalRows,
@@ -181,11 +249,7 @@ export async function processAnagraficaImport({
     dismissedRows,
     existingActiveEmployees,
     snapshotTaxCodes: parsed.snapshotTaxCodes.length,
-    dismissalRisk: assessDismissalRisk({
-      existingActiveEmployees,
-      dismissedRows,
-      snapshotTaxCodes: parsed.snapshotTaxCodes.length,
-    }),
+    dismissalRisk: dismissalGuardrail.level,
   };
 
   if (mode === "preview") {
@@ -193,6 +257,8 @@ export async function processAnagraficaImport({
       mode,
       summary: summaryBase,
       previewRows,
+      dismissalPreviewRows,
+      dismissalGuardrail,
       errors: allErrors,
       importRunId: null,
       message: dismissalsBlocked
@@ -201,29 +267,61 @@ export async function processAnagraficaImport({
     };
   }
 
-  if (summaryBase.dismissalRisk === "critical" && !confirmCriticalDismissals) {
+  const normalizedPhrase = (confirmDismissalPhrase ?? "").trim().toUpperCase();
+
+  if (dismissalGuardrail.requiresBlockOverride && !overrideBlockedDismissals) {
     return {
       mode: "preview",
       summary: summaryBase,
       previewRows,
+      dismissalPreviewRows,
+      dismissalGuardrail,
       errors: allErrors,
       importRunId: null,
       message:
-        "ATTENZIONE CRITICA: il file provocherebbe dimissioni massive o non contiene abbastanza CF validi. Doppia conferma richiesta prima del commit.",
+        "BLOCCO PROTETTIVO: file molto piu piccolo dello storico o dimissioni massive stimate. Serve sblocco esplicito prima del commit.",
     };
   }
 
-  if (summaryBase.dismissalRisk !== "none" && !confirmHighDismissals) {
+  if (dismissalGuardrail.requiresCriticalConfirmation && !confirmCriticalDismissals) {
     return {
       mode: "preview",
       summary: summaryBase,
       previewRows,
+      dismissalPreviewRows,
+      dismissalGuardrail,
       errors: allErrors,
       importRunId: null,
-      message:
-        summaryBase.dismissalRisk === "critical"
-          ? "ATTENZIONE CRITICA: dimissioni massive stimate. Conferma richiesta prima del commit."
-          : "ATTENZIONE: dimessi > 5% degli attivi. Conferma richiesta prima del commit.",
+      message: "ATTENZIONE CRITICA: dimissioni massicce stimate. Conferma critica richiesta prima del commit.",
+    };
+  }
+
+  if (dismissalGuardrail.requiresHighConfirmation && !confirmHighDismissals) {
+    return {
+      mode: "preview",
+      summary: summaryBase,
+      previewRows,
+      dismissalPreviewRows,
+      dismissalGuardrail,
+      errors: allErrors,
+      importRunId: null,
+      message: "ATTENZIONE: scostamento anomalo rilevato. Conferma richiesta prima del commit.",
+    };
+  }
+
+  if (
+    dismissalGuardrail.requiresPhraseConfirmation &&
+    normalizedPhrase !== DISMISSAL_CONFIRMATION_PHRASE
+  ) {
+    return {
+      mode: "preview",
+      summary: summaryBase,
+      previewRows,
+      dismissalPreviewRows,
+      dismissalGuardrail,
+      errors: allErrors,
+      importRunId: null,
+      message: `Conferma testuale richiesta: digita esattamente "${DISMISSAL_CONFIRMATION_PHRASE}".`,
     };
   }
 
@@ -243,6 +341,8 @@ export async function processAnagraficaImport({
     mode,
     summary: commitResult.summary,
     previewRows,
+    dismissalPreviewRows,
+    dismissalGuardrail,
     errors: allErrors,
     importRunId: commitResult.importRunId,
     message: commitResult.message,
@@ -536,6 +636,111 @@ function analyzeAgainstExisting(
   };
 }
 
+export function assessDismissalGuardrail(args: {
+  existingActiveEmployees: number;
+  dismissedRows: number;
+  snapshotTaxCodes: number;
+  previousSnapshotTaxCodes: number | null;
+  averageSnapshotTaxCodes: number | null;
+  recentRunCount: number;
+}) {
+  const {
+    existingActiveEmployees,
+    dismissedRows,
+    snapshotTaxCodes,
+    previousSnapshotTaxCodes,
+    averageSnapshotTaxCodes,
+    recentRunCount,
+  } = args;
+
+  const dismissalRate = existingActiveEmployees > 0 ? dismissedRows / existingActiveEmployees : 0;
+  const reasons: string[] = [];
+  let level: DismissalGuardrail["level"] = "none";
+  const order = { none: 0, warning: 1, critical: 2, blocked: 3 } as const;
+
+  const raiseLevel = (next: DismissalGuardrail["level"], reason: string) => {
+    if (order[next] > order[level]) level = next;
+    reasons.push(reason);
+  };
+
+  if (existingActiveEmployees > 0 && dismissedRows > 0) {
+    if (dismissedRows >= 300 || dismissalRate >= 0.2) {
+      raiseLevel(
+        "blocked",
+        `Dimissioni stimate molto alte: ${dismissedRows} su ${existingActiveEmployees} attivi (${formatPercent(dismissalRate)}).`,
+      );
+    } else if (dismissedRows >= 150 || dismissalRate >= 0.1) {
+      raiseLevel(
+        "critical",
+        `Dimissioni stimate anomale: ${dismissedRows} su ${existingActiveEmployees} attivi (${formatPercent(dismissalRate)}).`,
+      );
+    } else if (dismissedRows >= 50 && dismissalRate >= 0.05) {
+      raiseLevel(
+        "warning",
+        `Dimissioni stimate sopra soglia di attenzione: ${dismissedRows} su ${existingActiveEmployees} attivi (${formatPercent(dismissalRate)}).`,
+      );
+    }
+  }
+
+  if (previousSnapshotTaxCodes && previousSnapshotTaxCodes >= 200) {
+    const ratio = snapshotTaxCodes / previousSnapshotTaxCodes;
+    if (ratio < 0.8) {
+      raiseLevel(
+        "blocked",
+        `Il file contiene ${snapshotTaxCodes} CF validi contro ${previousSnapshotTaxCodes} dell'ultimo import (${formatPercent(ratio)} del precedente).`,
+      );
+    } else if (ratio < 0.9) {
+      raiseLevel(
+        "critical",
+        `Il file contiene ${snapshotTaxCodes} CF validi contro ${previousSnapshotTaxCodes} dell'ultimo import (${formatPercent(ratio)} del precedente).`,
+      );
+    } else if (ratio < 0.95) {
+      raiseLevel(
+        "warning",
+        `Il file contiene meno CF validi del normale rispetto all'ultimo import (${snapshotTaxCodes} vs ${previousSnapshotTaxCodes}).`,
+      );
+    }
+  }
+
+  if (averageSnapshotTaxCodes && averageSnapshotTaxCodes >= 200) {
+    const ratio = snapshotTaxCodes / averageSnapshotTaxCodes;
+    if (ratio < 0.8) {
+      raiseLevel(
+        "blocked",
+        `Il file e' molto sotto la media recente: ${snapshotTaxCodes} CF validi contro media ${averageSnapshotTaxCodes} su ${recentRunCount} import.`,
+      );
+    } else if (ratio < 0.9) {
+      raiseLevel(
+        "critical",
+        `Il file e' sotto la media recente: ${snapshotTaxCodes} CF validi contro media ${averageSnapshotTaxCodes} su ${recentRunCount} import.`,
+      );
+    }
+  }
+
+  if (snapshotTaxCodes <= 0) {
+    raiseLevel("blocked", "Il file non contiene alcun codice fiscale valido.");
+  }
+
+  const severity = order[level];
+
+  return {
+    level,
+    reasons,
+    dismissedRows,
+    existingActiveEmployees,
+    dismissalRate,
+    snapshotTaxCodes,
+    previousSnapshotTaxCodes,
+    averageSnapshotTaxCodes,
+    recentRunCount,
+    requiresHighConfirmation: severity >= 1,
+    requiresCriticalConfirmation: severity >= 2,
+    requiresPhraseConfirmation: severity >= 2,
+    requiresBlockOverride: severity >= 3,
+    confirmationPhrase: severity >= 2 ? DISMISSAL_CONFIRMATION_PHRASE : null,
+  };
+}
+
 export function assessDismissalRisk(args: {
   existingActiveEmployees: number;
   dismissedRows: number;
@@ -583,7 +788,7 @@ async function commitImport(args: {
       total_rows: args.summary.totalRows,
       processed_rows: 0,
       error_rows: errors.length,
-      status: "preview",
+      status: "processing",
     })
     .select("id")
     .single();
@@ -743,7 +948,7 @@ async function commitImport(args: {
           .update({
             processed_rows: committedRows,
             error_rows: errors.length + commitErrors.length,
-            status: "preview",
+            status: "processing",
           })
           .eq("id", importRunId);
       }
@@ -775,7 +980,7 @@ async function commitImport(args: {
         .update({
           processed_rows: committedRows,
           error_rows: errors.length + commitErrors.length,
-          status: "preview",
+          status: "processing",
         })
         .eq("id", importRunId);
     }
@@ -927,7 +1132,7 @@ async function fetchExistingEmployees(supabase: SupabaseClient): Promise<Existin
     const { data, error } = await supabase
       .from("employees")
       .select(
-        "id,matricola,tax_code,status,last_imported_at,sex,birth_province,residence_address,residence_postal_code,residence_city,residence_province,residence_belfiore_code",
+        "id,matricola,tax_code,first_name,last_name,status,last_imported_at,sex,birth_province,residence_address,residence_postal_code,residence_city,residence_province,residence_belfiore_code",
       )
       .range(from, to);
 
@@ -946,6 +1151,60 @@ async function fetchExistingEmployees(supabase: SupabaseClient): Promise<Existin
   }
 
   return allRows;
+}
+
+async function fetchRecentAnagraficaBaselines(
+  supabase: SupabaseClient,
+  limit = 5,
+): Promise<RecentAnagraficaBaseline[]> {
+  const { data, error } = await supabase
+    .from("import_runs")
+    .select("id,created_at,processed_rows,total_rows")
+    .eq("source", "anagrafica")
+    .eq("status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw new Error(`Errore lettura storico import anagrafica: ${error.message}`);
+  }
+
+  const baselines: RecentAnagraficaBaseline[] = [];
+  for (const row of (data ?? []) as Array<{
+    id: string;
+    created_at: string;
+    processed_rows: number | null;
+    total_rows: number | null;
+  }>) {
+    const { count, error: countError } = await supabase
+      .from("anagrafica_import_tax_codes")
+      .select("tax_code", { count: "exact", head: true })
+      .eq("import_run_id", row.id);
+
+    if (countError) {
+      throw new Error(`Errore lettura snapshot CF import anagrafica: ${countError.message}`);
+    }
+
+    baselines.push({
+      importRunId: row.id,
+      createdAt: row.created_at,
+      snapshotTaxCodes: count && count > 0 ? count : row.processed_rows ?? row.total_rows ?? 0,
+    });
+  }
+
+  return baselines;
+}
+
+async function fetchRecentAnagraficaBaselinesSafe(supabase: SupabaseClient, limit = 5) {
+  try {
+    return await fetchRecentAnagraficaBaselines(supabase, limit);
+  } catch {
+    return [];
+  }
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 1000) / 10}%`;
 }
 
 async function ensureSites(supabase: SupabaseClient, rows: RawEmployeeRow[]) {

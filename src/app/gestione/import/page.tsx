@@ -1,13 +1,22 @@
 "use client";
 
  import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ImportErrorRow, ImportPreviewRow, ImportSummary } from "@/lib/import/anagrafica";
+import { buildHttpErrorMessage, readJsonSafely } from "@/lib/client/http";
+import type {
+  DismissalGuardrail,
+  DismissalPreviewRow,
+  ImportErrorRow,
+  ImportPreviewRow,
+  ImportSummary,
+} from "@/lib/import/anagrafica";
 import { ModuleHeader, PanelCard } from "@/components/module-ui";
 
 type ImportResponse = {
   mode: "preview" | "commit";
   summary: ImportSummary;
   previewRows: ImportPreviewRow[];
+  dismissalPreviewRows: DismissalPreviewRow[];
+  dismissalGuardrail: DismissalGuardrail;
   errors: ImportErrorRow[];
   importRunId: string | null;
   message: string;
@@ -45,6 +54,8 @@ export default function GestioneImportPage() {
   const lastRunPollRef = useRef<number | null>(null);
   const [confirmHighDismissals, setConfirmHighDismissals] = useState(false);
   const [confirmCriticalDismissals, setConfirmCriticalDismissals] = useState(false);
+  const [overrideBlockedDismissals, setOverrideBlockedDismissals] = useState(false);
+  const [confirmDismissalPhrase, setConfirmDismissalPhrase] = useState("");
 
   const derivedCounts = useMemo(() => {
     const warningRows = result?.errors?.filter((row) => row.errorType === "row_imported_with_issues").length ?? 0;
@@ -85,8 +96,11 @@ export default function GestioneImportPage() {
   }, [result]);
 
   const dismissalRisk = result?.summary.dismissalRisk ?? "none";
-  const isHighDismissals = dismissalRisk === "warning" || dismissalRisk === "critical";
-  const isCriticalDismissals = dismissalRisk === "critical";
+  const dismissalGuardrail = result?.dismissalGuardrail ?? null;
+  const isHighDismissals =
+    dismissalRisk === "warning" || dismissalRisk === "critical" || dismissalRisk === "blocked";
+  const isCriticalDismissals = dismissalRisk === "critical" || dismissalRisk === "blocked";
+  const isBlockedDismissals = dismissalRisk === "blocked";
 
   const downloadFrom = useCallback(async (url: string) => {
     setIsDownloadingReport(true);
@@ -112,10 +126,10 @@ export default function GestioneImportPage() {
     let cancelled = false;
     (async () => {
       const response = await fetch("/api/import-runs/last?source=anagrafica", { method: "GET" });
-      const body = (await response.json()) as { run: LastImportRun | null; error?: string };
+      const body = await readJsonSafely<{ run: LastImportRun | null; error?: string }>(response);
       if (cancelled) return;
-      if (!response.ok || body.error) return;
-      setLastRun(body.run);
+      if (!response.ok || body?.error) return;
+      setLastRun(body?.run ?? null);
     })();
     return () => {
       cancelled = true;
@@ -153,9 +167,9 @@ export default function GestioneImportPage() {
 
   async function refreshLastRun() {
     const response = await fetch("/api/import-runs/last?source=anagrafica", { method: "GET" });
-    const body = (await response.json()) as { run: LastImportRun | null; error?: string };
-    if (!response.ok || body.error) return;
-    setLastRun(body.run);
+    const body = await readJsonSafely<{ run: LastImportRun | null; error?: string }>(response);
+    if (!response.ok || body?.error) return;
+    setLastRun(body?.run ?? null);
   }
 
   async function runImport(mode: "preview" | "commit") {
@@ -194,6 +208,8 @@ export default function GestioneImportPage() {
       if (mode === "commit") {
         formData.append("confirmHighDismissals", confirmHighDismissals ? "1" : "0");
         formData.append("confirmCriticalDismissals", confirmCriticalDismissals ? "1" : "0");
+        formData.append("overrideBlockedDismissals", overrideBlockedDismissals ? "1" : "0");
+        formData.append("confirmDismissalPhrase", confirmDismissalPhrase);
       }
 
       const controller = new AbortController();
@@ -205,9 +221,13 @@ export default function GestioneImportPage() {
         signal: controller.signal,
       });
 
-      const payload = (await response.json()) as ImportResponse | { error: string };
-      if (!response.ok || "error" in payload) {
-        throw new Error("error" in payload ? payload.error : "Errore in fase di import.");
+      const payload = await readJsonSafely<ImportResponse | { error: string }>(response);
+      if (!response.ok || !payload || "error" in payload) {
+        throw new Error(
+          payload && "error" in payload
+            ? payload.error
+            : buildHttpErrorMessage(response, payload, "Errore in fase di import."),
+        );
       }
 
       setResult(payload);
@@ -287,6 +307,8 @@ export default function GestioneImportPage() {
               setServerError("");
               setConfirmHighDismissals(false);
               setConfirmCriticalDismissals(false);
+              setOverrideBlockedDismissals(false);
+              setConfirmDismissalPhrase("");
             }}
             className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
           />
@@ -307,15 +329,25 @@ export default function GestioneImportPage() {
               result.mode !== "preview" ||
               derivedCounts.blockingRows > 0 ||
               (isHighDismissals && !confirmHighDismissals) ||
-              (isCriticalDismissals && !confirmCriticalDismissals)
+              (isCriticalDismissals && !confirmCriticalDismissals) ||
+              (isBlockedDismissals && !overrideBlockedDismissals) ||
+              (Boolean(dismissalGuardrail?.requiresPhraseConfirmation) &&
+                confirmDismissalPhrase.trim().toUpperCase() !==
+                  String(dismissalGuardrail?.confirmationPhrase ?? "").trim().toUpperCase())
             }
             title={
               !result || result.mode !== "preview"
                 ? "Esegui prima l'anteprima."
                 : derivedCounts.blockingRows > 0
                   ? "Risolvi prima gli errori bloccanti."
+                  : isBlockedDismissals && !overrideBlockedDismissals
+                    ? "Caso bloccato: serve sblocco esplicito."
                   : isCriticalDismissals && !confirmCriticalDismissals
                     ? "Caso critico: serve doppia conferma."
+                  : Boolean(dismissalGuardrail?.requiresPhraseConfirmation) &&
+                      confirmDismissalPhrase.trim().toUpperCase() !==
+                        String(dismissalGuardrail?.confirmationPhrase ?? "").trim().toUpperCase()
+                    ? "Digita la frase di conferma richiesta."
                   : isHighDismissals && !confirmHighDismissals
                     ? "Dimessi > 5%: conferma richiesta."
                     : "Esegui commit import."
@@ -331,6 +363,13 @@ export default function GestioneImportPage() {
         </p>
         {result && isHighDismissals ? (
           <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            {dismissalGuardrail?.reasons?.length ? (
+              <div className="mb-3 space-y-1 text-xs text-amber-900">
+                {dismissalGuardrail.reasons.map((reason, index) => (
+                  <p key={`${reason}-${index}`}>• {reason}</p>
+                ))}
+              </div>
+            ) : null}
             <label className="flex items-start gap-2 text-xs text-amber-800">
               <input
                 type="checkbox"
@@ -341,21 +380,55 @@ export default function GestioneImportPage() {
               <span>
                 Dimessi stimati: {result.summary.dismissedRows} su {result.summary.existingActiveEmployees} attivi
                 ({Math.round(dismissRate * 1000) / 10}%). Snapshot CF validi: {result.summary.snapshotTaxCodes}.
+                {dismissalGuardrail?.previousSnapshotTaxCodes
+                  ? ` Ultimo import: ${dismissalGuardrail.previousSnapshotTaxCodes} CF.`
+                  : ""}
+                {dismissalGuardrail?.averageSnapshotTaxCodes
+                  ? ` Media ultimi ${dismissalGuardrail.recentRunCount}: ${dismissalGuardrail.averageSnapshotTaxCodes} CF.`
+                  : ""}
                 Confermo di voler procedere comunque.
               </span>
             </label>
             {isCriticalDismissals ? (
-              <label className="mt-3 flex items-start gap-2 text-xs font-semibold text-red-700">
-                <input
-                  type="checkbox"
-                  checked={confirmCriticalDismissals}
-                  onChange={(e) => setConfirmCriticalDismissals(e.target.checked)}
-                  className="mt-[2px]"
-                />
-                <span>
-                  Caso critico: confermo esplicitamente che il file e&apos; completo e che le dimissioni massive sono volute.
-                </span>
-              </label>
+              <>
+                <label className="mt-3 flex items-start gap-2 text-xs font-semibold text-red-700">
+                  <input
+                    type="checkbox"
+                    checked={confirmCriticalDismissals}
+                    onChange={(e) => setConfirmCriticalDismissals(e.target.checked)}
+                    className="mt-[2px]"
+                  />
+                  <span>
+                    Caso critico: confermo esplicitamente che il file e&apos; completo e che le dimissioni massive sono volute.
+                  </span>
+                </label>
+                {isBlockedDismissals ? (
+                  <label className="mt-3 flex items-start gap-2 text-xs font-semibold text-red-800">
+                    <input
+                      type="checkbox"
+                      checked={overrideBlockedDismissals}
+                      onChange={(e) => setOverrideBlockedDismissals(e.target.checked)}
+                      className="mt-[2px]"
+                    />
+                    <span>
+                      Sblocco il blocco protettivo: riconosco che il file e&apos; fortemente anomalo rispetto allo storico e voglio procedere lo stesso.
+                    </span>
+                  </label>
+                ) : null}
+                {dismissalGuardrail?.requiresPhraseConfirmation && dismissalGuardrail.confirmationPhrase ? (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-red-800">
+                      Digita esattamente: <span className="font-mono">{dismissalGuardrail.confirmationPhrase}</span>
+                    </p>
+                    <input
+                      type="text"
+                      value={confirmDismissalPhrase}
+                      onChange={(e) => setConfirmDismissalPhrase(e.target.value)}
+                      className="mt-2 block w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm text-slate-700"
+                    />
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}
@@ -393,6 +466,47 @@ export default function GestioneImportPage() {
         <StatCard label="Segnalazioni" value={counters.segnalazioni} />
         <StatCard label="Bloccanti" value={counters.bloccanti} />
       </section>
+
+      {result?.dismissalPreviewRows?.length ? (
+        <section>
+          <article className="overflow-hidden rounded-[20px] border border-amber-200 bg-amber-50">
+            <div className="border-b border-amber-200 px-5 py-4">
+              <h2 className="text-base font-semibold text-amber-900">
+                Anteprima dimessi previsti
+              </h2>
+              <p className="mt-1 text-xs text-amber-800">
+                Mostro i primi {result.dismissalPreviewRows.length} lavoratori che verrebbero marcati come dimessi per assenza nel file importato.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-amber-100/70 text-xs uppercase tracking-wide text-amber-900">
+                  <tr>
+                    <th className="px-4 py-3">Matricola</th>
+                    <th className="px-4 py-3">CF</th>
+                    <th className="px-4 py-3">Cognome</th>
+                    <th className="px-4 py-3">Nome</th>
+                    <th className="px-4 py-3">Ultimo import</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.dismissalPreviewRows.map((row) => (
+                    <tr key={`${row.codiceFiscale}-${row.matricola}`} className="border-t border-amber-200/80 bg-white/70">
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{row.matricola}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{row.codiceFiscale}</td>
+                      <td className="px-4 py-3 text-slate-700">{row.cognome}</td>
+                      <td className="px-4 py-3 text-slate-700">{row.nome}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500">
+                        {row.lastImportedAt ? formatDateTimeIt(row.lastImportedAt) : "n.d."}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      ) : null}
 
       <section>
         <article className="overflow-hidden rounded-[20px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">

@@ -40,13 +40,15 @@ export async function GET(request: Request) {
 
     const limit = parseLimitParam(url.searchParams.get("limit"));
     const offset = parseOffsetParam(url.searchParams.get("offset"));
+    const fetchLimit = limit + 1;
+    const end = offset + fetchLimit - 1;
 
     const { data, error } = await auth.supabase
       .from("import_run_errors")
       .select("row_number,matricola,tax_code,last_name,first_name,error_type,error_message")
       .eq("import_run_id", importRunId)
       .order("id", { ascending: true })
-      .range(offset, offset + limit);
+      .range(offset, end);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     const raw = (data ?? []) as Array<{
