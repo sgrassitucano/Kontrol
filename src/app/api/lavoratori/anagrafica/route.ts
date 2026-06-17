@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAnyOperationalAccess } from "@/lib/api/access";
+import { requireAnyModuleAccess } from "@/lib/api/access";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type EmployeeListRow = {
@@ -51,7 +51,7 @@ function parseOffsetParam(value: string | null) {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireAnyOperationalAccess();
+  const auth = await requireAnyModuleAccess(["lavoratori", "dpi", "mezzi_attrezzature"], false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {

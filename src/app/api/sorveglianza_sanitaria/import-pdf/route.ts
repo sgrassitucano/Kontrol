@@ -56,6 +56,15 @@ type PdfImportResponse = {
 };
 
 type EmployeeLookupRow = { id: number; tax_code: string; first_name: string; last_name: string };
+type ExistingMedicalSurveillanceRecord = {
+  employee_id: number;
+  provider: string | null;
+  is_planned: boolean;
+  requires_visit: boolean;
+  next_due_date: string | null;
+  limitations: string | null;
+  notes: string | null;
+};
 
 function cleanSpaces(value: string) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -304,20 +313,20 @@ export async function makePdfImportUpsertsSafe(args: {
   const safeRows: typeof rows = [];
 
   const employeeIds = Array.from(new Set(rows.map((r) => r.upsert.employee_id)));
-  const existingByEmployeeId = new Map<number, { next_due_date: string | null }>();
+  const existingByEmployeeId = new Map<number, ExistingMedicalSurveillanceRecord>();
 
   const chunkSize = 500;
   for (let i = 0; i < employeeIds.length; i += chunkSize) {
     const part = employeeIds.slice(i, i + chunkSize);
     const { data, error } = await supabase
       .from("medical_surveillance_records")
-      .select("employee_id,next_due_date")
+      .select("employee_id,provider,is_planned,requires_visit,next_due_date,limitations,notes")
       .in("employee_id", part);
     if (error) throw new Error(error.message);
     (data ?? []).forEach((row) => {
       existingByEmployeeId.set(
-        (row as { employee_id: number }).employee_id,
-        row as { next_due_date: string | null },
+        (row as ExistingMedicalSurveillanceRecord).employee_id,
+        row as ExistingMedicalSurveillanceRecord,
       );
     });
   }
@@ -340,7 +349,7 @@ export async function makePdfImportUpsertsSafe(args: {
     safeRows.push({ page: row.page, upsert: out });
   });
 
-  return { rows: safeRows, skippedOlderDueDates };
+  return { rows: safeRows, skippedOlderDueDates, existingByEmployeeId };
 }
 
 export async function insertImportRunErrors(args: {
@@ -371,10 +380,114 @@ export async function insertImportRunErrors(args: {
   }
 }
 
+export async function insertImportRunChanges(args: {
+  supabase: SupabaseClient;
+  importRunId: string;
+  rows: Array<{
+    employee_id: number;
+    created_by: string | null;
+    next_due_date?: string | null;
+    limitations?: string | null;
+  }>;
+  existingByEmployeeId: Map<number, ExistingMedicalSurveillanceRecord>;
+}) {
+  const { supabase, importRunId, rows, existingByEmployeeId } = args;
+  if (!importRunId) return;
+  if (rows.length === 0) return;
+
+  const changes = rows.map((row) => {
+    const before = existingByEmployeeId.get(row.employee_id) ?? null;
+    const afterNextDueDate =
+      row.next_due_date === undefined ? before?.next_due_date ?? null : (row.next_due_date ?? null);
+    const afterLimitations =
+      row.limitations === undefined ? before?.limitations ?? null : (row.limitations ?? null);
+
+    return {
+      import_run_id: importRunId,
+      table_name: "medical_surveillance_records",
+      action: before ? "update" : "insert",
+      row_key: { employee_id: row.employee_id },
+      before_row: before
+        ? {
+            employee_id: before.employee_id,
+            provider: before.provider,
+            is_planned: before.is_planned,
+            requires_visit: before.requires_visit,
+            next_due_date: before.next_due_date,
+            limitations: before.limitations,
+            notes: before.notes,
+          }
+        : null,
+      after_row: {
+        employee_id: row.employee_id,
+        provider: before?.provider ?? null,
+        is_planned: before?.is_planned ?? false,
+        requires_visit: before?.requires_visit ?? true,
+        next_due_date: afterNextDueDate,
+        limitations: afterLimitations,
+        notes: before?.notes ?? null,
+      },
+    };
+  });
+
+  const chunkSize = 500;
+  for (let i = 0; i < changes.length; i += chunkSize) {
+    const part = changes.slice(i, i + chunkSize);
+    const { error } = await supabase.from("import_run_changes").insert(part);
+    if (error) throw new Error(error.message);
+  }
+}
+
+async function createPdfImportRun(args: {
+  supabase: SupabaseClient;
+  importedBy: string | null;
+  fileName: string;
+}) {
+  const { supabase, importedBy, fileName } = args;
+  const inserted = await supabase
+    .from("import_runs")
+    .insert({
+      source: "sorveglianza_pdf",
+      file_name: fileName || "import_pdf",
+      imported_by: importedBy,
+      total_rows: 0,
+      processed_rows: 0,
+      error_rows: 0,
+      status: "processing",
+    })
+    .select("id")
+    .single();
+
+  if (inserted.error || !inserted.data?.id) {
+    throw new Error("Impossibile creare la traccia import PDF per il rollback.");
+  }
+  return inserted.data.id;
+}
+
+async function updatePdfImportRun(args: {
+  supabase: SupabaseClient;
+  importRunId: string;
+  summary: PdfImportSummary;
+  status: "completed" | "failed";
+}) {
+  const { supabase, importRunId, summary, status } = args;
+  const { error } = await supabase
+    .from("import_runs")
+    .update({
+      total_rows: summary.totalPages,
+      processed_rows: summary.matchedEmployees,
+      error_rows: summary.errors,
+      status,
+    })
+    .eq("id", importRunId);
+  if (error) throw new Error(error.message);
+}
+
 export async function POST(request: Request) {
   const auth = await requireModuleAccess("sorveglianza", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
+  let importRunId: string | null = null;
   try {
     const MAX_PDF_UPLOAD_BYTES = 6_000_000;
     const MAX_PDF_PAGES = 700;
@@ -427,6 +540,12 @@ export async function POST(request: Request) {
           applyLimitations: Boolean(u?.applyLimitations),
         }))
         .filter((u) => Number.isFinite(u.page) && u.page > 0 && u.taxCode);
+
+      importRunId = await createPdfImportRun({
+        supabase: auth.supabase,
+        importedBy: auth.userId ?? null,
+        fileName: fileName || "import_pdf",
+      });
 
       const taxCodes = Array.from(new Set(normalizedUpdates.map((u) => u.taxCode).filter(Boolean)));
       const lookup = await buildEmployeeLookupByTaxCode(auth.supabase, taxCodes);
@@ -496,11 +615,17 @@ export async function POST(request: Request) {
       limitationsFound = rowsToUpsert.filter((r) => Boolean(String(r.limitations ?? "").trim())).length;
 
       if (rowsToUpsert.length > 0) {
+        await insertImportRunChanges({
+          supabase: auth.supabase,
+          importRunId,
+          rows: rowsToUpsert,
+          existingByEmployeeId: safe.existingByEmployeeId,
+        });
         const { error } = await auth.supabase
           .from("medical_surveillance_records")
           .upsert(rowsToUpsert, { onConflict: "employee_id" });
         if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
+          throw new Error(error.message);
         }
         updatedRecords = rowsToUpsert.length;
       }
@@ -524,23 +649,14 @@ export async function POST(request: Request) {
         limitationsFound,
         errors: errors.length,
       };
-
-      const runInsert = await auth.supabase
-        .from("import_runs")
-        .insert({
-          source: "sorveglianza_pdf",
-          file_name: fileName || "import_pdf",
-          imported_by: auth.userId,
-          total_rows: summary.totalPages,
-          processed_rows: summary.matchedEmployees,
-          error_rows: summary.errors,
-          status: "completed",
-        })
-        .select("id")
-        .single();
-
-      const importRunId = (runInsert.data as { id?: string } | null)?.id ?? null;
-      if (importRunId) await insertImportRunErrors({ supabase: auth.supabase, importRunId, errors });
+      await insertImportRunErrors({ supabase: auth.supabase, importRunId, errors });
+      await updatePdfImportRun({
+        supabase: auth.supabase,
+        importRunId,
+        summary,
+        status: "completed",
+      });
+      cacheDeleteByPrefix("surveillance_rows_v1:");
 
       const response: PdfImportResponse = {
         mode,
@@ -636,6 +752,14 @@ export async function POST(request: Request) {
       });
     }
 
+    if (mode === "commit") {
+      importRunId = await createPdfImportRun({
+        supabase: auth.supabase,
+        importedBy: auth.userId ?? null,
+        fileName: file instanceof File ? file.name : fileName || "import_pdf",
+      });
+    }
+
     const taxCodes = parsed.map((p) => p.taxCode).filter(Boolean);
     const lookup = await buildEmployeeLookupByTaxCode(auth.supabase, taxCodes);
 
@@ -727,14 +851,19 @@ export async function POST(request: Request) {
     const rowsToUpsert = safe.rows.map((r) => r.upsert);
 
     if (mode === "commit" && rowsToUpsert.length > 0) {
+      await insertImportRunChanges({
+        supabase: auth.supabase,
+        importRunId,
+        rows: rowsToUpsert,
+        existingByEmployeeId: safe.existingByEmployeeId,
+      });
       const { error } = await auth.supabase
         .from("medical_surveillance_records")
         .upsert(rowsToUpsert, { onConflict: "employee_id" });
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        throw new Error(error.message);
       }
       updatedRecords = rowsToUpsert.length;
-      cacheDeleteByPrefix("surveillance_rows_v1:");
     }
 
     const errorsForRun = [...errors];
@@ -766,21 +895,14 @@ export async function POST(request: Request) {
         : `Anteprima PDF completata: ${matchedEmployees} pagine associate.`;
 
     if (mode === "commit") {
-      const runInsert = await auth.supabase
-        .from("import_runs")
-        .insert({
-          source: "sorveglianza_pdf",
-          file_name: file instanceof File ? file.name : fileName || "import_pdf",
-          imported_by: auth.userId,
-          total_rows: summary.totalPages,
-          processed_rows: summary.matchedEmployees,
-          error_rows: summary.errors,
-          status: "completed",
-        })
-        .select("id")
-        .single();
-      const importRunId = (runInsert.data as { id?: string } | null)?.id ?? null;
-      if (importRunId) await insertImportRunErrors({ supabase: auth.supabase, importRunId, errors: errorsForRun });
+      await insertImportRunErrors({ supabase: auth.supabase, importRunId, errors: errorsForRun });
+      await updatePdfImportRun({
+        supabase: auth.supabase,
+        importRunId,
+        summary,
+        status: "completed",
+      });
+      cacheDeleteByPrefix("surveillance_rows_v1:");
     }
 
     const response: PdfImportResponse = {
@@ -793,6 +915,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json(response);
   } catch (err) {
+    if (importRunId) {
+      try {
+        await auth.supabase
+          .from("import_runs")
+          .update({ status: "failed" })
+          .eq("id", importRunId);
+      } catch {
+        // Keep the original import error as the primary failure surface.
+      }
+    }
     const status = err instanceof PdfImportHttpError ? err.status : 500;
     return NextResponse.json({ error: err instanceof Error ? err.message : "Errore import PDF." }, { status });
   }

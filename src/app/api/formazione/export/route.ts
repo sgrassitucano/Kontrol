@@ -139,15 +139,176 @@ class TooManyRowsError extends Error {
   status = 400;
 }
 
+type ExportFilters = {
+  query: string;
+  category: "base" | "operativi" | null;
+  states: Set<WorkerCourseRow["stato"]>;
+  origini: Set<WorkerCourseRow["origine"]>;
+  matricola: string;
+  cognome: string;
+  nome: string;
+  mansione: string;
+  cantiere: string;
+  sottocantiere: string;
+  responsabile: string;
+  referente: string;
+  courseCodes: Set<string>;
+  completionMonths: Set<string>;
+  expiryMonths: Set<string>;
+  note: string;
+};
+
+function parseCsvParam(value: string | null) {
+  return new Set(
+    String(value ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+}
+
+function parseCategoryParam(value: string | null) {
+  return value === "base" || value === "operativi" ? value : null;
+}
+
+function buildMonthKey(value: string | null | undefined) {
+  const normalized = normalizeDateOnlyIso(String(value ?? ""));
+  return normalized ? normalized.slice(0, 7) : null;
+}
+
+function matchText(value: string, filter: string) {
+  const normalizedFilter = filter.trim().toLowerCase();
+  if (!normalizedFilter) return true;
+  const normalizedValue = value.toLowerCase();
+  if (normalizedValue.includes(normalizedFilter)) return true;
+  const formattedValue = isoToItDate(value).toLowerCase();
+  if (formattedValue !== normalizedValue && formattedValue.includes(normalizedFilter)) return true;
+  return false;
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchSearchQuery(parts: Array<string | null | undefined>, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+  const haystack = normalizeSearchText(parts.filter(Boolean).join(" "));
+  if (!haystack) return false;
+  const tokens = normalizedQuery.split(" ").filter(Boolean);
+  return tokens.every((token) => haystack.includes(token));
+}
+
+function matchTextTokens(value: string, filter: string) {
+  const tokens = filter
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+  const haystack = String(value ?? "").toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
+}
+
+function matchesExportFilters(args: {
+  row: WorkerCourseRow;
+  filters: ExportFilters;
+  isBaseCode: (code: string) => boolean;
+}) {
+  const { row, filters, isBaseCode } = args;
+  const isBase = isBaseCode(row.corsoCode);
+
+  if (
+    filters.query &&
+    !matchSearchQuery(
+      [
+        row.matricola,
+        row.cantiere,
+        row.sottocantiere,
+        row.cognome,
+        row.nome,
+        row.mansione,
+        row.responsabile,
+        row.referente,
+        row.corsoCode,
+        row.corso,
+        row.note,
+      ],
+      filters.query,
+    )
+  ) {
+    return false;
+  }
+
+  if (filters.category === "base" && !isBase) return false;
+  if (filters.category === "operativi" && isBase) return false;
+  if (filters.states.size > 0 && !filters.states.has(row.stato)) return false;
+  if (filters.origini.size > 0 && !filters.origini.has(row.origine)) return false;
+  if (filters.matricola && !matchText(row.matricola, filters.matricola)) return false;
+  if (filters.cognome) {
+    const filter = filters.cognome.trim();
+    if (filter.includes(" ") && !filters.nome.trim()) {
+      if (!matchTextTokens(`${row.cognome} ${row.nome}`, filter)) return false;
+    } else if (!matchText(row.cognome, filter)) {
+      return false;
+    }
+  }
+  if (filters.nome && !matchText(row.nome, filters.nome)) return false;
+  if (filters.mansione && !matchText(row.mansione, filters.mansione)) return false;
+  if (filters.cantiere && !matchText(row.cantiere, filters.cantiere)) return false;
+  if (filters.sottocantiere && !matchText(row.sottocantiere, filters.sottocantiere)) return false;
+  if (filters.responsabile && !matchText(row.responsabile, filters.responsabile)) return false;
+  if (filters.referente && !matchText(row.referente, filters.referente)) return false;
+  if (filters.courseCodes.size > 0 && !filters.courseCodes.has(row.corsoCode)) return false;
+
+  if (filters.completionMonths.size > 0) {
+    const monthKey = buildMonthKey(row.dataConclusione);
+    if (!monthKey || !filters.completionMonths.has(monthKey)) return false;
+  }
+
+  if (filters.expiryMonths.size > 0) {
+    const monthKey = buildMonthKey(row.dataScadenza);
+    if (!monthKey || !filters.expiryMonths.has(monthKey)) return false;
+  }
+
+  if (filters.note && !matchText(row.note ?? "", filters.note)) return false;
+  return true;
+}
+
 export async function GET(request: Request) {
   const auth = await requireModuleAccess("formazione", false);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
     const url = new URL(request.url);
+    const query = (url.searchParams.get("q") ?? "").trim();
     const expiringDays = Number(url.searchParams.get("expiringDays") ?? "30");
     const dateParam = url.searchParams.get("date");
-    const includeExcluded = true;
+    const includeExcluded = url.searchParams.get("includeExcluded") === "1";
+    const filters: ExportFilters = {
+      query,
+      category: parseCategoryParam(url.searchParams.get("category")),
+      states: parseCsvParam(url.searchParams.get("states")) as Set<WorkerCourseRow["stato"]>,
+      origini: parseCsvParam(url.searchParams.get("origini")) as Set<WorkerCourseRow["origine"]>,
+      matricola: url.searchParams.get("matricola") ?? "",
+      cognome: url.searchParams.get("cognome") ?? "",
+      nome: url.searchParams.get("nome") ?? "",
+      mansione: url.searchParams.get("mansione") ?? "",
+      cantiere: url.searchParams.get("cantiere") ?? "",
+      sottocantiere: url.searchParams.get("sottocantiere") ?? "",
+      responsabile: url.searchParams.get("responsabile") ?? "",
+      referente: url.searchParams.get("referente") ?? "",
+      courseCodes: parseCsvParam(url.searchParams.get("courseCodes")),
+      completionMonths: parseCsvParam(url.searchParams.get("completionMonths")),
+      expiryMonths: parseCsvParam(url.searchParams.get("expiryMonths")),
+      note: url.searchParams.get("note") ?? "",
+    };
 
     const todayIso =
       typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
@@ -217,6 +378,7 @@ export async function GET(request: Request) {
 
     const shouldExcludeEmployee = (employee: EmployeeRow) => {
       if (includeExcluded) return false;
+      if (query) return false;
       if (excludedEmployeeIds.has(employee.id)) return true;
       if (typeof employee.sub_site_id === "number" && excludedSubSiteIds.has(employee.sub_site_id)) return true;
       if (typeof employee.site_id === "number" && excludedSiteIds.has(employee.site_id)) return true;
@@ -595,9 +757,17 @@ export async function GET(request: Request) {
       return `${a.corsoCode} ${a.corso}`.localeCompare(`${b.corsoCode} ${b.corso}`, "it", { sensitivity: "base" });
     };
 
-    const allRows = [...rows].sort(byPerson);
+    const allRows = rows
+      .filter((row) =>
+        matchesExportFilters({
+          row,
+          filters,
+          isBaseCode,
+        }),
+      )
+      .sort(byPerson);
 
-    const exportableRows = allRows.filter((row) => row.stato !== "escluso");
+    const exportableRows = allRows;
 
     const base = exportableRows.filter((row) => isBaseCode(row.corsoCode));
     const muletto = exportableRows.filter((row) => row.corsoCode === "CORSO_MUL");
