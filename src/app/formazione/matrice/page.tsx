@@ -219,28 +219,30 @@ export default function FormazioneMatricePage() {
     setError("");
     try {
       const response = await fetch("/api/formazione/matrice/seed", { method: "POST" });
-      const body = (await readJsonSafely<
-        | {
-            ok: true;
-            seededCourses: number;
-            seededBaselineRules: number;
-            seededJobRules: number;
-            missingCourseCodes: string[];
-            unmappedLabels: string[];
-          }
-        | { error?: string; ok?: boolean }
-      >(response)) as
-        | {
-            ok: true;
-            seededCourses: number;
-            seededBaselineRules: number;
-            seededJobRules: number;
-            missingCourseCodes: string[];
-            unmappedLabels: string[];
-          }
-        | { error?: string; ok?: boolean }
-        | null;
-      if (!body || !response.ok || extractResponseError(body)) {
+      const body = await readJsonSafely<unknown>(response);
+      if (!response.ok || extractResponseError(body)) {
+        throw new Error(buildHttpErrorMessage(response, body, "Errore seed matrice"));
+      }
+
+      const isSeedOk = (
+        value: unknown,
+      ): value is {
+        ok: true;
+        seededCourses: number;
+        seededBaselineRules: number;
+        seededJobRules: number;
+        missingCourseCodes: string[];
+        unmappedLabels: string[];
+      } => {
+        if (!value || typeof value !== "object") return false;
+        const v = value as Record<string, unknown>;
+        if (v.ok !== true) return false;
+        if (!Array.isArray(v.missingCourseCodes)) return false;
+        if (!Array.isArray(v.unmappedLabels)) return false;
+        return true;
+      };
+
+      if (!isSeedOk(body)) {
         throw new Error(buildHttpErrorMessage(response, body, "Errore seed matrice"));
       }
       if (body.missingCourseCodes.length > 0 || body.unmappedLabels.length > 0) {

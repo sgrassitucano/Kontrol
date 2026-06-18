@@ -541,11 +541,12 @@ export async function POST(request: Request) {
         }))
         .filter((u) => Number.isFinite(u.page) && u.page > 0 && u.taxCode);
 
-      importRunId = await createPdfImportRun({
+      const runId = await createPdfImportRun({
         supabase: auth.supabase,
         importedBy: auth.userId ?? null,
         fileName: fileName || "import_pdf",
       });
+      importRunId = runId;
 
       const taxCodes = Array.from(new Set(normalizedUpdates.map((u) => u.taxCode).filter(Boolean)));
       const lookup = await buildEmployeeLookupByTaxCode(auth.supabase, taxCodes);
@@ -617,7 +618,7 @@ export async function POST(request: Request) {
       if (rowsToUpsert.length > 0) {
         await insertImportRunChanges({
           supabase: auth.supabase,
-          importRunId,
+          importRunId: runId,
           rows: rowsToUpsert,
           existingByEmployeeId: safe.existingByEmployeeId,
         });
@@ -649,10 +650,10 @@ export async function POST(request: Request) {
         limitationsFound,
         errors: errors.length,
       };
-      await insertImportRunErrors({ supabase: auth.supabase, importRunId, errors });
+      await insertImportRunErrors({ supabase: auth.supabase, importRunId: runId, errors });
       await updatePdfImportRun({
         supabase: auth.supabase,
-        importRunId,
+        importRunId: runId,
         summary,
         status: "completed",
       });
@@ -752,13 +753,15 @@ export async function POST(request: Request) {
       });
     }
 
-    if (mode === "commit") {
-      importRunId = await createPdfImportRun({
-        supabase: auth.supabase,
-        importedBy: auth.userId ?? null,
-        fileName: file instanceof File ? file.name : fileName || "import_pdf",
-      });
-    }
+    const runId =
+      mode === "commit"
+        ? await createPdfImportRun({
+            supabase: auth.supabase,
+            importedBy: auth.userId ?? null,
+            fileName: file instanceof File ? file.name : fileName || "import_pdf",
+          })
+        : null;
+    importRunId = runId;
 
     const taxCodes = parsed.map((p) => p.taxCode).filter(Boolean);
     const lookup = await buildEmployeeLookupByTaxCode(auth.supabase, taxCodes);
@@ -850,10 +853,14 @@ export async function POST(request: Request) {
     const safe = await makePdfImportUpsertsSafe({ supabase: auth.supabase, rows: collapsed });
     const rowsToUpsert = safe.rows.map((r) => r.upsert);
 
+    if (mode === "commit") {
+      if (!runId) throw new Error("Impossibile creare la traccia import PDF per il rollback.");
+    }
+
     if (mode === "commit" && rowsToUpsert.length > 0) {
       await insertImportRunChanges({
         supabase: auth.supabase,
-        importRunId,
+        importRunId: runId,
         rows: rowsToUpsert,
         existingByEmployeeId: safe.existingByEmployeeId,
       });
@@ -895,10 +902,11 @@ export async function POST(request: Request) {
         : `Anteprima PDF completata: ${matchedEmployees} pagine associate.`;
 
     if (mode === "commit") {
-      await insertImportRunErrors({ supabase: auth.supabase, importRunId, errors: errorsForRun });
+      if (!runId) throw new Error("Impossibile creare la traccia import PDF per il rollback.");
+      await insertImportRunErrors({ supabase: auth.supabase, importRunId: runId, errors: errorsForRun });
       await updatePdfImportRun({
         supabase: auth.supabase,
-        importRunId,
+        importRunId: runId,
         summary,
         status: "completed",
       });
