@@ -29,26 +29,30 @@ export async function fetchLatestUndoableImportRun(params: {
   const { supabase, sources } = params;
   if (sources.length === 0) return null;
 
+  const MAX_CANDIDATES = 50;
   const { data, error } = await supabase
     .from("import_runs")
     .select("id,source,created_at")
     .in("source", sources)
     .eq("status", "completed")
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(MAX_CANDIDATES);
   if (error) throw new Error(error.message);
-  const run = (data ?? null) as ImportRunRow | null;
-  if (!run) return null;
+  const runs = (data ?? []) as ImportRunRow[];
+  if (runs.length === 0) return null;
 
+  const runIds = runs.map((r) => r.id);
   const { data: undos, error: undosError } = await supabase
     .from("import_run_undos")
     .select("import_run_id")
-    .eq("import_run_id", run.id)
-    .limit(1);
+    .in("import_run_id", runIds);
   if (undosError) throw new Error(undosError.message);
-  const isUndone = ((undos ?? []) as Array<{ import_run_id: string }>).length > 0;
-  return isUndone ? null : run;
+  const undoneSet = new Set(((undos ?? []) as Array<{ import_run_id: string }>).map((u) => u.import_run_id));
+
+  for (const run of runs) {
+    if (!undoneSet.has(run.id)) return run;
+  }
+  return null;
 }
 
 export async function fetchImportRunChanges(params: {

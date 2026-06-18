@@ -106,6 +106,8 @@ async function insertImportRunErrors(args: {
 
 export type ExistingMedicalSurveillanceRow = {
   employee_id: number;
+  provider: string | null;
+  is_planned: boolean;
   requires_visit: boolean;
   next_due_date: string | null;
   limitations: string | null;
@@ -264,7 +266,7 @@ export async function processMedicalSurveillanceImport({
     for (const part of chunk(employeeIds, 500)) {
       const { data, error } = await supabase
         .from("medical_surveillance_records")
-        .select("employee_id,requires_visit,next_due_date,limitations,notes")
+        .select("employee_id,provider,is_planned,requires_visit,next_due_date,limitations,notes")
         .in("employee_id", part);
       if (error) throw new Error(error.message);
       (data ?? []).forEach((row) => {
@@ -296,6 +298,8 @@ export async function processMedicalSurveillanceImport({
         const afterLimitations =
           row.limitations === undefined ? before?.limitations ?? null : (row.limitations ?? null);
         const afterNotes = row.notes === undefined ? before?.notes ?? null : (row.notes ?? null);
+        const afterProvider = before?.provider ?? null;
+        const afterIsPlanned = before?.is_planned ?? false;
         return {
           import_run_id: importRunId,
           table_name: "medical_surveillance_records",
@@ -304,6 +308,8 @@ export async function processMedicalSurveillanceImport({
           before_row: before
             ? {
                 employee_id: before.employee_id,
+                provider: before.provider,
+                is_planned: before.is_planned,
                 requires_visit: before.requires_visit,
                 next_due_date: before.next_due_date,
                 limitations: before.limitations,
@@ -312,6 +318,8 @@ export async function processMedicalSurveillanceImport({
             : null,
           after_row: {
             employee_id: row.employee_id,
+            provider: afterProvider,
+            is_planned: afterIsPlanned,
             requires_visit: row.requires_visit,
             next_due_date: afterNextDueDate,
             limitations: afterLimitations,

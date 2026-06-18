@@ -411,8 +411,6 @@ export async function commitLegacyTrainingImport({
     course_id: number;
     completion_date: string | null;
     expiry_date: string | null;
-    planned_date: null;
-    manual_state: null;
   }> = [];
   let skippedDaFareRows = 0;
   let skippedMissingStartDateRows = 0;
@@ -434,8 +432,6 @@ export async function commitLegacyTrainingImport({
         course_id: course.id,
         completion_date: row.startDate,
         expiry_date: null,
-        planned_date: null,
-        manual_state: null,
       });
       continue;
     }
@@ -451,8 +447,6 @@ export async function commitLegacyTrainingImport({
       course_id: course.id,
       completion_date: completionDate,
       expiry_date: expiryDate,
-      planned_date: null,
-      manual_state: null,
     });
   }
 

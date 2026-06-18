@@ -13,9 +13,16 @@ export async function requireAuthenticatedPage() {
 
 export async function requireAnyOperationalPageAccess() {
   const { supabase, user } = await requireAuthenticatedPage();
-  const { data, error } = await supabase.rpc("has_any_operational_access");
-  if (error) throw new Error(error.message);
-  if (!data) redirect("/no-access");
+  const [{ data: hasOperational, error: opError }, { data: hasGestione, error: gestioneError }] = await Promise.all([
+    supabase.rpc("has_any_operational_access"),
+    supabase.rpc("has_module_access", {
+      target_module: "gestione",
+      require_write: false,
+    }),
+  ]);
+  if (opError) throw new Error(opError.message);
+  if (gestioneError) throw new Error(gestioneError.message);
+  if (!hasOperational && !hasGestione) redirect("/no-access");
   return { supabase, user };
 }
 

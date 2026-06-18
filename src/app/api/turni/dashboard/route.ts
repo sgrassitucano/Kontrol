@@ -264,8 +264,8 @@ async function fetchShiftsInMonth(
     .from("turni_employee_shifts")
     .select("id,employee_id,site_id,sub_site_id,start_at,end_at,state")
     .neq("state", "cancelled")
+    .gte("start_at", monthStartIso)
     .lt("start_at", nextMonthStartIso)
-    .gt("end_at", monthStartIso)
     .order("start_at")
     .limit(MAX_SHIFTS + 1);
   if (error) throw new Error(error.message);
