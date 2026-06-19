@@ -26,19 +26,32 @@ export async function POST(request: Request) {
     const buffer = await file.arrayBuffer();
 
     if (mode === "commit") {
-      const inserted = await auth.supabase
+      const basePayload = {
+        source: "sorveglianza" as const,
+        file_name: file.name,
+        imported_by: auth.userId,
+        total_rows: 0,
+        processed_rows: 0,
+        error_rows: 0,
+      };
+      let inserted = await auth.supabase
         .from("import_runs")
         .insert({
-          source: "sorveglianza",
-          file_name: file.name,
-          imported_by: auth.userId,
-          total_rows: 0,
-          processed_rows: 0,
-          error_rows: 0,
+          ...basePayload,
           status: "processing",
         })
         .select("id")
         .single();
+      if (inserted.error?.message?.includes("import_runs_status_check")) {
+        inserted = await auth.supabase
+          .from("import_runs")
+          .insert({
+            ...basePayload,
+            status: "preview",
+          })
+          .select("id")
+          .single();
+      }
       if (inserted.error || !inserted.data?.id) {
         return NextResponse.json(
           { error: "Impossibile creare la traccia import per il rollback." },

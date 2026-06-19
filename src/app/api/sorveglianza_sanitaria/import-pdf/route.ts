@@ -444,19 +444,35 @@ async function createPdfImportRun(args: {
   fileName: string;
 }) {
   const { supabase, importedBy, fileName } = args;
-  const inserted = await supabase
+  const basePayload = {
+    source: "sorveglianza_pdf" as const,
+    file_name: fileName || "import_pdf",
+    imported_by: importedBy,
+    total_rows: 0,
+    processed_rows: 0,
+    error_rows: 0,
+  };
+
+  let inserted = await supabase
     .from("import_runs")
     .insert({
-      source: "sorveglianza_pdf",
-      file_name: fileName || "import_pdf",
-      imported_by: importedBy,
-      total_rows: 0,
-      processed_rows: 0,
-      error_rows: 0,
+      ...basePayload,
       status: "processing",
     })
     .select("id")
     .single();
+
+  if (inserted.error?.message?.includes("import_runs_status_check")) {
+    inserted = await supabase
+      .from("import_runs")
+      .insert({
+        ...basePayload,
+        // Compat fallback per DB non ancora allineati al nuovo stato intermedio.
+        status: "preview",
+      })
+      .select("id")
+      .single();
+  }
 
   if (inserted.error) {
     throw new Error(`Impossibile creare la traccia import PDF per il rollback: ${inserted.error.message}`);
