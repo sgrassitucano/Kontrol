@@ -458,8 +458,11 @@ async function createPdfImportRun(args: {
     .select("id")
     .single();
 
-  if (inserted.error || !inserted.data?.id) {
-    throw new Error("Impossibile creare la traccia import PDF per il rollback.");
+  if (inserted.error) {
+    throw new Error(`Impossibile creare la traccia import PDF per il rollback: ${inserted.error.message}`);
+  }
+  if (!inserted.data?.id) {
+    throw new Error("Impossibile creare la traccia import PDF per il rollback: id mancante.");
   }
   return inserted.data.id;
 }
