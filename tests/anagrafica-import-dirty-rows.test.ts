@@ -271,3 +271,184 @@ test("processAnagraficaImport: non scarta le ultime righe dipendenti prima dei f
   assert.ok(result.previewRows.some((row) => row.matricola === "0003"));
   assert.ok(result.previewRows.some((row) => row.cognome === "MUNITANTIRIGE"));
 });
+
+test("processAnagraficaImport: una riga senza CF non disattiva le dimissioni automatiche", async () => {
+  const fileBuffer = buildWorkbookBuffer([
+    [
+      "0001",
+      "Rossi",
+      "Mario",
+      "01/01/1980",
+      "Roma",
+      "RSSMRA80A01H501Z",
+      "",
+      "",
+      "mario@example.com",
+      "",
+      "",
+      "RESP1",
+      "Operaio",
+      "",
+      "SPU",
+      "",
+      "RM",
+      "2400",
+      "00100",
+      "Roma",
+      "Via Roma 1",
+      "RM",
+      "M",
+      "H501",
+    ],
+    [
+      "0002",
+      "Bianchi",
+      "Luca",
+      "02/02/1981",
+      "Milano",
+      "",
+      "",
+      "",
+      "luca@example.com",
+      "",
+      "",
+      "RESP2",
+      "Operaio",
+      "",
+      "SPU",
+      "",
+      "MI",
+      "2400",
+      "20100",
+      "Milano",
+      "Via Milano 2",
+      "MI",
+      "M",
+      "F205",
+    ],
+  ]);
+
+  const existingEmployees = [
+    {
+      id: 1,
+      matricola: "0001",
+      tax_code: "RSSMRA80A01H501Z",
+      first_name: "Mario",
+      last_name: "Rossi",
+      status: "attivo",
+      last_imported_at: "2026-06-20T10:00:00.000Z",
+      sex: "M",
+      birth_province: "RM",
+      residence_address: "Via Roma 1",
+      residence_postal_code: "00100",
+      residence_city: "Roma",
+      residence_province: "RM",
+      residence_belfiore_code: "H501",
+    },
+    {
+      id: 2,
+      matricola: "0009",
+      tax_code: "VRDLGI80A01F205X",
+      first_name: "Luigi",
+      last_name: "Verdi",
+      status: "attivo",
+      last_imported_at: "2026-06-20T10:00:00.000Z",
+      sex: "M",
+      birth_province: "MI",
+      residence_address: "Via Milano 9",
+      residence_postal_code: "20100",
+      residence_city: "Milano",
+      residence_province: "MI",
+      residence_belfiore_code: "F205",
+    },
+  ];
+
+  const result = await processAnagraficaImport({
+    fileBuffer,
+    fileName: "missing-cf.xlsx",
+    mode: "preview",
+    supabase: createPreviewSupabase(existingEmployees),
+  });
+
+  assert.equal(result.summary.dismissedRows, 1);
+  assert.equal(result.dismissalPreviewRows.length, 1);
+  assert.equal(result.dismissalPreviewRows[0]?.codiceFiscale, "VRDLGI80A01F205X");
+  assert.ok(result.errors.some((row) => row.errorType === "required_identity_fields"));
+});
+
+test("processAnagraficaImport: conflitto CF/matricola su DB blocca le dimissioni automatiche", async () => {
+  const fileBuffer = buildWorkbookBuffer([
+    [
+      "0099",
+      "Verdi",
+      "Luigi",
+      "02/02/1981",
+      "Milano",
+      "RSSMRA80A01H501Z",
+      "",
+      "",
+      "luigi@example.com",
+      "",
+      "",
+      "RESP2",
+      "Operaio",
+      "",
+      "SPU",
+      "",
+      "MI",
+      "2400",
+      "20100",
+      "Milano",
+      "Via Milano 9",
+      "MI",
+      "M",
+      "F205",
+    ],
+  ]);
+
+  const existingEmployees = [
+    {
+      id: 1,
+      matricola: "0001",
+      tax_code: "RSSMRA80A01H501Z",
+      first_name: "Mario",
+      last_name: "Rossi",
+      status: "attivo",
+      last_imported_at: "2026-06-20T10:00:00.000Z",
+      sex: "M",
+      birth_province: "RM",
+      residence_address: "Via Roma 1",
+      residence_postal_code: "00100",
+      residence_city: "Roma",
+      residence_province: "RM",
+      residence_belfiore_code: "H501",
+    },
+    {
+      id: 2,
+      matricola: "0009",
+      tax_code: "VRDLGI80A01F205X",
+      first_name: "Luigi",
+      last_name: "Verdi",
+      status: "attivo",
+      last_imported_at: "2026-06-20T10:00:00.000Z",
+      sex: "M",
+      birth_province: "MI",
+      residence_address: "Via Milano 9",
+      residence_postal_code: "20100",
+      residence_city: "Milano",
+      residence_province: "MI",
+      residence_belfiore_code: "F205",
+    },
+  ];
+
+  const result = await processAnagraficaImport({
+    fileBuffer,
+    fileName: "db-conflict.xlsx",
+    mode: "preview",
+    supabase: createPreviewSupabase(existingEmployees),
+  });
+
+  assert.equal(result.summary.dismissedRows, 0);
+  assert.equal(result.dismissalPreviewRows.length, 0);
+  assert.ok(result.errors.some((row) => row.errorType === "tax_code_matricola_mismatch_db"));
+});

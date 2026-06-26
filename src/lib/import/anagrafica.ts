@@ -166,6 +166,7 @@ const DEFAULT_BIRTH_DATE = "1900-01-01";
 const DEFAULT_SITE = "NON_ASSEGNATO";
 const DISMISSAL_CONFIRMATION_PHRASE = "CONFERMO DIMISSIONE MASSIVA";
 
+
 type RecentAnagraficaBaseline = {
   importRunId: string;
   createdAt: string;
