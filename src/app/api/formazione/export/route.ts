@@ -4,6 +4,7 @@ import { applyCalibri10WithBoldHeader } from "@/lib/excel";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { requireModuleAccess } from "@/lib/api/access";
 import { isoToItDate } from "@/lib/it-date";
+import { resolveCourseState, isValidCourseStatus } from "@/lib/training/engine";
 import type { SupabaseClient } from "@supabase/supabase-js";
 type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean };
 
@@ -498,32 +499,9 @@ export async function GET(request: Request) {
             const to = levelLabel(course.code) ?? course.code;
             upgradeInfoByCourseId.set(bestLower.courseId, `${from} → ${to}`);
             upgradeCourseIds.add(bestLower.courseId);
-            const bestLowerStatus = employeeStatusRows.find((row) => row.course_id === bestLower.courseId);
-            const bestLowerCourse = courseMap.get(bestLower.courseId);
-            const baseState = bestLowerCourse
-              ? resolveCourseState(bestLowerStatus, bestLowerCourse, freeze, todayIso, expiringDaysSafe, false)
-              : "upgrade";
-            const state = freeze ? "sospeso" : "upgrade";
-            pushRow({
-              workerId: employee.id,
-              matricola: employee.matricola,
-              cognome: employee.last_name,
-              nome: employee.first_name,
-              mansione: employee.job_title ?? "",
-              cantiere: extractDisplayName(employee.sites),
-              sottocantiere: extractDisplayName(employee.sub_sites),
-              corsoCode: course.code,
-              corso: course.title,
-              dataConclusione: bestLowerStatus?.completion_date ?? null,
-              dataScadenza: bestLowerStatus?.expiry_date ?? null,
-              dataPrevista: bestLowerStatus?.planned_date ?? null,
-              stato: (baseState === "sospeso" ? "sospeso" : state) as WorkerCourseRow["stato"],
-              upgradeInfo: `${from} → ${to}`,
-              responsabile: employee.responsible_code,
-              referente: employee.referral ?? "",
-              note: bestLowerStatus?.note ?? "",
-              origine: "obbligatorio",
-            });
+            // Il corso posseduto (livello inferiore) viene emesso una sola volta dal ciclo "aggiuntivi"
+            // come riga "upgrade". NON emettiamo qui anche il livello richiesto, altrimenti il
+            // lavoratore comparirebbe due volte (bug "nomi duplicati" nel report).
             continue;
           }
 
@@ -767,14 +745,26 @@ export async function GET(request: Request) {
       )
       .sort(byPerson);
 
-    const exportableRows = allRows;
+    // Rete anti-duplicati: una sola riga per lavoratore + corso + scadenza + stato.
+    const seenRowKeys = new Set<string>();
+    const exportableRows = allRows.filter((row) => {
+      const key = `${row.workerId}|${row.corsoCode}|${row.dataScadenza ?? ""}|${row.stato}`;
+      if (seenRowKeys.has(key)) return false;
+      seenRowKeys.add(key);
+      return true;
+    });
 
-    const base = exportableRows.filter((row) => isBaseCode(row.corsoCode));
+    // BASE = solo "sll" (generale + specifica, tutti i livelli). Dirigente e preposto su fogli propri.
+    const isBaseSheet = (code: string) => isBaseCode(code) && code !== "CORSO_DIR";
+    const base = exportableRows.filter((row) => isBaseSheet(row.corsoCode));
+    const preposto = exportableRows.filter((row) => row.corsoCode === "CORSO_PREP");
+    const dirigenti = exportableRows.filter((row) => row.corsoCode === "CORSO_DIR");
     const muletto = exportableRows.filter((row) => row.corsoCode === "CORSO_MUL");
     const primoSoccorso = exportableRows.filter((row) => row.corsoCode === "CORSO_PS");
     const antincendio = exportableRows.filter((row) => Boolean(row.corsoCode.match(/^CORSO_AI_[123]$/)));
     const altriOperativi = exportableRows.filter((row) => {
-      if (isBaseCode(row.corsoCode)) return false;
+      if (isBaseSheet(row.corsoCode)) return false;
+      if (row.corsoCode === "CORSO_DIR" || row.corsoCode === "CORSO_PREP") return false;
       if (row.corsoCode === "CORSO_MUL") return false;
       if (row.corsoCode === "CORSO_PS") return false;
       if (row.corsoCode.match(/^CORSO_AI_[123]$/)) return false;
@@ -783,6 +773,8 @@ export async function GET(request: Request) {
 
     const reportSheets: Array<{ name: string; kind: ReportSheetKind; rows: WorkerCourseRow[] }> = [
       { name: "BASE", kind: "base", rows: base },
+      { name: "preposto", kind: "preposto", rows: preposto },
+      { name: "dirigenti", kind: "dirigenti", rows: dirigenti },
       { name: "muletto", kind: "muletto", rows: muletto },
       { name: "primo soccorso", kind: "primo_soccorso", rows: primoSoccorso },
       { name: "antincendio", kind: "antincendio", rows: antincendio },
@@ -800,137 +792,6 @@ export async function GET(request: Request) {
       applyCalibri10WithBoldHeader(ws);
       XLSX.utils.book_append_sheet(workbook, ws, sanitizeSheetName(sheetCfg.name));
     });
-
-    const ebafosHeaders = [
-      "Nome",
-      "Cognome",
-      "Email Discente (opzionale)",
-      "Data Nascita (opzionale)",
-      "Sesso (M/F) (opzionale)",
-      "Nato in Italia (0 - Si / 1 - No) (opzionale)",
-      "Luogo di Nascita / Nazione di Nascita (opzionale)",
-      "Mansione (opzionale)",
-      "Codice Fiscale (obbligatorio se dati anagrafici non compilati)",
-      "Codice Ateco (x.xx.xx.xx) (opzionale)",
-      "Numero Identificazione Fiscale TIN (opzionale)",
-    ] as const;
-
-    const ebafosRows: Record<(typeof ebafosHeaders)[number], string>[] = [];
-    exportableRows
-      .filter((row) => row.stato === "programmato")
-      .forEach((row) => {
-        const employee = employeeById.get(row.workerId);
-        if (!employee) return;
-        ebafosRows.push({
-          "Nome": employee.first_name ?? "",
-          "Cognome": employee.last_name ?? "",
-          "Email Discente (opzionale)": employee.email_primary ?? "",
-          "Data Nascita (opzionale)": employee.birth_date ? isoToItDate(employee.birth_date) : "",
-          "Sesso (M/F) (opzionale)": employee.sex ?? "",
-          "Nato in Italia (0 - Si / 1 - No) (opzionale)": "",
-          "Luogo di Nascita / Nazione di Nascita (opzionale)": employee.birth_place ?? "",
-          "Mansione (opzionale)": employee.job_title ?? "",
-          "Codice Fiscale (obbligatorio se dati anagrafici non compilati)": employee.tax_code ?? "",
-          "Codice Ateco (x.xx.xx.xx) (opzionale)": "",
-          "Numero Identificazione Fiscale TIN (opzionale)": "",
-        });
-      });
-
-    const ebafosWs = XLSX.utils.json_to_sheet(ebafosRows, { header: [...ebafosHeaders] });
-    applyCalibri10WithBoldHeader(ebafosWs);
-    XLSX.utils.book_append_sheet(workbook, ebafosWs, "EBAFOS");
-
-    const piattaformaHeaders = [
-      "COGNOME",
-      "NOME",
-      "INDIRIZZO RESIDENZA",
-      "CAP RESIDENZA",
-      "CITTA RESIDENZA",
-      "PROVINCIA RESIDENZA",
-      "REGIONE RESIDENZA",
-      "CITTA NASCITA",
-      "PROVINCIA NASCITA",
-      "REGIONE NASCITA",
-      "DATA NASCITA",
-      "CODICE FISCALE",
-      "SESSO",
-      "MAIL",
-      "CELL",
-      "USERNAME",
-      "PASSWORD",
-      "MANSIONE",
-      "NOTE",
-    ] as const;
-
-    const piattaformaEmployeeIds = new Set<number>();
-    const piattaformaNotesByEmployeeId = new Map<number, Set<string>>();
-
-    base.forEach((row) => {
-      const normalizedState = normalizeBaseSheetState(row);
-      const isBassoEntry =
-        row.corsoCode === "FORM_SPEC_BASSO" ||
-        row.corsoCode === "FORM_BASE+FORM_SPEC_BASSO";
-      const isAllRisksGenSpec =
-        row.corsoCode.startsWith("FORM_BASE+FORM_SPEC_") ||
-        row.corsoCode === "FORM_SPEC_BASSO" ||
-        row.corsoCode === "FORM_SPEC_MEDIO" ||
-        row.corsoCode === "FORM_SPEC_ALTO";
-
-      const include =
-        (isBassoEntry && (normalizedState === "da fare" || normalizedState === "programmato")) ||
-        (isAllRisksGenSpec && (normalizedState === "scaduto" || normalizedState === "programmato"));
-
-      if (!include) return;
-      piattaformaEmployeeIds.add(row.workerId);
-      const note = (row.note ?? "").trim();
-      if (!note) return;
-      const set = piattaformaNotesByEmployeeId.get(row.workerId);
-      if (!set) piattaformaNotesByEmployeeId.set(row.workerId, new Set([note]));
-      else set.add(note);
-    });
-
-    const piattaformaRows: Record<(typeof piattaformaHeaders)[number], string>[] = Array.from(
-      piattaformaEmployeeIds.values(),
-    )
-      .map((id) => employeeById.get(id))
-      .filter((employee): employee is EmployeeRow => Boolean(employee))
-      .sort((a, b) => {
-        const bySurname = a.last_name.localeCompare(b.last_name, "it", { sensitivity: "base" });
-        if (bySurname !== 0) return bySurname;
-        return a.first_name.localeCompare(b.first_name, "it", { sensitivity: "base" });
-      })
-      .map((employee) => {
-        const taxCode = (employee.tax_code ?? "").toUpperCase();
-        const username = taxCode.length >= 6 ? taxCode.slice(0, 6) : "";
-        const notes = Array.from(piattaformaNotesByEmployeeId.get(employee.id) ?? []).join(" | ");
-        const provinceResidence = (employee.residence_province ?? "").toUpperCase();
-        const provinceBirth = (employee.birth_province ?? "").toUpperCase();
-        return {
-          "COGNOME": employee.last_name ?? "",
-          "NOME": employee.first_name ?? "",
-          "INDIRIZZO RESIDENZA": employee.residence_address ?? "",
-          "CAP RESIDENZA": employee.residence_postal_code ?? "",
-          "CITTA RESIDENZA": employee.residence_city ?? "",
-          "PROVINCIA RESIDENZA": provinceResidence,
-          "REGIONE RESIDENZA": provinceToRegion(provinceResidence),
-          "CITTA NASCITA": employee.birth_place ?? "",
-          "PROVINCIA NASCITA": provinceBirth,
-          "REGIONE NASCITA": provinceToRegion(provinceBirth),
-          "DATA NASCITA": employee.birth_date ? isoToItDate(employee.birth_date) : "",
-          "CODICE FISCALE": taxCode,
-          "SESSO": employee.sex ?? "",
-          "MAIL": employee.email_primary ?? "",
-          "CELL": employee.mobile ?? "",
-          "USERNAME": username,
-          "PASSWORD": "Morelli2026!",
-          "MANSIONE": employee.job_title ?? "",
-          "NOTE": notes,
-        };
-      });
-
-    const piattaformaWs = XLSX.utils.json_to_sheet(piattaformaRows, { header: [...piattaformaHeaders] });
-    applyCalibri10WithBoldHeader(piattaformaWs);
-    XLSX.utils.book_append_sheet(workbook, piattaformaWs, "PIATTAFORMA");
 
     const out = XLSX.write(
       workbook,
@@ -960,6 +821,8 @@ export async function GET(request: Request) {
 
 type ReportSheetKind =
   | "base"
+  | "preposto"
+  | "dirigenti"
   | "muletto"
   | "primo_soccorso"
   | "antincendio"
@@ -1000,73 +863,6 @@ function buildExportRow(employee: EmployeeRow, row: WorkerCourseRow, sheet: Repo
     "mail": employee.email_primary ?? "",
     "cellulare": employee.mobile ?? "",
   };
-}
-
-function normalizeBaseSheetState(row: WorkerCourseRow) {
-  return row.stato === "perso" || row.stato === "upgrade" || row.stato === "sospeso"
-    ? "da fare"
-    : row.stato;
-}
-
-const REGION_BY_PROVINCE: Record<string, string> = (() => {
-  const data: Record<string, { sigla: string }[] | string[]> = {
-    "regioni": [
-      "Sicilia",
-      "Piemonte",
-      "Marche",
-      "Valle d'Aosta",
-      "Toscana",
-      "Campania",
-      "Puglia",
-      "Veneto",
-      "Lombardia",
-      "Emilia-Romagna",
-      "Trentino-Alto Adige",
-      "Sardegna",
-      "Molise",
-      "Calabria",
-      "Abruzzo",
-      "Lazio",
-      "Liguria",
-      "Friuli-Venezia Giulia",
-      "Basilicata",
-      "Umbria",
-    ],
-    "Sicilia": [{ "sigla": "AG" }, { "sigla": "CL" }, { "sigla": "CT" }, { "sigla": "EN" }, { "sigla": "ME" }, { "sigla": "PA" }, { "sigla": "RG" }, { "sigla": "SR" }, { "sigla": "TP" }],
-    "Piemonte": [{ "sigla": "AL" }, { "sigla": "AT" }, { "sigla": "BI" }, { "sigla": "CN" }, { "sigla": "NO" }, { "sigla": "TO" }, { "sigla": "VB" }, { "sigla": "VC" }],
-    "Marche": [{ "sigla": "AN" }, { "sigla": "AP" }, { "sigla": "FM" }, { "sigla": "MC" }, { "sigla": "PU" }],
-    "Valle d'Aosta": [{ "sigla": "AO" }],
-    "Toscana": [{ "sigla": "AR" }, { "sigla": "FI" }, { "sigla": "GR" }, { "sigla": "LI" }, { "sigla": "LU" }, { "sigla": "MS" }, { "sigla": "PI" }, { "sigla": "PT" }, { "sigla": "PO" }, { "sigla": "SI" }],
-    "Campania": [{ "sigla": "AV" }, { "sigla": "BN" }, { "sigla": "CE" }, { "sigla": "NA" }, { "sigla": "SA" }],
-    "Puglia": [{ "sigla": "BA" }, { "sigla": "BT" }, { "sigla": "BR" }, { "sigla": "FG" }, { "sigla": "LE" }, { "sigla": "TA" }],
-    "Veneto": [{ "sigla": "BL" }, { "sigla": "PD" }, { "sigla": "RO" }, { "sigla": "TV" }, { "sigla": "VE" }, { "sigla": "VR" }, { "sigla": "VI" }],
-    "Lombardia": [{ "sigla": "BG" }, { "sigla": "BS" }, { "sigla": "CO" }, { "sigla": "CR" }, { "sigla": "LC" }, { "sigla": "LO" }, { "sigla": "MN" }, { "sigla": "MI" }, { "sigla": "MB" }, { "sigla": "PV" }, { "sigla": "SO" }, { "sigla": "VA" }],
-    "Emilia-Romagna": [{ "sigla": "BO" }, { "sigla": "FE" }, { "sigla": "FC" }, { "sigla": "MO" }, { "sigla": "PR" }, { "sigla": "PC" }, { "sigla": "RA" }, { "sigla": "RE" }, { "sigla": "RN" }],
-    "Trentino-Alto Adige": [{ "sigla": "BZ" }, { "sigla": "TN" }],
-    "Sardegna": [{ "sigla": "CA" }, { "sigla": "CI" }, { "sigla": "NU" }, { "sigla": "OT" }, { "sigla": "OR" }, { "sigla": "VS" }, { "sigla": "SS" }, { "sigla": "OG" }, { "sigla": "SU" }],
-    "Molise": [{ "sigla": "CB" }, { "sigla": "IS" }],
-    "Calabria": [{ "sigla": "CZ" }, { "sigla": "CS" }, { "sigla": "KR" }, { "sigla": "RC" }, { "sigla": "VV" }],
-    "Abruzzo": [{ "sigla": "CH" }, { "sigla": "AQ" }, { "sigla": "PE" }, { "sigla": "TE" }],
-    "Lazio": [{ "sigla": "FR" }, { "sigla": "LT" }, { "sigla": "RI" }, { "sigla": "RM" }, { "sigla": "VT" }],
-    "Liguria": [{ "sigla": "GE" }, { "sigla": "IM" }, { "sigla": "SP" }, { "sigla": "SV" }],
-    "Friuli-Venezia Giulia": [{ "sigla": "GO" }, { "sigla": "PN" }, { "sigla": "TS" }, { "sigla": "UD" }],
-    "Basilicata": [{ "sigla": "MT" }, { "sigla": "PZ" }],
-    "Umbria": [{ "sigla": "PG" }, { "sigla": "TR" }],
-  };
-
-  const map: Record<string, string> = {};
-  (data["regioni"] as string[]).forEach((region) => {
-    const provinces = data[region] as { sigla: string }[] | undefined;
-    provinces?.forEach((p) => {
-      map[p.sigla.toUpperCase()] = region;
-    });
-  });
-  return map;
-})();
-
-function provinceToRegion(provinceCode: string) {
-  const key = (provinceCode ?? "").trim().toUpperCase();
-  return REGION_BY_PROVINCE[key] ?? "";
 }
 
 function sanitizeSheetName(name: string) {
@@ -1884,31 +1680,6 @@ function parseDateOnlyKey(value: unknown) {
   return null;
 }
 
-function addDaysKey(todayKey: number, days: number) {
-  const y = Math.floor(todayKey / 10000);
-  const m = Math.floor((todayKey % 10000) / 100);
-  const d = todayKey % 100;
-  const base = new Date(Date.UTC(y, m - 1, d));
-  if (!Number.isFinite(base.getTime())) return todayKey;
-  base.setUTCDate(base.getUTCDate() + days);
-  const yy = base.getUTCFullYear();
-  const mm = base.getUTCMonth() + 1;
-  const dd = base.getUTCDate();
-  return yy * 10000 + mm * 100 + dd;
-}
-
-function addMonthsKey(dateKey: number, months: number) {
-  const y = Math.floor(dateKey / 10000);
-  const m = Math.floor((dateKey % 10000) / 100);
-  const d = dateKey % 100;
-  const total = y * 12 + (m - 1) + months;
-  const yy = Math.floor(total / 12);
-  const mm = (total % 12) + 1;
-  const lastDay = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
-  const dd = Math.min(d, lastDay);
-  return yy * 10000 + mm * 100 + dd;
-}
-
 function todayLocalIso() {
   const d = new Date();
   const y = String(d.getFullYear());
@@ -1993,32 +1764,6 @@ function computeTheoreticalExpiryIso(completionDateIso: string, validityYears: n
   return next.toISOString().slice(0, 10);
 }
 
-function isValidCourseStatus(row: CourseStatusRow, course: CourseRow, todayIso: string) {
-  if (row.manual_state === "escluso") return false;
-  if (!row.completion_date) return false;
-  if (course.is_unlimited) return true;
-
-  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
-  if (!todayKey) return false;
-
-  const expiryIso = row.expiry_date ? normalizeDateOnlyIso(String(row.expiry_date)) : null;
-  if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return true;
-
-  if (!expiryIso) {
-    const years = course.validity_years;
-    if (!years || !Number.isFinite(years) || years <= 0) return false;
-    const computed = computeTheoreticalExpiryIso(row.completion_date, years);
-    if (!computed) return false;
-    const computedKey = parseDateOnlyKey(computed);
-    if (!computedKey) return false;
-    return computedKey >= todayKey;
-  }
-
-  const expiryKey = parseDateOnlyKey(expiryIso);
-  if (!expiryKey) return false;
-  return expiryKey >= todayKey;
-}
-
 function buildActiveFreezeMap(rows: FreezeRow[], todayIso: string) {
   const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
   const map = new Map<number, FreezeRow>();
@@ -2036,60 +1781,6 @@ function buildActiveFreezeMap(rows: FreezeRow[], todayIso: string) {
   });
 
   return map;
-}
-
-function resolveCourseState(
-  row: CourseStatusRow | undefined,
-  course: CourseRow | undefined,
-  freeze: FreezeRow | undefined,
-  todayIso: string,
-  expiringDays: number,
-  isUpgrade: boolean = false,
-) {
-  if (freeze) return "sospeso";
-
-  if (!row) {
-    return isUpgrade ? "upgrade" : "da fare";
-  }
-
-  if (row.manual_state === "escluso") return "escluso";
-  if (row.manual_state === "programmato" && !row.completion_date) return "programmato";
-
-  if (row.planned_date && !row.completion_date) {
-    return "programmato";
-  }
-
-  if (!row.completion_date) {
-    return isUpgrade ? "upgrade" : "da fare";
-  }
-
-  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
-  if (!todayKey) return isUpgrade ? "upgrade" : "da fare";
-  const thresholdKey = addDaysKey(todayKey, expiringDays);
-
-  if (course?.is_unlimited) return "idoneo";
-
-  let expiryIso = row.expiry_date ? normalizeDateOnlyIso(String(row.expiry_date)) : null;
-  if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return "idoneo";
-
-  if (!expiryIso) {
-    const years = course?.validity_years;
-    if (!years || !Number.isFinite(years) || years <= 0) return isUpgrade ? "upgrade" : "da fare";
-    const computed = computeTheoreticalExpiryIso(row.completion_date, years);
-    if (!computed) return isUpgrade ? "upgrade" : "da fare";
-    expiryIso = computed;
-  }
-
-  const expiryKey = parseDateOnlyKey(expiryIso);
-  if (!expiryKey) return isUpgrade ? "upgrade" : "da fare";
-
-  if (expiryKey < todayKey) {
-    const lostKey = addMonthsKey(expiryKey, 6);
-    if (lostKey < todayKey) return "perso";
-    return "scaduto";
-  }
-  if (expiryKey <= thresholdKey) return "in scadenza";
-  return "idoneo";
 }
 
 function levelLabel(courseCode: string) {

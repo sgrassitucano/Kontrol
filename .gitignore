@@ -50,3 +50,6 @@ next-env.d.ts
 /commit_result.json
 /preview_result.json
 /*.png
+
+.vercel
+.env*

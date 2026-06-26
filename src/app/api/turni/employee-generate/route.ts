@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireModuleAccess } from "@/lib/api/access";
+import { withModuleAccess } from "@/lib/api/with-module-access";
+import { handleError, AppError } from "@/lib/api/error-handler";
 
 export const runtime = "nodejs";
 
@@ -20,12 +21,8 @@ function isOverlapError(error: unknown) {
   return /turni_employee_shifts_no_overlap/i.test(error.message) || /overlap/i.test(error.message);
 }
 
-export async function POST(request: Request) {
-  const auth = await requireModuleAccess("turni", true);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const POST = withModuleAccess("turni", true, async (request, context, { supabase, userId }) => {
   try {
-    const supabase = auth.supabase;
     const body = (await request.json()) as {
       employeeId: number;
       startDate: string;
@@ -34,17 +31,36 @@ export async function POST(request: Request) {
     };
 
     const employeeId = Number(body.employeeId);
-    if (!Number.isFinite(employeeId)) return NextResponse.json({ error: "employeeId non valido." }, { status: 400 });
+    if (!Number.isFinite(employeeId)) throw new AppError(400, "INVALID_PARAM", "employeeId non valido.");
 
     const startDate = parseIsoDate(body.startDate);
     const endDate = parseIsoDate(body.endDate);
-    if (!startDate || !endDate) return NextResponse.json({ error: "startDate/endDate non validi." }, { status: 400 });
+    if (!startDate || !endDate) throw new AppError(400, "INVALID_PARAM", "startDate/endDate non validi.");
 
     const start = new Date(`${startDate}T00:00:00`);
     const end = new Date(`${endDate}T23:59:59`);
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
-      return NextResponse.json({ error: "Range date non valido." }, { status: 400 });
+      throw new AppError(400, "INVALID_PARAM", "Range date non valido.");
     }
+
+    // --- BUSINESS RULE: Verify employee exists and is active ---
+    const { data: employeeData, error: employeeError } = await supabase
+      .from("employees")
+      .select("status")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (employeeError) throw new Error(employeeError.message);
+    if (!employeeData) throw new AppError(404, "NOT_FOUND", "Lavoratore non trovato.");
+    if (employeeData.status !== "attivo") {
+      throw new AppError(400, "INACTIVE_EMPLOYEE", "Impossibile pianificare turni per un dipendente non attivo.");
+    }
+
+    // --- BUSINESS RULE: Fetch freeze periods ---
+    const { data: freezeData, error: freezeError } = await supabase
+      .from("employee_freeze_periods")
+      .select("freeze_status, start_date, end_date")
+      .eq("employee_id", employeeId);
+    if (freezeError) throw new Error(freezeError.message);
 
     const templateId = typeof body.templateId === "number" ? Number(body.templateId) : null;
     let effectiveTemplateId: number | null = templateId;
@@ -64,7 +80,7 @@ export async function POST(request: Request) {
     }
 
     if (!effectiveTemplateId) {
-      return NextResponse.json({ error: "Nessun template attivo per il lavoratore nel periodo." }, { status: 400 });
+      throw new AppError(400, "NO_ACTIVE_TEMPLATE", "Nessun template attivo per il lavoratore nel periodo.");
     }
 
     const { data: slotsData, error: slotsError } = await supabase
@@ -84,7 +100,9 @@ export async function POST(request: Request) {
       break_minutes: number;
     }>;
 
-    if (slots.length === 0) return NextResponse.json({ created: 0, skippedExisting: 0, conflicts: 0, message: "Template senza fasce." });
+    if (slots.length === 0) {
+      return NextResponse.json({ created: 0, skippedExisting: 0, conflicts: 0, message: "Template senza fasce." });
+    }
 
     const { data: existingData, error: existingError } = await supabase
       .from("turni_employee_shifts")
@@ -96,7 +114,7 @@ export async function POST(request: Request) {
       .limit(MAX_EXISTING_SHIFTS + 1);
     if (existingError) throw new Error(existingError.message);
     if ((existingData ?? []).length > MAX_EXISTING_SHIFTS) {
-      return NextResponse.json({ error: `Troppi turni esistenti nel periodo (> ${MAX_EXISTING_SHIFTS}). Restringi il range.` }, { status: 400 });
+      throw new AppError(400, "TOO_MANY_SHIFTS", `Troppi turni esistenti nel periodo (> ${MAX_EXISTING_SHIFTS}). Restringi il range.`);
     }
 
     const existingKey = new Set<string>();
@@ -124,6 +142,19 @@ export async function POST(request: Request) {
     while (cursor <= endDay) {
       const weekday = (cursor.getDay() + 6) % 7;
       const dayIso = cursor.toISOString().slice(0, 10);
+
+      // Check if employee is suspended/frozen on this day
+      const isFrozen = (freezeData ?? []).some((f) => {
+        if (f.start_date > dayIso) return false;
+        if (f.end_date && f.end_date < dayIso) return false;
+        return true;
+      });
+
+      if (isFrozen) {
+        cursor.setDate(cursor.getDate() + 1);
+        continue; // Skip generation on this day
+      }
+
       const daySlots = slots.filter((s) => s.weekday === weekday);
       for (const slot of daySlots) {
         const startAt = new Date(`${dayIso}T${slot.start_time.slice(0, 5)}:00`);
@@ -142,7 +173,7 @@ export async function POST(request: Request) {
           state: "planned",
           source: "template",
           note: null,
-          created_by: auth.userId,
+          created_by: userId,
         });
       }
       cursor.setDate(cursor.getDate() + 1);
@@ -173,10 +204,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ created, skippedExisting, conflicts });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Errore generazione turni (lavoratore)." },
-      { status: 500 },
-    );
+  } catch (error) {
+    return handleError(error, "POST /api/turni/employee-generate");
   }
-}
+});

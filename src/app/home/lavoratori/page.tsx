@@ -104,6 +104,8 @@ export default function HomeLavoratoriPage() {
   const deferredSearch = useDeferredValue(search);
 
   const [selected, setSelected] = useState<EmployeeRow | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [downloading, setDownloading] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>("dati");
   const [trainingRows, setTrainingRows] = useState<WorkerCourseRow[]>([]);
   const [trainingLoading, setTrainingLoading] = useState(false);
@@ -347,6 +349,56 @@ export default function HomeLavoratoriPage() {
     }
   }
 
+  const allVisibleSelected = sorted.length > 0 && sorted.every((r) => selectedIds.has(r.workerId));
+
+  function toggleOne(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (sorted.every((r) => next.has(r.workerId))) sorted.forEach((r) => next.delete(r.workerId));
+      else sorted.forEach((r) => next.add(r.workerId));
+      return next;
+    });
+  }
+
+  async function downloadFascicoli() {
+    if (selectedIds.size === 0 || downloading) return;
+    setDownloading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/lavoratori/fascicolo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeIds: Array.from(selectedIds) }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Errore generazione fascicoli.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fascicoli-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore generazione fascicoli.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <ModuleHeader title="Lavoratori" description="Elenco lavoratori attivi e pannello di dettaglio.">
@@ -357,6 +409,15 @@ export default function HomeLavoratoriPage() {
             placeholder="Ricerca: cognome, nome, mansione, cantiere, responsabile"
             className="w-[360px] max-w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
           />
+          <button
+            type="button"
+            onClick={() => void downloadFascicoli()}
+            disabled={selectedIds.size === 0 || downloading}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white shadow-sm transition enabled:hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Genera un PDF con una pagina per ogni lavoratore selezionato"
+          >
+            {downloading ? "Genero…" : `Genera fascicoli${selectedIds.size ? ` (${selectedIds.size})` : ""}`}
+          </button>
         </div>
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
       </ModuleHeader>
@@ -366,6 +427,14 @@ export default function HomeLavoratoriPage() {
           <table className="w-full table-fixed text-left text-xs">
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                <th className="sticky top-0 z-20 w-[40px] bg-[var(--brand-panel)] px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    aria-label="Seleziona tutti"
+                  />
+                </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("cognome")} className="inline-flex items-center gap-1">
                     Cognome {sortIcon("cognome")}
@@ -418,6 +487,14 @@ export default function HomeLavoratoriPage() {
                   key={row.workerId}
                   className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
                 >
+                  <td className="w-[40px] px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(row.workerId)}
+                      onChange={() => toggleOne(row.workerId)}
+                      aria-label={`Seleziona ${row.cognome} ${row.nome}`}
+                    />
+                  </td>
                   <td className="w-[14%] px-4 py-2.5 font-semibold text-slate-800">{row.cognome}</td>
                   <td className="w-[12%] px-4 py-2.5 text-slate-800">{row.nome}</td>
                   <td className="w-[20%] px-4 py-2.5 text-slate-600">
@@ -467,7 +544,7 @@ export default function HomeLavoratoriPage() {
               ))}
               {!isLoading && sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">
                     Nessun dato disponibile.
                   </td>
                 </tr>

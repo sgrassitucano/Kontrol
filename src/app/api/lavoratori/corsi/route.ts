@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { requireAnyModuleAccess } from "@/lib/api/access";
 import { cacheGet, cacheSet } from "@/lib/server-cache";
+import { resolveCourseState, isValidCourseStatus } from "@/lib/training/engine";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type EmployeeRow = {
@@ -28,7 +29,7 @@ type MatrixRule = {
   employee_id: number | null;
 };
 
-type CourseStatusRow = {
+export type CourseStatusRow = {
   employee_id: number;
   course_id: number;
   completion_date: string | null;
@@ -38,7 +39,7 @@ type CourseStatusRow = {
   note: string | null;
 };
 
-type CourseRow = {
+export type CourseRow = {
   id: number;
   code: string;
   title: string;
@@ -1402,31 +1403,6 @@ function parseDateOnlyKey(value: unknown) {
   return null;
 }
 
-function addDaysKey(todayKey: number, days: number) {
-  const y = Math.floor(todayKey / 10000);
-  const m = Math.floor((todayKey % 10000) / 100);
-  const d = todayKey % 100;
-  const base = new Date(Date.UTC(y, m - 1, d));
-  if (!Number.isFinite(base.getTime())) return todayKey;
-  base.setUTCDate(base.getUTCDate() + days);
-  const yy = base.getUTCFullYear();
-  const mm = base.getUTCMonth() + 1;
-  const dd = base.getUTCDate();
-  return yy * 10000 + mm * 100 + dd;
-}
-
-function addMonthsKey(dateKey: number, months: number) {
-  const y = Math.floor(dateKey / 10000);
-  const m = Math.floor((dateKey % 10000) / 100);
-  const d = dateKey % 100;
-  const total = y * 12 + (m - 1) + months;
-  const yy = Math.floor(total / 12);
-  const mm = (total % 12) + 1;
-  const lastDay = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
-  const dd = Math.min(d, lastDay);
-  return yy * 10000 + mm * 100 + dd;
-}
-
 function todayLocalIso() {
   const d = new Date();
   const y = String(d.getFullYear());
@@ -1438,57 +1414,6 @@ function todayLocalIso() {
 function isSentinelUnlimitedDate(iso: string) {
   const year = Number(iso.slice(0, 4));
   return year === 2069 || year === 2099;
-}
-
-function resolveCourseState(
-  row: CourseStatusRow | undefined,
-  course: CourseRow | undefined,
-  freeze: FreezeRow | undefined,
-  todayIso: string,
-  expiringDays: number,
-  isUpgrade: boolean = false,
-) {
-  if (freeze) return "sospeso";
-  
-  if (!row) {
-    return isUpgrade ? "upgrade" : "da fare";
-  }
-
-  if (row.manual_state === "escluso") return "escluso";
-  if (row.manual_state === "programmato") return "programmato";
-  if (row.planned_date) return "programmato";
-
-  if (!row.completion_date) {
-    return isUpgrade ? "upgrade" : "da fare";
-  }
-
-  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
-  if (!todayKey) return isUpgrade ? "upgrade" : "da fare";
-  const thresholdKey = addDaysKey(todayKey, expiringDays);
-
-  if (course?.is_unlimited) return "idoneo";
-
-  let expiryIso = row.expiry_date ? normalizeDateOnlyIso(String(row.expiry_date)) : null;
-  if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return "idoneo";
-
-  if (!expiryIso) {
-    const years = course?.validity_years;
-    if (!years || !Number.isFinite(years) || years <= 0) return isUpgrade ? "upgrade" : "da fare";
-    const computed = computeTheoreticalExpiryIso(row.completion_date, years);
-    if (!computed) return isUpgrade ? "upgrade" : "da fare";
-    expiryIso = computed;
-  }
-
-  const expiryKey = parseDateOnlyKey(expiryIso);
-  if (!expiryKey) return isUpgrade ? "upgrade" : "da fare";
-
-  if (expiryKey < todayKey) {
-    const lostKey = addMonthsKey(expiryKey, 6);
-    if (lostKey < todayKey) return "perso";
-    return "scaduto";
-  }
-  if (expiryKey <= thresholdKey) return "in scadenza";
-  return "idoneo";
 }
 
 function findEffectiveRequiredFormSpecCourse(
@@ -1942,31 +1867,6 @@ function computeTheoreticalExpiryIso(completionDateIso: string, validityYears: n
   if (!Number.isFinite(base.getTime())) return null;
   const next = new Date(Date.UTC(base.getUTCFullYear() + validityYears, base.getUTCMonth(), base.getUTCDate()));
   return next.toISOString().slice(0, 10);
-}
-
-function isValidCourseStatus(row: CourseStatusRow, course: CourseRow, todayIso: string) {
-  if (row.manual_state === "escluso") return false;
-  if (!row.completion_date) return false;
-  if (course.is_unlimited) return true;
-  const todayKey = parseDateOnlyKey(todayIso) ?? parseDateOnlyKey(todayLocalIso());
-  if (!todayKey) return false;
-
-  const expiryIso = row.expiry_date ? normalizeDateOnlyIso(String(row.expiry_date)) : null;
-  if (expiryIso && isSentinelUnlimitedDate(expiryIso)) return true;
-
-  if (!expiryIso) {
-    const years = course.validity_years;
-    if (!years || !Number.isFinite(years) || years <= 0) return false;
-    const computed = computeTheoreticalExpiryIso(row.completion_date, years);
-    if (!computed) return false;
-    const computedKey = parseDateOnlyKey(computed);
-    if (!computedKey) return false;
-    return computedKey >= todayKey;
-  }
-
-  const expiryKey = parseDateOnlyKey(expiryIso);
-  if (!expiryKey) return false;
-  return expiryKey >= todayKey;
 }
 
 function levelLabel(courseCode: string) {

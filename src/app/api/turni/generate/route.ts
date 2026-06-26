@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { requireModuleAccess } from "@/lib/api/access";
+import { withModuleAccess } from "@/lib/api/with-module-access";
+import { handleError, AppError } from "@/lib/api/error-handler";
+import { shiftGenerateLimiter } from "@/lib/api/rate-limit";
+import type { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -49,16 +51,21 @@ async function ensureMonthsNotLocked(
       .eq("month", month)
       .limit(1);
     if (error) throw new Error(error.message);
-    if ((data ?? []).length > 0) throw new Error(`Mese bloccato: ${monthStr}/${yearStr}.`);
+    if ((data ?? []).length > 0) throw new AppError(400, "MONTH_LOCKED", `Mese bloccato: ${monthStr}/${yearStr}.`);
   }
 }
 
-export async function POST(request: Request) {
-  const auth = await requireModuleAccess("turni", true);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+export const POST = withModuleAccess("turni", true, async (request, context, { supabase, userId }) => {
+  // Apply rate limiting by userId
+  const rl = shiftGenerateLimiter.check(userId);
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: "Troppe richieste di generazione turni. Attendi un momento." },
+      { status: 429 }
+    );
+  }
 
   try {
-    const supabase = auth.supabase;
     const body = (await request.json()) as {
       siteId: number;
       subSiteId?: number | null;
@@ -68,20 +75,20 @@ export async function POST(request: Request) {
     };
 
     const siteId = Number(body.siteId);
-    if (!Number.isFinite(siteId)) return NextResponse.json({ error: "siteId non valido." }, { status: 400 });
+    if (!Number.isFinite(siteId)) throw new AppError(400, "INVALID_PARAM", "siteId non valido.");
     const subSiteId = body.subSiteId === null || body.subSiteId === undefined ? null : Number(body.subSiteId);
     if (body.subSiteId !== undefined && body.subSiteId !== null && !Number.isFinite(subSiteId)) {
-      return NextResponse.json({ error: "subSiteId non valido." }, { status: 400 });
+      throw new AppError(400, "INVALID_PARAM", "subSiteId non valido.");
     }
 
     const startDate = parseIsoDate(body.startDate);
     const endDate = parseIsoDate(body.endDate);
-    if (!startDate || !endDate) return NextResponse.json({ error: "startDate/endDate non validi." }, { status: 400 });
+    if (!startDate || !endDate) throw new AppError(400, "INVALID_PARAM", "startDate/endDate non validi.");
 
     const start = new Date(`${startDate}T00:00:00`);
     const end = new Date(`${endDate}T23:59:59`);
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
-      return NextResponse.json({ error: "Range date non valido." }, { status: 400 });
+      throw new AppError(400, "INVALID_PARAM", "Range date non valido.");
     }
 
     await ensureMonthsNotLocked(supabase, start, end);
@@ -95,10 +102,7 @@ export async function POST(request: Request) {
     const siteHasSubSites = (anySubSites ?? []).length > 0;
 
     if (siteHasSubSites && subSiteId === null) {
-      return NextResponse.json(
-        { error: "Se il cantiere ha sottocantieri, seleziona prima il sottocantiere." },
-        { status: 400 },
-      );
+      throw new AppError(400, "MISSING_SUBSITE", "Se il cantiere ha sottocantieri, seleziona prima il sottocantiere.");
     }
 
     const templateId = typeof body.templateId === "number" ? Number(body.templateId) : null;
@@ -120,7 +124,7 @@ export async function POST(request: Request) {
     }
 
     if (!effectiveTemplateId) {
-      return NextResponse.json({ error: "Nessun template attivo per il cantiere nel periodo." }, { status: 400 });
+      throw new AppError(400, "NO_ACTIVE_TEMPLATE", "Nessun template attivo per il cantiere nel periodo.");
     }
 
     const { data: slotsData, error: slotsError } = await supabase
@@ -139,7 +143,7 @@ export async function POST(request: Request) {
     }>;
 
     if (slots.length === 0) {
-      return NextResponse.json({ error: "Template senza fasce orarie." }, { status: 400 });
+      throw new AppError(400, "EMPTY_TEMPLATE", "Template senza fasce orarie.");
     }
 
     const { data: assignmentsData, error: assignmentsError } = await supabase
@@ -158,7 +162,7 @@ export async function POST(request: Request) {
       end_date: string | null;
     }>;
     if (assignments.length > MAX_ASSIGNMENTS) {
-      return NextResponse.json({ error: `Troppi assegnamenti nel periodo (> ${MAX_ASSIGNMENTS}). Restringi il range.` }, { status: 400 });
+      throw new AppError(400, "TOO_MANY_ASSIGNMENTS", `Troppi assegnamenti nel periodo (> ${MAX_ASSIGNMENTS}). Restringi il range.`);
     }
 
     const scopedAssignments =
@@ -166,23 +170,48 @@ export async function POST(request: Request) {
         ? assignments.filter((a) => a.sub_site_id === subSiteId)
         : assignments.filter((a) => a.sub_site_id === null);
 
-    const employeeIds = Array.from(new Set(scopedAssignments.map((a) => a.employee_id)));
-    if (employeeIds.length === 0) {
+    const rawEmployeeIds = Array.from(new Set(scopedAssignments.map((a) => a.employee_id)));
+    if (rawEmployeeIds.length === 0) {
       return NextResponse.json({ created: 0, skippedExisting: 0, conflicts: 0, message: "Nessun lavoratore assegnato." });
     }
+
+    // --- BUSINESS RULE: Filter out workers who are not currently active in force ---
+    const { data: employeesInfo, error: employeesInfoError } = await supabase
+      .from("employees")
+      .select("id, status")
+      .in("id", rawEmployeeIds);
+    if (employeesInfoError) throw new Error(employeesInfoError.message);
+
+    const activeEmployeeIds = new Set(
+      (employeesInfo ?? [])
+        .filter((emp) => emp.status === "attivo")
+        .map((emp) => emp.id)
+    );
+
+    const filteredEmployeeIds = Array.from(activeEmployeeIds);
+    if (filteredEmployeeIds.length === 0) {
+      return NextResponse.json({ created: 0, skippedExisting: 0, conflicts: 0, message: "Nessun lavoratore in forza attivo assegnato." });
+    }
+
+    // --- BUSINESS RULE: Check freeze periods for employee exclusions ---
+    const { data: freezeData, error: freezeError } = await supabase
+      .from("employee_freeze_periods")
+      .select("employee_id, freeze_status, start_date, end_date")
+      .in("employee_id", filteredEmployeeIds);
+    if (freezeError) throw new Error(freezeError.message);
 
     const { data: existingData, error: existingError } = await supabase
       .from("turni_employee_shifts")
       .select("id,employee_id,site_id,start_at,end_at")
       .eq("site_id", siteId)
-      .in("employee_id", employeeIds)
+      .in("employee_id", filteredEmployeeIds)
       .neq("state", "cancelled")
       .lt("start_at", end.toISOString())
       .gt("end_at", start.toISOString())
       .limit(MAX_EXISTING_SHIFTS + 1);
     if (existingError) throw new Error(existingError.message);
     if ((existingData ?? []).length > MAX_EXISTING_SHIFTS) {
-      return NextResponse.json({ error: `Troppi turni esistenti nel periodo (> ${MAX_EXISTING_SHIFTS}). Restringi il range.` }, { status: 400 });
+      throw new AppError(400, "TOO_MANY_SHIFTS", `Troppi turni esistenti nel periodo (> ${MAX_EXISTING_SHIFTS}). Restringi il range.`);
     }
 
     const existingKey = new Set<string>();
@@ -221,8 +250,21 @@ export async function POST(request: Request) {
 
       const activeAssignments = scopedAssignments
         .filter((a) => {
+          // 1. Must be active
+          if (!activeEmployeeIds.has(a.employee_id)) return false;
+          // 2. Assignment must cover this date
           if (a.start_date > dayIso) return false;
           if (a.end_date && a.end_date < dayIso) return false;
+
+          // 3. Must not be frozen/suspended on this date (maternity, sick, union, etc.)
+          const isFrozen = (freezeData ?? []).some((f) => {
+            if (f.employee_id !== a.employee_id) return false;
+            if (f.start_date > dayIso) return false;
+            if (f.end_date && f.end_date < dayIso) return false;
+            return true;
+          });
+          if (isFrozen) return false;
+
           return true;
         });
 
@@ -249,7 +291,7 @@ export async function POST(request: Request) {
             state: "planned",
             source: "template",
             note: null,
-            created_by: auth.userId,
+            created_by: userId,
           });
         }
       }
@@ -287,10 +329,7 @@ export async function POST(request: Request) {
         ? `Assegnazioni senza sottocantiere: ${missingSubSiteAssignments}.`
         : undefined;
     return NextResponse.json({ created, skippedExisting, conflicts, missingSubSiteAssignments, message });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Errore generazione turni." },
-      { status: 500 },
-    );
+  } catch (error) {
+    return handleError(error, "POST /api/turni/generate");
   }
-}
+});

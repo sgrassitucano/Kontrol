@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { normalizeJobCode } from "@/lib/training/normalize";
-import { requireModuleAccess } from "@/lib/api/access";
+import { withModuleAccess } from "@/lib/api/with-module-access";
+import { handleError, AppError } from "@/lib/api/error-handler";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cacheGet, cacheSet, cacheDelete, cacheDeleteByPrefix } from "@/lib/server-cache";
 
 type JobRuleRow = {
   job_code_norm: string;
@@ -15,10 +17,6 @@ export const runtime = "nodejs";
 const MAX_EMPLOYEES_FOR_JOB_CODES = 20000;
 const MAX_JOB_CODES = 5000;
 const MAX_JOB_RULES = 50000;
-
-class TooManyRowsError extends Error {
-  status = 400;
-}
 
 async function listJobCodes(supabase: SupabaseClient) {
   const pageSize = 1000;
@@ -45,13 +43,17 @@ async function listJobCodes(supabase: SupabaseClient) {
     const batch = (data ?? []) as Array<{ job_title: string }>;
     totalEmployees += batch.length;
     if (totalEmployees > MAX_EMPLOYEES_FOR_JOB_CODES) {
-      throw new TooManyRowsError(
-        `Troppi lavoratori per derivare le mansioni matrice (> ${MAX_EMPLOYEES_FOR_JOB_CODES}). Restringi il dataset o applica paginazione.`,
+      throw new AppError(
+        400,
+        "TOO_MANY_ROWS",
+        `Troppi lavoratori per derivare le mansioni matrice (> ${MAX_EMPLOYEES_FOR_JOB_CODES}). Restringi il dataset o applica paginazione.`
       );
     }
     if (map.size > MAX_JOB_CODES) {
-      throw new TooManyRowsError(
-        `Troppe mansioni distinte per matrice sorveglianza (> ${MAX_JOB_CODES}). Restringi il dataset o applica paginazione.`,
+      throw new AppError(
+        400,
+        "TOO_MANY_ROWS",
+        `Troppe mansioni distinte per matrice sorveglianza (> ${MAX_JOB_CODES}). Restringi il dataset o applica paginazione.`
       );
     }
     if (batch.length < pageSize) hasMore = false;
@@ -72,25 +74,30 @@ async function listRules(supabase: SupabaseClient) {
   if (error) return { ok: false as const, rows: [] as JobRuleRow[] };
   const rows = (data ?? []) as JobRuleRow[];
   if (rows.length > MAX_JOB_RULES) {
-    throw new TooManyRowsError(
-      `Troppe regole mansione per matrice sorveglianza (> ${MAX_JOB_RULES}). Restringi il dataset o applica paginazione.`,
+    throw new AppError(
+      400,
+      "TOO_MANY_ROWS",
+      `Troppe regole mansione per matrice sorveglianza (> ${MAX_JOB_RULES}). Restringi il dataset o applica paginazione.`
     );
   }
   return { ok: true as const, rows };
 }
 
-export async function GET() {
-  const auth = await requireModuleAccess("sorveglianza", false);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const GET = withModuleAccess("sorveglianza", false, async (request, context, { supabase }) => {
   try {
-    const [jobCodes, rulesResult] = await Promise.all([listJobCodes(auth.supabase), listRules(auth.supabase)]);
+    const cacheKey = "medical_matrix_v1";
+    const cached = cacheGet(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+
+    const [jobCodes, rulesResult] = await Promise.all([listJobCodes(supabase), listRules(supabase)]);
     const rulesByCode: Record<string, JobRuleRow> = {};
     rulesResult.rows.forEach((r) => {
       rulesByCode[r.job_code_norm] = r;
     });
 
-    return NextResponse.json({
+    const responseBody = {
       jobCodes,
       rulesByCode,
       supportsRules: rulesResult.ok,
@@ -99,22 +106,17 @@ export async function GET() {
         exemptBelowWeeklyMinutes: 1200,
         excludedFreezeStatuses: ["maternita", "distacco_sindacale"],
       },
-    });
+    };
+
+    cacheSet(cacheKey, responseBody, 5 * 60 * 1000); // Cache for 5 minutes
+
+    return NextResponse.json(responseBody);
   } catch (error) {
-    if (error instanceof TooManyRowsError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Errore caricamento matrice sorveglianza." },
-      { status: 500 },
-    );
+    return handleError(error, "GET /api/sorveglianza_sanitaria/matrice");
   }
-}
+});
 
-export async function PATCH(request: Request) {
-  const auth = await requireModuleAccess("gestione", true);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const PATCH = withModuleAccess("gestione", true, async (request, context, { supabase }) => {
   try {
     const body = (await request.json()) as {
       jobCodeNorm: string;
@@ -124,7 +126,9 @@ export async function PATCH(request: Request) {
     };
 
     const jobCodeNorm = normalizeJobCode(String(body.jobCodeNorm ?? "").trim());
-    if (!jobCodeNorm) return NextResponse.json({ error: "jobCodeNorm obbligatorio." }, { status: 400 });
+    if (!jobCodeNorm) {
+      throw new AppError(400, "INVALID_PARAM", "jobCodeNorm obbligatorio.");
+    }
 
     const alwaysExempt = Boolean(body.alwaysExempt);
     const exemptBelowWeeklyMinutes =
@@ -135,22 +139,22 @@ export async function PATCH(request: Request) {
           : null;
     const note = body.note !== undefined ? String(body.note ?? "").trim() || null : null;
 
-    const { error } = await auth.supabase.from("medical_surveillance_job_rules").upsert(
+    const { error } = await supabase.from("medical_surveillance_job_rules").upsert(
       {
         job_code_norm: jobCodeNorm,
         always_exempt: alwaysExempt,
         exempt_below_weekly_minutes: exemptBelowWeeklyMinutes,
         note,
       },
-      { onConflict: "job_code_norm" },
+      { onConflict: "job_code_norm" }
     );
     if (error) throw new Error(error.message);
 
+    cacheDelete("medical_matrix_v1");
+    cacheDeleteByPrefix("surveillance_rows_v1:");
+
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Errore aggiornamento matrice sorveglianza." },
-      { status: 500 },
-    );
+    return handleError(error, "PATCH /api/sorveglianza_sanitaria/matrice");
   }
-}
+});

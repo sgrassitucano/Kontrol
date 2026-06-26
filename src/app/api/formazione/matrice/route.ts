@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { readMansioniCsv } from "@/lib/training/mansioni";
-import { requireModuleAccess } from "@/lib/api/access";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { cacheDelete, cacheDeleteByPrefix } from "@/lib/server-cache";
+import { withModuleAccess } from "@/lib/api/with-module-access";
+import { handleError, AppError } from "@/lib/api/error-handler";
+import type { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cacheGet, cacheSet, cacheDelete, cacheDeleteByPrefix } from "@/lib/server-cache";
 
 type ScopeType = "job" | "site" | "sub_site";
 
@@ -18,29 +19,26 @@ type ToggleBody = {
 
 export const runtime = "nodejs";
 
-class TooManyRowsError extends Error {
-  status = 400;
-}
-
 const MAX_COURSES = 5000;
 const MAX_RULES = 50000;
 const MAX_EMPLOYEES_FOR_JOB_ENTITIES = 20000;
 const MAX_SITES = 5000;
 const MAX_SUBSITES = 10000;
 
-export async function GET(request: Request) {
-  const auth = await requireModuleAccess("gestione", true);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const GET = withModuleAccess("gestione", true, async (request, context, { supabase }) => {
   try {
     const url = new URL(request.url);
     const scopeType = (url.searchParams.get("scopeType") ?? "job") as ScopeType;
 
     if (!["job", "site", "sub_site"].includes(scopeType)) {
-      return NextResponse.json({ error: "scopeType non valido." }, { status: 400 });
+      throw new AppError(400, "INVALID_SCOPE", "scopeType non valido.");
     }
 
-    const supabase = auth.supabase;
+    const cacheKey = `training_matrix_v1:${scopeType}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
 
     const [{ data: courses, error: coursesError }, entitiesResult, { data: rules, error: rulesError }] =
       await Promise.all([
@@ -58,24 +56,18 @@ export async function GET(request: Request) {
           .limit(MAX_RULES + 1),
       ]);
 
-    if (coursesError) {
-      throw new Error(coursesError.message);
-    }
-    if (entitiesResult.error) {
-      throw new Error(entitiesResult.error);
-    }
-    if (rulesError) {
-      throw new Error(rulesError.message);
-    }
+    if (coursesError) throw new Error(coursesError.message);
+    if (entitiesResult.error) throw new Error(entitiesResult.error);
+    if (rulesError) throw new Error(rulesError.message);
 
     const coursesRows = courses ?? [];
     if (coursesRows.length > MAX_COURSES) {
-      throw new TooManyRowsError("Troppi corsi per matrice formazione. Riduci il dataset o applica paginazione.");
+      throw new AppError(400, "TOO_MANY_ROWS", "Troppi corsi per matrice formazione. Riduci il dataset o applica paginazione.");
     }
 
     const rulesRows = rules ?? [];
     if (rulesRows.length > MAX_RULES) {
-      throw new TooManyRowsError("Troppe regole per matrice formazione. Riduci il dataset o applica paginazione.");
+      throw new AppError(400, "TOO_MANY_ROWS", "Troppe regole per matrice formazione. Riduci il dataset o applica paginazione.");
     }
 
     const flags = new Set<string>();
@@ -97,43 +89,34 @@ export async function GET(request: Request) {
       }
     });
 
-    return NextResponse.json({
+    const responseBody = {
       scopeType,
       courses: coursesRows,
       entities: entitiesResult.data,
       entitiesTruncated: entitiesResult.truncated,
       flags: Array.from(flags),
       cellSources,
-    });
+    };
+
+    cacheSet(cacheKey, responseBody, 5 * 60 * 1000); // Cache for 5 minutes
+
+    return NextResponse.json(responseBody);
   } catch (error) {
-    if (error instanceof TooManyRowsError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Errore imprevisto caricando la matrice.",
-      },
-      { status: 500 },
-    );
+    return handleError(error, "GET /api/formazione/matrice");
   }
-}
+});
 
-export async function POST(request: Request) {
-  const auth = await requireModuleAccess("gestione", true);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const POST = withModuleAccess("gestione", true, async (request, context, { supabase, userId }) => {
   try {
     const body = (await request.json()) as ToggleBody;
 
     if (!body.courseId || !body.scopeType || typeof body.enabled !== "boolean") {
-      return NextResponse.json({ error: "Payload non valido." }, { status: 400 });
+      throw new AppError(400, "INVALID_PAYLOAD", "Payload non valido.");
     }
 
-    const supabase = auth.supabase;
     const match = getScopeMatch(body);
     if ("error" in match) {
-      return NextResponse.json({ error: match.error }, { status: 400 });
+      throw new AppError(400, "INVALID_SCOPE_PARAMS", match.error as string);
     }
 
     if (body.enabled) {
@@ -153,9 +136,7 @@ export async function POST(request: Request) {
         },
       );
 
-      if (error) {
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
     } else {
       let query = supabase
         .from("training_matrix_rules")
@@ -173,24 +154,17 @@ export async function POST(request: Request) {
       }
 
       const { error } = await query;
-      if (error) {
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
     }
 
+    cacheDelete(`training_matrix_v1:${body.scopeType}`);
     cacheDelete("training_static_v1");
     cacheDeleteByPrefix("training_rows_v1:");
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Errore imprevisto aggiornando la matrice.",
-      },
-      { status: 500 },
-    );
+    return handleError(error, "POST /api/formazione/matrice");
   }
-}
+});
 
 async function fetchScopeEntities(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,

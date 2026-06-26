@@ -165,12 +165,6 @@ const DEFAULT_TEXT_VALUE = "NON_INDICATO";
 const DEFAULT_BIRTH_DATE = "1900-01-01";
 const DEFAULT_SITE = "NON_ASSEGNATO";
 const DISMISSAL_CONFIRMATION_PHRASE = "CONFERMO DIMISSIONE MASSIVA";
-const DISMISSAL_BLOCKING_ERROR_TYPES = new Set([
-  "required_identity_fields",
-  "duplicate_tax_code_file",
-  "matricola_tax_mismatch_file",
-  "matricola_tax_mismatch_db",
-]);
 
 type RecentAnagraficaBaseline = {
   importRunId: string;
@@ -186,7 +180,6 @@ export async function processAnagraficaImport({
   importedBy,
   confirmHighDismissals,
   confirmCriticalDismissals,
-  overrideBlockedDismissals,
   confirmDismissalPhrase,
 }: ImportParams): Promise<ImportResult> {
   const parsed = parseWorkbook(fileBuffer);
@@ -201,26 +194,23 @@ export async function processAnagraficaImport({
   );
   const allErrors = [...parsed.errors, ...analysis.conflictErrors];
   const validRows = analysis.filteredValidRows;
-  const dismissalsBlocked = allErrors.some((error) => DISMISSAL_BLOCKING_ERROR_TYPES.has(error.errorType));
-  const dismissedRows = dismissalsBlocked ? 0 : analysis.dismissedRows;
+  const dismissedRows = analysis.dismissedRows;
   const incomingTaxCodes = new Set(parsed.snapshotTaxCodes);
   const previousSnapshotTaxCodes = recentBaselines[0]?.snapshotTaxCodes ?? null;
   const averageSnapshotTaxCodes =
     recentBaselines.length > 0
       ? Math.round(recentBaselines.reduce((sum, item) => sum + item.snapshotTaxCodes, 0) / recentBaselines.length)
       : null;
-  const dismissalPreviewRows = dismissalsBlocked
-    ? []
-    : existingEmployees
-        .filter((employee) => employee.status === "attivo" && !incomingTaxCodes.has(employee.tax_code))
-        .slice(0, 20)
-        .map((employee) => ({
-          matricola: employee.matricola,
-          cognome: employee.last_name,
-          nome: employee.first_name,
-          codiceFiscale: employee.tax_code,
-          lastImportedAt: employee.last_imported_at,
-        }));
+  const dismissalPreviewRows = existingEmployees
+    .filter((employee) => employee.status === "attivo" && !incomingTaxCodes.has(employee.tax_code))
+    .slice(0, 20)
+    .map((employee) => ({
+      matricola: employee.matricola,
+      cognome: employee.last_name,
+      nome: employee.first_name,
+      codiceFiscale: employee.tax_code,
+      lastImportedAt: employee.last_imported_at,
+    }));
   const previewRows = validRows.slice(0, 150).map((row) => ({
     matricola: row.matricola,
     cognome: row.lastName,
@@ -261,27 +251,11 @@ export async function processAnagraficaImport({
       dismissalGuardrail,
       errors: allErrors,
       importRunId: null,
-      message: dismissalsBlocked
-        ? "Anteprima completata. Dimissioni automatiche disattivate: il file contiene errori identitari o conflitti CF/matricola."
-        : "Anteprima completata.",
+      message: "Anteprima completata.",
     };
   }
 
   const normalizedPhrase = (confirmDismissalPhrase ?? "").trim().toUpperCase();
-
-  if (dismissalGuardrail.requiresBlockOverride && !overrideBlockedDismissals) {
-    return {
-      mode: "preview",
-      summary: summaryBase,
-      previewRows,
-      dismissalPreviewRows,
-      dismissalGuardrail,
-      errors: allErrors,
-      importRunId: null,
-      message:
-        "BLOCCO PROTETTIVO: file molto piu piccolo dello storico o dimissioni massive stimate. Serve sblocco esplicito prima del commit.",
-    };
-  }
 
   if (dismissalGuardrail.requiresCriticalConfirmation && !confirmCriticalDismissals) {
     return {
@@ -334,7 +308,6 @@ export async function processAnagraficaImport({
     errors: allErrors,
     existingEmployees,
     summary: summaryBase,
-    dismissEmployees: !dismissalsBlocked,
   });
 
   return {
@@ -764,7 +737,6 @@ async function commitImport(args: {
   errors: ImportErrorRow[];
   existingEmployees: ExistingEmployee[];
   summary: ImportSummary;
-  dismissEmployees: boolean;
 }) {
   const {
     supabase,
@@ -774,7 +746,6 @@ async function commitImport(args: {
     snapshotTaxCodes,
     errors,
     existingEmployees,
-    dismissEmployees,
   } = args;
 
   let importRunId: string | null = null;
@@ -986,7 +957,7 @@ async function commitImport(args: {
     }
   }
 
-  if (dismissEmployees) {
+  {
     const importedTaxCodes = new Set(snapshotTaxCodes);
     const toDismiss = existingEmployees
       .filter((employee) => employee.status === "attivo" && !importedTaxCodes.has(employee.tax_code))
@@ -1115,9 +1086,7 @@ async function commitImport(args: {
     message:
       commitErrors.length > 0
         ? "Import completato con errori. Controlla il report."
-        : dismissEmployees
-          ? "Import completato con successo."
-          : "Import completato con successo. Dimissioni automatiche saltate per protezione: presenti errori identitari o conflitti CF/matricola.",
+        : "Import completato con successo.",
   };
 }
 
