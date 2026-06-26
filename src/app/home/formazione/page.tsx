@@ -2892,7 +2892,7 @@ export default function HomeFormazionePage() {
                   <button
                     type="button"
                     onClick={() => setIsExclusionNoteModalOpen(false)}
-                    className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+                    className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
                   >
                     Annulla
                   </button>
@@ -3227,13 +3227,13 @@ export default function HomeFormazionePage() {
                   setIsImportModalOpen(false);
                   resetImportForm();
                 }}
-                className="rounded-xl border border-[var(--brand-line)] px-4 py-2 text-sm font-semibold text-slate-600"
+                className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
               >
                 Chiudi
               </button>
               <button
                 type="button"
-                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60 disabled:cursor-not-allowed"
                 disabled={!importFile || !importPreview || importLoading}
                 title={importPreview ? "Esegui commit import massivo" : "Esegui prima la preview per controllare i dati"}
                 onClick={() => void runImportCommit()}
@@ -3415,7 +3415,7 @@ function MultiSelectDropdown<T extends string>({
           <button
             type="button"
             onClick={() => onChange([])}
-            className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-[11px] font-bold text-white"
+            className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-[11px] font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
             disabled={selected.length === 0}
           >
             Pulisci

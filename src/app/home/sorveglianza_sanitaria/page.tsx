@@ -1316,7 +1316,7 @@ export default function HomeSorveglianzaPage() {
               <button
                 type="button"
                 onClick={closeWorkerDetail}
-                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+                className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
               >
                 Chiudi
               </button>

@@ -1037,39 +1037,41 @@ export default function TurniCantierePage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={saveShift}
-              disabled={isBusy}
-              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Salva
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAbsenceForm({ absenceType: "malattia", note: "" });
-                setIsAbsenceModalOpen(true);
-              }}
-              disabled={isBusy || !shiftForm.employeeId}
-              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Segna assenza
-            </button>
-            {shiftForm.shiftId ? (
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={deleteShift}
+                onClick={saveShift}
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Annulla turno
+                Salva
               </button>
-            ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setAbsenceForm({ absenceType: "malattia", note: "" });
+                  setIsAbsenceModalOpen(true);
+                }}
+                disabled={isBusy || !shiftForm.employeeId}
+                className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Segna assenza
+              </button>
+              {shiftForm.shiftId ? (
+                <button
+                  type="button"
+                  onClick={deleteShift}
+                  disabled={isBusy}
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Annulla turno
+                </button>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={() => setIsShiftModalOpen(false)}
-              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+              className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
             >
               Annulla
             </button>
@@ -1120,7 +1122,7 @@ export default function TurniCantierePage() {
             <button
               type="button"
               onClick={() => setIsAbsenceModalOpen(false)}
-              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+              className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
             >
               Annulla
             </button>

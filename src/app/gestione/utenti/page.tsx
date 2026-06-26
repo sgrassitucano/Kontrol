@@ -459,7 +459,7 @@ export default function GestioneUtentiPage() {
               <button
                 type="button"
                 onClick={closeEdit}
-                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
                 disabled={isSaving}
               >
                 Annulla

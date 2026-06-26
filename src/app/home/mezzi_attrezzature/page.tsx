@@ -1014,7 +1014,7 @@ export default function HomeMezziPage() {
             <button
               type="button"
               onClick={() => setIsAssetModalOpen(false)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
               disabled={isBusy}
             >
               Annulla
@@ -1081,7 +1081,7 @@ export default function HomeMezziPage() {
             <button
               type="button"
               onClick={() => setIsAssignModalOpen(false)}
-              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
               disabled={isBusy}
             >
               Annulla
