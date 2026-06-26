@@ -376,7 +376,7 @@ test("processAnagraficaImport: una riga senza CF non disattiva le dimissioni aut
   assert.ok(result.errors.some((row) => row.errorType === "required_identity_fields"));
 });
 
-test("processAnagraficaImport: conflitto CF/matricola su DB blocca le dimissioni automatiche", async () => {
+test("processAnagraficaImport: conflitto CF/matricola su DB non blocca le dimissioni automatiche", async () => {
   const fileBuffer = buildWorkbookBuffer([
     [
       "0099",
@@ -448,7 +448,7 @@ test("processAnagraficaImport: conflitto CF/matricola su DB blocca le dimissioni
     supabase: createPreviewSupabase(existingEmployees),
   });
 
-  assert.equal(result.summary.dismissedRows, 0);
-  assert.equal(result.dismissalPreviewRows.length, 0);
+  assert.equal(result.summary.dismissedRows, 1);
+  assert.equal(result.dismissalPreviewRows.length, 1);
   assert.ok(result.errors.some((row) => row.errorType === "tax_code_matricola_mismatch_db"));
 });
