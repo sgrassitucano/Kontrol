@@ -580,24 +580,18 @@ export default function HomeLavoratoriPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="inline-flex rounded-full bg-white p-1 ring-1 ring-[var(--brand-line)]">
+                  <div className="tab-group">
                     <button
                       type="button"
                       onClick={() => setDetailTab("dati")}
-                      className={[
-                        "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
-                        detailTab === "dati" ? "" : "opacity-80",
-                      ].join(" ")}
+                      data-active={detailTab === "dati" ? "true" : undefined}
                     >
                       Dati
                     </button>
                     <button
                       type="button"
                       onClick={() => setDetailTab("turni")}
-                      className={[
-                        "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
-                        detailTab === "turni" ? "" : "opacity-80",
-                      ].join(" ")}
+                      data-active={detailTab === "turni" ? "true" : undefined}
                     >
                       Turni e cantieri
                     </button>

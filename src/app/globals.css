@@ -280,3 +280,109 @@ button[data-chip="true"]:hover:not(:disabled) {
   color: inherit !important;
   font-weight: inherit !important;
 }
+
+/* ─────────────────────────────────────────────────────────
+   Form Controls – standardised appearance for all modules
+   ───────────────────────────────────────────────────────── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]),
+select:not([data-unstyled]),
+textarea:not([data-unstyled]) {
+  border: 1px solid var(--brand-line);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--foreground);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]):focus,
+select:not([data-unstyled]):focus,
+textarea:not([data-unstyled]):focus {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgb(var(--brand-primary-rgb) / 0.15);
+  outline: none;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]):disabled,
+select:not([data-unstyled]):disabled,
+textarea:not([data-unstyled]):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--brand-panel);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([data-unstyled])::placeholder {
+  color: var(--brand-soft);
+  opacity: 0.7;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Table rows – subtle hover highlight for readability
+   ───────────────────────────────────────────────────────── */
+tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+tbody tr:hover {
+  background-color: var(--brand-tint) !important;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Tab navigation – reusable pill-style tab system
+   ───────────────────────────────────────────────────────── */
+.tab-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 14px;
+  background: var(--brand-panel);
+  border: 1px solid var(--brand-line);
+}
+
+.tab-group > button {
+  position: relative;
+  padding: 0.45rem 1rem;
+  border-radius: 11px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.tab-group > button[data-active="true"] {
+  background: var(--brand-primary) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgb(var(--brand-primary-rgb) / 0.25);
+  font-weight: 700 !important;
+  filter: none !important;
+}
+
+.tab-group > button[data-active="true"]:hover:not(:disabled) {
+  filter: brightness(0.96) !important;
+}
+
+.tab-group > button:not([data-active="true"]) {
+  background: transparent !important;
+  color: var(--brand-soft) !important;
+  font-weight: 600 !important;
+  filter: none !important;
+}
+
+.tab-group > button:not([data-active="true"]):hover:not(:disabled) {
+  background: rgb(var(--brand-primary-rgb) / 0.08) !important;
+  color: var(--brand-primary) !important;
+  filter: none !important;
+}
+
+.tab-group > button:not([data-active="true"]):hover:not(:disabled) * {
+  color: inherit !important;
+}
+
+.tab-group > button * {
+  color: inherit !important;
+  font-weight: inherit !important;
+}

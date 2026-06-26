@@ -367,34 +367,25 @@ export default function SorveglianzaMatricePage() {
         title="Matrice sorveglianza sanitaria"
         description="Regole: visita SI/NO per cantieri e mansioni, assegnazione provider per cantiere/sottocantiere."
       >
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="tab-group">
           <button
             type="button"
             onClick={() => setTab("cantieri")}
-            className={[
-              "rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
-              tab === "cantieri" ? "" : "opacity-80",
-            ].join(" ")}
+            data-active={tab === "cantieri" ? "true" : undefined}
           >
             Cantieri
           </button>
           <button
             type="button"
             onClick={() => setTab("mansioni")}
-            className={[
-              "rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
-              tab === "mansioni" ? "" : "opacity-80",
-            ].join(" ")}
+            data-active={tab === "mansioni" ? "true" : undefined}
           >
             Mansioni
           </button>
           <button
             type="button"
             onClick={() => setTab("provider")}
-            className={[
-              "rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
-              tab === "provider" ? "" : "opacity-80",
-            ].join(" ")}
+            data-active={tab === "provider" ? "true" : undefined}
           >
             Provider
           </button>

@@ -517,34 +517,25 @@ export default function HomeMezziPage() {
         }
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex rounded-full bg-white p-1 ring-1 ring-[var(--brand-line)]">
+          <div className="tab-group">
             <button
               type="button"
               onClick={() => setTab("scadenze")}
-              className={[
-                "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
-                tab === "scadenze" ? "" : "opacity-80",
-              ].join(" ")}
+              data-active={tab === "scadenze" ? "true" : undefined}
             >
               Scadenze
             </button>
             <button
               type="button"
               onClick={() => setTab("asset")}
-              className={[
-                "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
-                tab === "asset" ? "" : "opacity-80",
-              ].join(" ")}
+              data-active={tab === "asset" ? "true" : undefined}
             >
               Asset
             </button>
             <button
               type="button"
               onClick={() => setTab("assegnazioni")}
-              className={[
-                "min-h-9 rounded-full bg-[var(--brand-primary)] px-4 text-sm font-bold text-white shadow-sm transition hover:brightness-95",
-                tab === "assegnazioni" ? "" : "opacity-80",
-              ].join(" ")}
+              data-active={tab === "assegnazioni" ? "true" : undefined}
             >
               Assegnazioni
             </button>
