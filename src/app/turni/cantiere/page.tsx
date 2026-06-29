@@ -267,6 +267,18 @@ export default function TurniCantierePage() {
     setDayEmployeeId(null);
   }, [refDate]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialSiteId = params.get("siteId");
+    const initialSubSiteId = params.get("subSiteId");
+    if (initialSiteId) {
+      setSiteId(initialSiteId);
+    }
+    if (initialSubSiteId) {
+      setSubSiteId(initialSubSiteId);
+    }
+  }, []);
+
   const employeesForMatrix = useMemo(() => {
     if (!selectedSite) return [];
     const sub = typeof selectedSubSite === "number" ? selectedSubSite : null;

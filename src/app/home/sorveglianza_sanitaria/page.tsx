@@ -371,6 +371,17 @@ export default function HomeSorveglianzaPage() {
     void loadRows();
   }, [loadRows]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialWorkerId = params.get("workerId") || params.get("employeeId");
+    if (initialWorkerId) {
+      const id = Number(initialWorkerId);
+      if (Number.isFinite(id) && id > 0) {
+        setWorkerDetailId(id);
+      }
+    }
+  }, []);
+
   const filtered = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase();
     return rows.filter((row) => {

@@ -219,6 +219,14 @@ export default function TurniLavoratoriPage() {
     setDaySiteKey("");
   }, [refDate]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialEmployeeId = params.get("employeeId");
+    if (initialEmployeeId) {
+      setEmployeeId(initialEmployeeId);
+    }
+  }, []);
+
   const [template, setTemplate] = useState<Template>(null);
   const [templateSlotsAll, setTemplateSlotsAll] = useState<TemplateSlot[]>([]);
   const [shifts, setShifts] = useState<ShiftRow[]>([]);

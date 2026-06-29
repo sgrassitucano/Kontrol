@@ -570,6 +570,7 @@ export default function HomeFormazionePage() {
     void loadRows();
   }, [loadRows]);
 
+
   const loadWorkerDetail = useCallback(
     async (employeeId: number) => {
       setWorkerDetailLoading(true);
@@ -603,6 +604,43 @@ export default function HomeFormazionePage() {
     },
     [reloadEmployeeRows],
   );
+
+  const openWorkerDetailById = useCallback(
+    async (employeeId: number) => {
+      setWorkerDetailEmployeeId(employeeId);
+      setWorkerDetailTitle("Caricamento...");
+      setWorkerDetailRows([]);
+      setEmployeeExclusion({ isActive: false, note: "" });
+      setCourseExclusionNotes(new Map());
+      setWorkerDetailTab("formazione");
+      setIsWorkerDetailOpen(true);
+      try {
+        const rowsResponse = await reloadEmployeeRows(employeeId);
+        if (rowsResponse && rowsResponse.length > 0) {
+          const first = rowsResponse[0];
+          setWorkerDetailTitle(`${first.cognome} ${first.nome} (${first.matricola})`);
+        } else {
+          setWorkerDetailTitle(`Dipendente #${employeeId}`);
+        }
+      } catch {
+        setWorkerDetailTitle(`Dipendente #${employeeId}`);
+      }
+      await loadWorkerDetail(employeeId);
+    },
+    [loadWorkerDetail, reloadEmployeeRows]
+  );
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialWorkerId = params.get("workerId") || params.get("employeeId");
+    if (initialWorkerId) {
+      const id = Number(initialWorkerId);
+      if (Number.isFinite(id) && id > 0) {
+        void openWorkerDetailById(id);
+      }
+    }
+  }, [openWorkerDetailById]);
+
 
   const setInlineSaving = useCallback((key: string, saving: boolean) => {
     setInlineSavingKeys((prev) => {
