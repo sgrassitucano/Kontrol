@@ -657,7 +657,7 @@ export default function TurniCantierePage() {
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {"<"}
+                ←
               </button>
               <div className="min-w-[160px] text-center text-sm font-semibold text-slate-800">{formatItMonth(refDate)}</div>
               <button
@@ -666,7 +666,7 @@ export default function TurniCantierePage() {
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {">"}
+                →
               </button>
             </div>
           </div>
@@ -720,7 +720,7 @@ export default function TurniCantierePage() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-7">
+        <div className="mt-4 grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-7">
           {Array.from({ length: 7 }).map((_, weekday) => {
             const slots = templateSlotsByWeekday.get(weekday) ?? [];
             return (
@@ -831,7 +831,7 @@ export default function TurniCantierePage() {
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {"<"}
+                ←
               </button>
               <button
                 type="button"
@@ -839,7 +839,7 @@ export default function TurniCantierePage() {
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {">"}
+                →
               </button>
               <button
                 onClick={() => openNewShift(selectedDay, dayEmployeeId ?? undefined)}
@@ -885,9 +885,9 @@ export default function TurniCantierePage() {
                   disabled={!cell.inMonth}
                   onClick={() => openDay(cell.iso, dayEmployeeId ?? undefined)}
                   className={[
-                    "min-h-[74px] rounded-xl border border-[var(--brand-line)] p-2 text-left disabled:opacity-35",
+                    "min-h-[74px] rounded-xl border p-2 text-left disabled:opacity-35 transition duration-150 ease-in-out",
+                    isSelected ? "border-[var(--brand-primary)] ring-2 ring-[var(--brand-primary)]/15" : "border-[var(--brand-line)] hover:border-slate-400",
                     bg,
-                    isSelected ? "ring-2 ring-[#2f5ea8]/20" : "",
                   ].join(" ")}
                 >
                   <div className="flex items-center justify-between">

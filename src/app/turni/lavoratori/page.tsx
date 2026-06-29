@@ -200,6 +200,11 @@ export default function TurniLavoratoriPage() {
     return Number.isFinite(id) ? id : null;
   }, [employeeId]);
 
+  const currentEmployeeDetails = useMemo(() => {
+    if (!selectedEmployee) return null;
+    return employees.find((e) => e.id === selectedEmployee) ?? null;
+  }, [employees, selectedEmployee]);
+
   const range = useMemo(() => {
     const start = startOfMonth(refDate);
     const end = endOfMonth(refDate);
@@ -432,11 +437,13 @@ export default function TurniLavoratoriPage() {
   }
 
   function openNewShift(isoDay: string, siteId?: number, subSiteId?: number | null) {
+    const defaultSiteId = typeof siteId === "number" ? siteId : (currentEmployeeDetails?.siteId ?? "");
+    const defaultSubSiteId = typeof siteId === "number" ? subSiteId : (currentEmployeeDetails?.subSiteId ?? "");
     setShiftForm({
       shiftId: "",
       date: isoDay,
-      siteId: typeof siteId === "number" ? String(siteId) : "",
-      subSiteId: typeof subSiteId === "number" ? String(subSiteId) : "",
+      siteId: defaultSiteId ? String(defaultSiteId) : "",
+      subSiteId: defaultSubSiteId ? String(defaultSubSiteId) : "",
       startTime: "07:00",
       endTime: "16:00",
       note: "",
@@ -587,7 +594,7 @@ export default function TurniLavoratoriPage() {
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {"<"}
+                ←
               </button>
               <div className="min-w-[160px] text-center text-sm font-semibold text-slate-800">{formatItMonth(refDate)}</div>
               <button
@@ -596,7 +603,7 @@ export default function TurniLavoratoriPage() {
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {">"}
+                →
               </button>
             </div>
           </div>
@@ -616,28 +623,6 @@ export default function TurniLavoratoriPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                const firstSiteId = sites[0]?.id;
-                if (!firstSiteId) return;
-                const hasSub = siteHasSubSites(firstSiteId);
-                const subOptions = subSitesForSite(firstSiteId);
-                const slot: TemplateSlot = {
-                  weekday: 0,
-                  siteId: firstSiteId,
-                  subSiteId: hasSub ? (subOptions[0]?.id ?? null) : null,
-                  startTime: "07:00",
-                  endTime: "16:00",
-                  breakMinutes: 0,
-                };
-                setTemplateSlotsAll((prev) => [...prev, slot]);
-              }}
-              disabled={isBusy || sites.length === 0}
-              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Aggiungi fascia
-            </button>
-            <button
-              type="button"
               onClick={saveTemplate}
               disabled={isBusy || !selectedEmployee}
               className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
@@ -655,12 +640,37 @@ export default function TurniLavoratoriPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-7">
+        <div className="mt-4 grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-7">
           {Array.from({ length: 7 }).map((_, weekday) => {
             const slots = templateSlotsByWeekday.get(weekday) ?? [];
             return (
               <div key={weekday} className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-3">
-                <div className="text-xs font-semibold text-slate-700">{weekdayLabel(weekday)}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-slate-700">{weekdayLabel(weekday)}</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const defaultSiteId = currentEmployeeDetails?.siteId ?? sites[0]?.id;
+                      if (!defaultSiteId) return;
+                      const hasSub = siteHasSubSites(defaultSiteId);
+                      const subOptions = subSitesForSite(defaultSiteId);
+                      const slot: TemplateSlot = {
+                        weekday,
+                        siteId: defaultSiteId,
+                        subSiteId: hasSub ? (currentEmployeeDetails?.subSiteId ?? subOptions[0]?.id ?? null) : null,
+                        startTime: "07:00",
+                        endTime: "16:00",
+                        breakMinutes: 0,
+                      };
+                      setTemplateSlotsAll((prev) => [...prev, slot]);
+                    }}
+                    disabled={isBusy || !selectedEmployee || sites.length === 0}
+                    className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-[11px] font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Aggiungi fascia"
+                  >
+                    +
+                  </button>
+                </div>
                 <div className="mt-2 space-y-2">
                   {slots.length === 0 ? (
                     <div className="text-[11px] font-semibold text-slate-400">-</div>
@@ -670,7 +680,7 @@ export default function TurniLavoratoriPage() {
                       const hasSub = subOptions.length > 0;
                       return (
                         <div key={`${weekday}-${idx}`} className="space-y-2 rounded-lg border border-[var(--brand-line)] bg-white p-2">
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="flex flex-col gap-1.5">
                             <select
                               value={String(s.siteId)}
                               onChange={(e) => {
@@ -689,7 +699,7 @@ export default function TurniLavoratoriPage() {
                                   ),
                                 );
                               }}
-                              className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
+                              className="w-full rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
                             >
                               {sites.map((site) => (
                                 <option key={site.id} value={String(site.id)}>
@@ -704,7 +714,7 @@ export default function TurniLavoratoriPage() {
                                 const next = e.target.value ? Number(e.target.value) : null;
                                 setTemplateSlotsAll((prev) => prev.map((row) => (row === s ? { ...row, subSiteId: next } : row)));
                               }}
-                              className="rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
+                              className="w-full rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
                               disabled={!hasSub}
                             >
                               {!hasSub ? <option value="">-</option> : null}
@@ -795,7 +805,7 @@ export default function TurniLavoratoriPage() {
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {"<"}
+                ←
               </button>
               <button
                 type="button"
@@ -803,7 +813,7 @@ export default function TurniLavoratoriPage() {
                 disabled={isBusy}
                 className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {">"}
+                →
               </button>
               <button
                 onClick={() => openNewShift(selectedDay)}
@@ -837,9 +847,9 @@ export default function TurniLavoratoriPage() {
                   disabled={!cell.inMonth}
                   onClick={() => setSelectedDay(cell.iso)}
                   className={[
-                    "min-h-[74px] rounded-xl border border-[var(--brand-line)] p-2 text-left disabled:opacity-35",
+                    "min-h-[74px] rounded-xl border p-2 text-left disabled:opacity-35 transition duration-150 ease-in-out",
+                    isSelected ? "border-[var(--brand-primary)] ring-2 ring-[var(--brand-primary)]/15" : "border-[var(--brand-line)] hover:border-slate-400",
                     bg,
-                    isSelected ? "ring-2 ring-[#2f5ea8]/20" : "",
                   ].join(" ")}
                 >
                   <div className="flex items-center justify-between">
