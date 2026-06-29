@@ -444,7 +444,7 @@ export async function GET(request: Request) {
             expiringDays: expiringDaysSafeRaw,
           },
         },
-        30 * 1000,
+        10 * 60 * 1000,
       );
     }
 
@@ -472,7 +472,7 @@ export async function GET(request: Request) {
 }
 
 async function fetchAllEmployees(supabase: SupabaseClient) {
-  const pageSize = 1000;
+  const pageSize = 5000;
   let from = 0;
   let hasMore = true;
   const allRows: EmployeeRow[] = [];
