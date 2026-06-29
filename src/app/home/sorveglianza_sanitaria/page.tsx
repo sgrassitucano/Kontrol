@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { DashboardCard, KpiCard, KpiGrid, ModuleHeader } from "@/components/module-ui";
+import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, KpiDonutChart, ActionMenu } from "@/components/module-ui";
 import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
 import { isoToItDate } from "@/lib/it-date";
 import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
+import { Eye, Calendar, Award, FileText } from "lucide-react";
 
 type WorkerSurveillanceRow = {
   workerId: number;
@@ -706,7 +707,15 @@ export default function HomeSorveglianzaPage() {
         }
       >
         <DashboardCard className="border-0 p-3">
-          <KpiGrid className="sm:grid-cols-2 md:grid-cols-7">
+          <KpiGrid className="sm:grid-cols-2 md:grid-cols-8">
+            <KpiDonutChart
+              label="Conformità"
+              percentage={totalWorkers > 0 ? Math.max(0, Math.min(100, Math.round(100 - (criticoCount / totalWorkers) * 100))) : 100}
+              description="Visite mediche in regola"
+              tone={totalWorkers > 0 && Math.round(100 - (criticoCount / totalWorkers) * 100) >= 90 ? "success" : totalWorkers > 0 && Math.round(100 - (criticoCount / totalWorkers) * 100) >= 75 ? "warning" : "danger"}
+              onClick={() => setStatusFilter("")}
+              isActive={statusFilter === ""}
+            />
             <KpiCard label="Totale lavoratori attivi" value={totalWorkers} subValue="100%" />
             <KpiCard
               label="Critico"
@@ -960,8 +969,16 @@ export default function HomeSorveglianzaPage() {
                       onChange={() => toggleWorkerSelection(row.workerId)}
                     />
                   </td>
-                  <td className="w-[14%] px-4 py-2.5 font-semibold text-slate-800">{row.cognome}</td>
-                  <td className="w-[12%] px-4 py-2.5 text-slate-800">{row.nome}</td>
+                  <td className="w-[14%] px-4 py-2.5">
+                    <button type="button" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline font-semibold text-[var(--brand-primary)] text-left">
+                      {row.cognome}
+                    </button>
+                  </td>
+                  <td className="w-[12%] px-4 py-2.5">
+                    <button type="button" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline font-semibold text-[var(--brand-primary)] text-left">
+                      {row.nome}
+                    </button>
+                  </td>
                   <td className="w-[20%] px-4 py-2.5 text-slate-600">
                     <span className="block line-clamp-2" title={row.mansione || "-"}>
                       {row.mansione || "-"}
@@ -990,14 +1007,31 @@ export default function HomeSorveglianzaPage() {
                     </span>
                   </td>
                   <td className="w-[10%] px-4 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => void openWorkerDetail(row.workerId)}
-                      data-soft="true"
-                      className="rounded-xl px-3 py-1.5 text-xs"
-                    >
-                      Dettaglio
-                    </button>
+                    <ActionMenu
+                      actions={[
+                        {
+                          label: "Scheda Lavoratore",
+                          icon: <Eye className="h-3.5 w-3.5" />,
+                          onClick: () => void openWorkerDetail(row.workerId)
+                        },
+                        {
+                          label: "Registra Evento Medico",
+                          icon: <Calendar className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            setSelectedWorkerIds(new Set([row.workerId]));
+                            setEventModalToken(Date.now());
+                            setEventModalOpen(true);
+                          }
+                        },
+                        {
+                          label: "Scarica Fascicolo PDF",
+                          icon: <FileText className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            window.open(`/api/lavoratori/fascicolo?employeeId=${row.workerId}`, "_blank");
+                          }
+                        }
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
@@ -1205,84 +1239,92 @@ export default function HomeSorveglianzaPage() {
       />
 
       {workerDetailId ? (
-        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-white px-5 py-4">
-              <div>
-                <h2 className="text-lg font-bold text-[var(--brand-ink)]">Dettaglio lavoratore</h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Override visita, programmato ed esclusione singola per sorveglianza sanitaria.
+        <>
+          <div 
+            className="drawer-backdrop open" 
+            onClick={closeWorkerDetail} 
+          />
+          <section className="drawer-panel open flex flex-col h-full z-50">
+            <div className="flex items-center justify-between p-4 border-b border-[var(--brand-line)] bg-slate-50 dark:bg-slate-900/40 shrink-0">
+              <div className="space-y-0.5">
+                <h2 className="text-md font-bold text-[var(--brand-ink)]">Dettaglio lavoratore</h2>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                  Override visita, programmato ed esclusione singola.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={closeWorkerDetail}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
+                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                 title="Chiudi"
               >
                 ✕
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/10">
               {workerDetailLoading ? (
-                <p className="text-sm text-slate-600">Carico…</p>
+                <div className="flex flex-col items-center justify-center py-20 gap-2">
+                  <div className="h-6 w-6 rounded-full border-2 border-[var(--brand-primary)] border-t-transparent animate-spin" />
+                  <p className="text-xs text-slate-400 font-medium">Caricamento...</p>
+                </div>
               ) : workerDetail ? (
                 <div className="space-y-4">
-                  <div className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-950 p-4 shadow-sm">
+                    <div className="flex flex-col gap-2">
                       <div>
-                        <p className="text-sm font-semibold text-slate-900">
+                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
                           {workerDetail.employee.last_name} {workerDetail.employee.first_name}
                         </p>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Matricola: {workerDetail.employee.matricola} · Mansione: {workerDetail.employee.job_title || "-"}
+                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          Matricola: <span className="font-semibold text-slate-700 dark:text-slate-300">{workerDetail.employee.matricola}</span> · Mansione: <span className="font-semibold text-slate-700 dark:text-slate-300">{workerDetail.employee.job_title || "-"}</span>
                         </p>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Cantiere: {workerDetail.employee.site || "-"} · Sottocantiere: {workerDetail.employee.sub_site || "-"}
+                        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                          Cantiere: <span className="font-semibold text-slate-700 dark:text-slate-300">{workerDetail.employee.site || "-"}</span> · Sottocantiere: <span className="font-semibold text-slate-700 dark:text-slate-300">{workerDetail.employee.sub_site || "-"}</span>
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Scadenza attuale</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                      <div className="mt-2 pt-2 border-t border-[var(--brand-line)] flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Scadenza attuale</span>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
                           {workerDetail.record?.next_due_date ? isoToItDate(workerDetail.record.next_due_date) : "-"}
-                        </p>
+                        </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-                      <p className="text-sm font-semibold text-slate-900">Programmato</p>
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <div className="space-y-3">
+                    <div className="space-y-2 rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-950 p-4 shadow-sm">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Pianificazione</p>
+                      <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 font-medium cursor-pointer">
                         <input
                           type="checkbox"
                           checked={detailPlanned}
                           onChange={(event) => setDetailPlanned(event.target.checked)}
+                          className="rounded text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
                         />
                         Segna come programmato
                       </label>
                     </div>
 
-                    <div className="space-y-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-                      <p className="text-sm font-semibold text-slate-900">Provider (Medico/Ente)</p>
+                    <div className="space-y-2 rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-950 p-4 shadow-sm">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Provider (Medico/Ente)</p>
                       <input
                         value={detailProvider}
                         onChange={(event) => setDetailProvider(event.target.value)}
                         placeholder="Es. Morelli Fabri / Moriste / …"
-                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 px-3 py-2 text-xs"
                       />
-                      <p className="text-xs text-slate-600">
+                      <p className="text-[10px] text-slate-400">
                         Usato in tabella/export quando la matrice risulta “MISTO” o vuota.
                       </p>
                     </div>
 
-                    <div className="space-y-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-                      <p className="text-sm font-semibold text-slate-900">Override visita (SI/NO)</p>
+                    <div className="space-y-2 rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-950 p-4 shadow-sm">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Override visita (SI/NO)</p>
                       <select
                         value={detailOverrideMode}
                         onChange={(event) => setDetailOverrideMode(event.target.value as "default" | "SI" | "NO")}
-                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 px-3 py-2 text-xs"
                       >
                         <option value="default">Default (matrice)</option>
                         <option value="SI">Visita SI</option>
@@ -1292,56 +1334,59 @@ export default function HomeSorveglianzaPage() {
                         value={detailOverrideNote}
                         onChange={(event) => setDetailOverrideNote(event.target.value)}
                         placeholder="Nota override (opzionale)"
-                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
+                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 px-3 py-2 text-xs"
                       />
                     </div>
-                  </div>
 
-                  <div className="space-y-3 rounded-2xl border border-[var(--brand-line)] bg-white p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-slate-900">Esclusione lavoratore</p>
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={detailExcluded}
-                          onChange={(event) => setDetailExcluded(event.target.checked)}
-                        />
-                        Escludi
-                      </label>
+                    <div className="space-y-2 rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-950 p-4 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Esclusione lavoratore</p>
+                        <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 font-medium cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={detailExcluded}
+                            onChange={(event) => setDetailExcluded(event.target.checked)}
+                            className="rounded text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
+                          />
+                          Escludi
+                        </label>
+                      </div>
+                      <textarea
+                        value={detailExclusionNote}
+                        onChange={(event) => setDetailExclusionNote(event.target.value)}
+                        placeholder="Motivazione esclusione (opzionale)"
+                        className="min-h-[84px] w-full resize-none rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 px-3 py-2 text-xs"
+                        disabled={!detailExcluded}
+                      />
                     </div>
-                    <textarea
-                      value={detailExclusionNote}
-                      onChange={(event) => setDetailExclusionNote(event.target.value)}
-                      placeholder="Motivazione esclusione (opzionale)"
-                      className="min-h-[84px] w-full resize-none rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm"
-                      disabled={!detailExcluded}
-                    />
                   </div>
                 </div>
               ) : null}
 
-              {workerDetailError ? <p className="mt-3 text-xs font-medium text-red-600">{workerDetailError}</p> : null}
+              {workerDetailError ? (
+                <p className="text-xs font-medium text-red-600 p-2 bg-red-50 rounded-xl">{workerDetailError}</p>
+              ) : null}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-[var(--brand-line)] bg-[var(--brand-panel)] px-5 py-4">
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--brand-line)] bg-slate-50 dark:bg-slate-900/30 px-4 py-3 shrink-0">
               <button
                 type="button"
                 onClick={closeWorkerDetail}
-                className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                className="rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-800 dark:text-slate-200 px-4 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
               >
                 Chiudi
               </button>
               <button
                 type="button"
                 onClick={() => void saveWorkerDetail()}
-                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={workerDetailLoading || detailSaving}
               >
-                {detailSaving ? "Salvo…" : "Salva"}
+                {detailSaving ? "Salvo…" : "Salva modifiche"}
               </button>
             </div>
-          </div>
-        </section>
+          </section>
+        </>
       ) : null}
     </div>
   );

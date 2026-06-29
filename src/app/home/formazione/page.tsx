@@ -2,9 +2,10 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeJobCode } from "@/lib/training/normalize";
-import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, PanelCard } from "@/components/module-ui";
+import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, PanelCard, KpiDonutChart, ActionMenu } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
 import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
+import { Eye, Calendar, Award, FileText } from "lucide-react";
 
 const FORMAZIONE_NOTE_COL_WIDTH = 720;
 const FORMAZIONE_TABLE_WIDTH =
@@ -1718,7 +1719,15 @@ export default function HomeFormazionePage() {
                   </div>
 
                   <div className="mt-3">
-                    <KpiGrid className="grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
+                    <KpiGrid className="grid-cols-2 sm:grid-cols-4 xl:grid-cols-9">
+                      <KpiDonutChart
+                        label="Conformità"
+                        percentage={Math.max(0, Math.min(100, Math.round(100 - Number(criticoPct))))}
+                        description="Lavoratori in regola"
+                        tone={100 - Number(criticoPct) >= 90 ? "success" : 100 - Number(criticoPct) >= 75 ? "warning" : "danger"}
+                        onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
+                        isActive={dashboardCategoryFilter === panel.category && dashboardStateFilter === null}
+                      />
                       <KpiCard
                         label="Totale"
                         value={totalWorkers}
@@ -2124,8 +2133,16 @@ export default function HomeFormazionePage() {
                     />
                   </td>
                   <td className={`sticky left-[56px] z-20 px-4 py-2.5 ${stickyBg} ${textClass}`}>{row.matricola}</td>
-                  <td className={`sticky left-[176px] z-20 max-w-[170px] truncate px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.cognome}>{row.cognome}</td>
-                  <td className={`sticky left-[346px] z-20 max-w-[170px] truncate border-r border-[var(--brand-line)] px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.nome}>{row.nome}</td>
+                  <td className={`sticky left-[176px] z-20 max-w-[170px] truncate px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.cognome}>
+                    <button type="button" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left font-semibold text-[var(--brand-primary)]">
+                      {row.cognome}
+                    </button>
+                  </td>
+                  <td className={`sticky left-[346px] z-20 max-w-[170px] truncate border-r border-[var(--brand-line)] px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.nome}>
+                    <button type="button" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left font-semibold text-[var(--brand-primary)]">
+                      {row.nome}
+                    </button>
+                  </td>
                   <td className={`max-w-[220px] truncate px-4 py-2.5 ${textClass}`} title={row.mansione || "-"}>{row.mansione || "-"}</td>
                   <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.cantiere}>{row.cantiere}</td>
                   <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.sottocantiere}>{row.sottocantiere}</td>
@@ -2172,52 +2189,41 @@ export default function HomeFormazionePage() {
                     </div>
                   </td>
                   <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void openWorkerDetail(row)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
-                        title="Dettaglio lavoratore (esclusioni)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="h-4 w-4"
-                          aria-hidden
-                        >
-                          <circle cx="11" cy="11" r="6.5" />
-                          <path d="M20 20l-3.2-3.2" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openQuickAction(row)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
-                        title="Azione rapida su questa riga"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="h-4 w-4"
-                          aria-hidden
-                        >
-                          <rect x="4.5" y="6.5" width="15" height="14" rx="2.6" />
-                          <path d="M8 3.5V7" />
-                          <path d="M16 3.5V7" />
-                          <path d="M4.5 10h15" />
-                          <path d="M12 13.5V18" />
-                          <path d="M9.8 15.75H14.2" />
-                        </svg>
-                      </button>
-                    </div>
+                    <ActionMenu
+                      actions={[
+                        {
+                          label: "Scheda Lavoratore",
+                          icon: <Eye className="h-3.5 w-3.5" />,
+                          onClick: () => void openWorkerDetail(row)
+                        },
+                        {
+                          label: row.stato === "programmato" ? "Rimuovi Pianificato" : "Pianifica Corso",
+                          icon: <Calendar className="h-3.5 w-3.5" />,
+                          onClick: () => openQuickAction(row)
+                        },
+                        {
+                          label: "Registra Corso Svolto",
+                          icon: <Award className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            setSelectedWorkerIds(new Set([row.workerId]));
+                            openEventModal({
+                              courseCode: row.corsoCode,
+                              courseSearch: `${row.corsoCode} ${row.corso}`.trim(),
+                              type: "SVOLTO",
+                              date: "",
+                              note: ""
+                            });
+                          }
+                        },
+                        {
+                          label: "Scarica Fascicolo PDF",
+                          icon: <FileText className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            window.open(`/api/lavoratori/fascicolo?employeeId=${row.workerId}`, "_blank");
+                          }
+                        }
+                      ]}
+                    />
                   </td>
                   <td style={{ width: FORMAZIONE_NOTE_COL_WIDTH, minWidth: FORMAZIONE_NOTE_COL_WIDTH }} className={`px-4 py-2.5 ${textClass}`}>
                     <input
@@ -2530,12 +2536,22 @@ export default function HomeFormazionePage() {
       ) : null}
 
       {isWorkerDetailOpen ? (
-        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-white px-5 py-4">
+        <>
+          <div 
+            className="drawer-backdrop open" 
+            onClick={() => {
+              setIsWorkerDetailOpen(false);
+              setWorkerDetailEmployeeId(null);
+              setWorkerDetailRows([]);
+              setWorkerDetailError("");
+              setIsExclusionNoteModalOpen(false);
+            }} 
+          />
+          <section className="drawer-panel open flex flex-col h-full z-50">
+            <div className="flex items-center justify-between p-4 border-b border-[var(--brand-line)] bg-slate-50 dark:bg-slate-900/40 shrink-0">
               <div className="space-y-0.5">
-                <h2 className="text-lg font-bold text-[var(--brand-ink)]">Dettaglio lavoratore</h2>
-                <p className="text-xs text-slate-500">{workerDetailTitle}</p>
+                <h2 className="text-md font-bold text-[var(--brand-ink)]">Dettaglio lavoratore</h2>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">{workerDetailTitle}</p>
               </div>
               <button
                 type="button"
@@ -2546,20 +2562,20 @@ export default function HomeFormazionePage() {
                   setWorkerDetailError("");
                   setIsExclusionNoteModalOpen(false);
                 }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--brand-line)] bg-white text-slate-600 transition hover:bg-slate-50"
+                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                 title="Chiudi"
               >
                 ✕
               </button>
             </div>
 
-            <div className="border-b border-[var(--brand-line)] px-5 py-3">
-              <div className="flex flex-wrap gap-2">
+            <div className="border-b border-[var(--brand-line)] px-4 py-2 bg-white dark:bg-slate-900 shrink-0">
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setWorkerDetailTab("formazione")}
                   className={[
-                    "rounded-full px-4 py-2 text-sm font-semibold transition",
+                    "rounded-full px-4 py-1.5 text-xs font-semibold transition",
                     workerDetailTab === "formazione"
                       ? "bg-[var(--brand-primary)] text-white"
                       : "border border-[var(--brand-line)] bg-white text-slate-700 hover:bg-slate-50",
@@ -2571,7 +2587,7 @@ export default function HomeFormazionePage() {
                   type="button"
                   onClick={() => setWorkerDetailTab("esclusioni")}
                   className={[
-                    "rounded-full px-4 py-2 text-sm font-semibold transition",
+                    "rounded-full px-4 py-1.5 text-xs font-semibold transition",
                     workerDetailTab === "esclusioni"
                       ? "bg-[var(--brand-primary)] text-white"
                       : "border border-[var(--brand-line)] bg-white text-slate-700 hover:bg-slate-50",
@@ -2582,130 +2598,118 @@ export default function HomeFormazionePage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50 dark:bg-slate-900/10">
               {workerDetailLoading ? (
-                <p className="text-sm text-slate-600">Caricamento...</p>
+                <div className="flex flex-col items-center justify-center py-20 gap-2">
+                  <div className="h-6 w-6 rounded-full border-2 border-[var(--brand-primary)] border-t-transparent animate-spin" />
+                  <p className="text-xs text-slate-400 font-medium">Caricamento...</p>
+                </div>
               ) : workerDetailError ? (
-                <p className="text-sm font-medium text-red-600">{workerDetailError}</p>
+                <p className="text-xs font-medium text-red-600 p-2 bg-red-50 rounded-xl">{workerDetailError}</p>
               ) : workerDetailTab === "formazione" ? (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {employeeExclusion.isActive ? (
-                    <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4 text-sm text-slate-700">
-                      <span className="font-semibold text-[var(--brand-ink)]">Lavoratore escluso.</span> La formazione
-                      è marcata come esclusa in questo modulo.
+                    <div className="rounded-xl border border-red-200/40 bg-red-50/15 p-3 text-xs text-red-800 dark:text-red-300 font-medium">
+                      Lavoratore escluso dal modulo Formazione.
                     </div>
                   ) : null}
-                  <div className="overflow-hidden rounded-xl border border-[var(--brand-line)] bg-white">
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-left text-xs">
-                        <thead className="bg-[var(--brand-panel)] text-slate-500">
-                          <tr className="uppercase tracking-wide">
-                            <th className="px-3 py-2">Corso</th>
-                            <th className="px-3 py-2">Data corso</th>
-                            <th className="px-3 py-2">Scadenza</th>
-                            <th className="px-3 py-2">Data prevista</th>
-                            <th className="px-3 py-2">Stato</th>
-                            <th className="px-3 py-2">Azione</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {workerDetailRows
-                            .slice()
-                            .sort((a, b) => `${a.corsoCode} ${a.corso}`.localeCompare(`${b.corsoCode} ${b.corso}`))
-                            .map((r) => {
-                              const courseId = r.courseId ?? null;
-                              const isExcluded = courseId ? courseExclusionNotes.has(courseId) : false;
-                              return (
-                                <tr
-                                  key={`${r.workerId}-${r.corsoCode}-${r.origine}`}
-                                  className="border-t border-[var(--brand-line)] hover:bg-[var(--brand-panel)]/60"
+                  
+                  {workerDetailRows.length === 0 ? (
+                    <p className="text-xs text-slate-400 py-10 text-center">Nessun corso disponibile.</p>
+                  ) : (
+                    workerDetailRows
+                      .slice()
+                      .sort((a, b) => `${a.corsoCode} ${a.corso}`.localeCompare(`${b.corsoCode} ${b.corso}`))
+                      .map((r) => {
+                        const courseId = r.courseId ?? null;
+                        const isExcluded = courseId ? courseExclusionNotes.has(courseId) : false;
+                        return (
+                          <div
+                            key={`${r.workerId}-${r.corsoCode}-${r.origine}`}
+                            className="rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 p-3 shadow-sm text-xs flex flex-col gap-2 transition-all hover:shadow"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="font-bold text-slate-800 dark:text-slate-200">
+                                <span className="font-semibold text-slate-500">{r.corsoCode}</span> - {r.corso}
+                              </div>
+                              <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusClassName(r.stato)}`}>
+                                {r.stato.toUpperCase()}
+                              </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              <div>
+                                <span className="font-medium text-slate-400">Data corso:</span> {formatDateIt(r.dataConclusione) || "-"}
+                              </div>
+                              <div>
+                                <span className="font-medium text-slate-400">Scadenza:</span> {formatDateIt(r.dataScadenza) || "Illimitato"}
+                              </div>
+                              {r.dataPrevista && (
+                                <div className="col-span-2">
+                                  <span className="font-medium text-slate-400">Pianificato:</span> <span className="text-purple-600 dark:text-purple-400 font-bold">{formatDateIt(r.dataPrevista)}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-end gap-1.5 mt-2 pt-2 border-t border-[var(--brand-line)]">
+                              <button
+                                type="button"
+                                disabled={employeeExclusion.isActive || !courseId}
+                                onClick={() => {
+                                  if (!courseId) return;
+                                  setSelectedWorkerIds(new Set([r.workerId]));
+                                  openEventModal({
+                                    courseCode: r.corsoCode,
+                                    courseSearch: `${r.corsoCode} ${r.corso}`.trim(),
+                                    type: r.dataConclusione ? "MODIFICA_DATA" : "SVOLTO",
+                                    date: r.dataConclusione ?? "",
+                                    note: "",
+                                  });
+                                }}
+                                className={[
+                                  "rounded-lg border px-2 py-1 text-[10px] font-semibold transition",
+                                  employeeExclusion.isActive || !courseId
+                                    ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
+                                    : "border-[var(--brand-line)] bg-white text-slate-700 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-50",
+                                ].join(" ")}
+                              >
+                                Evento
+                              </button>
+                              <button
+                                type="button"
+                                disabled={employeeExclusion.isActive || !courseId}
+                                onClick={() => courseId && void requestCourseExclusionToggle(courseId)}
+                                className={[
+                                  "rounded-lg border px-2 py-1 text-[10px] font-semibold transition",
+                                  employeeExclusion.isActive || !courseId
+                                    ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
+                                    : isExcluded
+                                      ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                      : "border-[var(--brand-line)] bg-white text-slate-700 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-50",
+                                ].join(" ")}
+                              >
+                                {isExcluded ? "Rinv. esclusione" : "Escludi"}
+                              </button>
+                              {isExcluded && courseId ? (
+                                <button
+                                  type="button"
+                                  disabled={employeeExclusion.isActive}
+                                  onClick={() => void deleteExcludedCourse(courseId)}
+                                  className={[
+                                    "rounded-lg border px-2 py-1 text-[10px] font-semibold transition",
+                                    employeeExclusion.isActive
+                                      ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
+                                      : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
+                                  ].join(" ")}
                                 >
-                                  <td className="px-3 py-2 text-slate-700" title={`${r.corsoCode} - ${r.corso}`}>
-                                    <span className="font-semibold text-slate-800">{r.corsoCode}</span> {r.corso}
-                                  </td>
-                                  <td className="px-3 py-2 font-medium tabular-nums text-slate-700">
-                                    {formatDateIt(r.dataConclusione)}
-                                  </td>
-                                  <td className="px-3 py-2 font-medium tabular-nums text-slate-700">
-                                    {formatDateIt(r.dataScadenza)}
-                                  </td>
-                                  <td className="px-3 py-2 font-medium tabular-nums text-slate-700">
-                                    {formatDateIt(r.dataPrevista)}
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <span className={statusClassName(r.stato)}>{r.stato}</span>
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        disabled={employeeExclusion.isActive || !courseId}
-                                        onClick={() => {
-                                          if (!courseId) return;
-                                          setSelectedWorkerIds(new Set([r.workerId]));
-                                          openEventModal({
-                                            courseCode: r.corsoCode,
-                                            courseSearch: `${r.corsoCode} ${r.corso}`.trim(),
-                                            type: r.dataConclusione ? "MODIFICA_DATA" : "SVOLTO",
-                                            date: r.dataConclusione ?? "",
-                                            note: "",
-                                          });
-                                        }}
-                                        className={[
-                                          "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                                          employeeExclusion.isActive || !courseId
-                                            ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
-                                            : "border-[var(--brand-line)] bg-white text-slate-700 hover:bg-slate-50",
-                                        ].join(" ")}
-                                      >
-                                        Modifica data
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={employeeExclusion.isActive || !courseId}
-                                        onClick={() => courseId && void requestCourseExclusionToggle(courseId)}
-                                        className={[
-                                          "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                                          employeeExclusion.isActive || !courseId
-                                            ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
-                                            : isExcluded
-                                              ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                                              : "border-[var(--brand-line)] bg-white text-slate-700 hover:bg-slate-50",
-                                        ].join(" ")}
-                                      >
-                                        {isExcluded ? "Rimuovi esclusione" : "Escludi"}
-                                      </button>
-                                      {isExcluded && courseId ? (
-                                        <button
-                                          type="button"
-                                          disabled={employeeExclusion.isActive}
-                                          onClick={() => void deleteExcludedCourse(courseId)}
-                                          className={[
-                                            "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                                            employeeExclusion.isActive
-                                              ? "cursor-not-allowed border-[var(--brand-line)] bg-slate-100 text-slate-400"
-                                              : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
-                                          ].join(" ")}
-                                        >
-                                          Elimina
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          {workerDetailRows.length === 0 ? (
-                            <tr>
-                              <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
-                                Nessun corso disponibile.
-                              </td>
-                            </tr>
-                          ) : null}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                                  Elimina
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -2900,7 +2904,7 @@ export default function HomeFormazionePage() {
                 </div>
               )}
             </div>
-          </div>
+          </section>
 
           {isExclusionNoteModalOpen ? (
             <section className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
@@ -2945,7 +2949,7 @@ export default function HomeFormazionePage() {
               </div>
             </section>
           ) : null}
-        </section>
+        </>
       ) : null}
 
       <EventModal
