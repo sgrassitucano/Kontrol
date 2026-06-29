@@ -723,9 +723,10 @@ export function assessDismissalRisk(args: {
   const { existingActiveEmployees, dismissedRows, snapshotTaxCodes } = args;
   if (existingActiveEmployees <= 0 || dismissedRows <= 0) return "none" as const;
   if (snapshotTaxCodes <= 0) return "critical" as const;
-  const rate = dismissedRows / existingActiveEmployees;
-  if (dismissedRows >= 50 || rate > 0.2) return "critical" as const;
-  if (rate > 0.05) return "warning" as const;
+  
+  // Modifica: limiti numerici assoluti anziché percentuali per la protezione da dimissioni massive
+  if (dismissedRows >= 50) return "critical" as const;
+  if (dismissedRows >= 10) return "warning" as const;
   return "none" as const;
 }
 
