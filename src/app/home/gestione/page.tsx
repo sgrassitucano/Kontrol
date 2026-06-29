@@ -9,7 +9,7 @@ export default function HomeGestionePage() {
         description="Area amministrativa per controllare import anagrafica, utenti e strumenti di verifica."
       />
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Link
           href="/gestione/import"
           className="rounded-[20px] border border-[var(--brand-line)] bg-white p-5 transition hover:border-[var(--brand-primary)]"
@@ -40,6 +40,17 @@ export default function HomeGestionePage() {
           <p className="text-sm font-semibold text-[var(--brand-ink)]">Debug</p>
           <p className="mt-2 text-sm leading-6 text-slate-500">
             Verifica log, errori e consistenza dati durante le fasi di import.
+          </p>
+        </Link>
+        <Link
+          href="/gestione/backup"
+          className="rounded-[20px] border border-[var(--brand-line)] bg-white p-5 transition hover:border-[var(--brand-primary)]"
+        >
+          <p className="text-sm font-semibold text-[var(--brand-ink)]">
+            Backup e Ripristino
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Esporta copie di sicurezza ed esegui il ripristino atomico dei dati.
           </p>
         </Link>
       </section>

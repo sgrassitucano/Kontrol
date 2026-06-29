@@ -14,9 +14,11 @@ import {
   Shield,
   Truck,
   Users,
+  Sparkles,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { moduleDefinitions, type AppModuleKey } from "@/lib/modules";
+import { CopilotSidebar } from "@/components/copilot-sidebar";
 
 function isActive(pathname: string, href: string) {
   if (href === "/home") {
@@ -72,6 +74,7 @@ export function AppShell({ children }: AppShellProps) {
   const sidebarCollapsed = sidebarOverride ?? isTableFocusRoute;
   const [modulesByKey, setModulesByKey] = useState<Record<string, { canRead: boolean; canWrite: boolean }> | null>(null);
   const [profile, setProfile] = useState<MeResponse["profile"] | null>(null);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
 
   useEffect(() => {
     if (isLoginPage) return;
@@ -251,6 +254,18 @@ export function AppShell({ children }: AppShellProps) {
                 ) : null}
                 <button
                   type="button"
+                  onClick={() => setIsCopilotOpen(true)}
+                  className={[
+                    "inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white text-[var(--brand-ink)] shadow-sm transition hover:bg-slate-50",
+                    sidebarCollapsed ? "px-2 py-1.5" : "px-3 py-1.5"
+                  ].join(" ")}
+                  title="Apri Assistente AI"
+                >
+                  <Sparkles className="h-5 w-5 text-indigo-600 animate-pulse shrink-0" />
+                  {!sidebarCollapsed ? <span className="text-xs font-bold">KONTROL Copilot</span> : null}
+                </button>
+                <button
+                  type="button"
                   onClick={logout}
                   className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-3 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                 >
@@ -268,6 +283,7 @@ export function AppShell({ children }: AppShellProps) {
           </main>
         </div>
       </div>
+      <CopilotSidebar isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} />
     </div>
   );
 }

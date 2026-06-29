@@ -121,6 +121,11 @@ export const moduleDefinitions: ModuleDefinition[] = [
         description: "Assegnazione permessi per modulo agli utenti.",
       },
       {
+        label: "Backup",
+        href: "/gestione/backup",
+        description: "Esporta copie di sicurezza ed esegui il ripristino atomico.",
+      },
+      {
         label: "Debug",
         href: "/gestione/debug",
         description: "Controlli diagnostici e verifiche qualita dati.",
