@@ -301,7 +301,7 @@ export default function HomeDpiPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="theme-dpi space-y-4 animate-tab-content">
       <ModuleHeader
         title="DPI"
         description="Elenco lavoratori↔DPI richiesti dalla matrice e stato consegna/verifica."

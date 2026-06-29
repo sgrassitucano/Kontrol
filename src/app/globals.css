@@ -386,3 +386,90 @@ tbody tr:hover {
   color: inherit !important;
   font-weight: inherit !important;
 }
+
+/* ─────────────────────────────────────────────────────────
+   Scrollbar personalizzata premium e sottile
+   ───────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--brand-line);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-soft);
+}
+
+/* ─────────────────────────────────────────────────────────
+   Temi per modulo (Color-coding)
+   ───────────────────────────────────────────────────────── */
+.theme-sorveglianza {
+  --brand-primary: #059669;
+  --brand-primary-rgb: 5 150 105;
+  --brand-tint: #ecfdf5;
+}
+.theme-formazione {
+  --brand-primary: #4f46e5;
+  --brand-primary-rgb: 79 70 229;
+  --brand-tint: #eef2ff;
+}
+.theme-turni {
+  --brand-primary: #7c3aed;
+  --brand-primary-rgb: 124 58 237;
+  --brand-tint: #f5f3ff;
+}
+.theme-mezzi {
+  --brand-primary: #d97706;
+  --brand-primary-rgb: 217 119 6;
+  --brand-tint: #fffbeb;
+}
+.theme-dpi {
+  --brand-primary: #0d9488;
+  --brand-primary-rgb: 13 148 136;
+  --brand-tint: #f0fdfa;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Micro-Animazioni e transizioni premium
+   ───────────────────────────────────────────────────────── */
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.animate-modal {
+  animation: modal-fade-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes tab-fade-in {
+  from {
+    opacity: 0.8;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-tab-content {
+  animation: tab-fade-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Transizioni globali per bottoni e carte */
+button,
+a,
+.tab-group > button,
+tbody tr {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+

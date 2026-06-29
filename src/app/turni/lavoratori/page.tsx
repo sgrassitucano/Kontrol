@@ -573,7 +573,7 @@ export default function TurniLavoratoriPage() {
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="theme-turni space-y-4 p-6 animate-tab-content">
       <ModuleHeader title="Turni — Lavoratori" description="Settimana tipo (ripetibile) + calendario mensile." />
 
       <PanelCard>

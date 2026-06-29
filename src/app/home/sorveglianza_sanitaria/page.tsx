@@ -612,7 +612,7 @@ export default function HomeSorveglianzaPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="theme-sorveglianza space-y-4 animate-tab-content">
       <ModuleHeader
         title="Sorveglianza sanitaria"
         description="Cruscotto e tabella lavoratori. Import e matrice restano raggiungibili dalle azioni."

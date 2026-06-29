@@ -217,6 +217,18 @@ export default function TurniCantierePage() {
     { absenceType: "malattia", note: "" },
   );
 
+  // AI Scheduler state
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [aiResult, setAiResult] = useState<{
+    ok: boolean;
+    created: number;
+    scheduledEmployees?: Array<{ nominativo: string; turniAssegnati: number }>;
+    skippedEmployees?: Array<{ nominativo: string; motivo: string }>;
+    uncoveredSlots?: Array<{ data: string; giorno: string; orario: string }>;
+    message: string;
+  } | null>(null);
+  const [isAiRunning, setIsAiRunning] = useState(false);
+
   const selectedSite = useMemo(() => {
     if (!siteId) return null;
     const id = Number(siteId);
@@ -488,6 +500,36 @@ export default function TurniCantierePage() {
     }
   }
 
+  async function runAiScheduler() {
+    if (!selectedSite) return;
+    setIsAiRunning(true);
+    setAiResult(null);
+    setError("");
+    try {
+      const effectiveSubSiteId = selectedSiteHasSubSites ? (typeof selectedSubSite === "number" ? selectedSubSite : null) : null;
+      const res = await fetch("/api/turni/generate-ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          siteId: selectedSite,
+          subSiteId: effectiveSubSiteId,
+          startDate: range.startDate,
+          endDate: range.endDate,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error ?? "Errore AI Scheduler.");
+      setAiResult(body);
+      // Ricarica turni dopo la generazione
+      await loadShifts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore AI Scheduler.");
+      setAiResult(null);
+    } finally {
+      setIsAiRunning(false);
+    }
+  }
+
   function openDay(isoDay: string, employeeId?: number) {
     setSelectedDay(isoDay);
     setDayEmployeeId(typeof employeeId === "number" ? employeeId : null);
@@ -633,7 +675,7 @@ export default function TurniCantierePage() {
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="theme-turni space-y-4 p-6 animate-tab-content">
       <ModuleHeader title="Turni — Cantiere" description="Settimana tipo (ripetibile) + calendario mensile." />
 
       <PanelCard>
@@ -728,6 +770,15 @@ export default function TurniCantierePage() {
               className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Riallinea mese
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAiModalOpen(true)}
+              disabled={isBusy || !selectedSite || isAiRunning}
+              className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Genera turni con AI: assegna automaticamente i lavoratori conformi agli slot del template"
+            >
+              🤖 AI Scheduler
             </button>
           </div>
         </div>
@@ -1139,6 +1190,164 @@ export default function TurniCantierePage() {
               Annulla
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* AI Scheduler Modal */}
+      <Modal title="🤖 AI Auto-Scheduling" isOpen={isAiModalOpen} onClose={() => { setIsAiModalOpen(false); setAiResult(null); }}>
+        <div className="grid gap-5">
+          {/* Step 1: Conferma */}
+          {!aiResult && !isAiRunning && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 px-4 py-3">
+                <div className="text-sm font-semibold text-violet-900">Generazione Intelligente Turni</div>
+                <div className="mt-1 text-xs text-violet-700">
+                  L&apos;AI Scheduler genererà automaticamente i turni per <strong>{formatItMonth(refDate)}</strong> assegnando
+                  i lavoratori conformi (visite mediche in regola, formazione aggiornata) agli slot del template orario attivo.
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <div className="text-xs font-semibold text-amber-800">⚠️ Attenzione</div>
+                <div className="mt-1 text-xs text-amber-700">
+                  I turni verranno generati per tutti i giorni del mese selezionato. I lavoratori con formazione scaduta,
+                  idoneità medica non valida o assenze saranno automaticamente esclusi.
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => { runAiScheduler(); }}
+                  disabled={!selectedSite}
+                  className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Genera turni per {formatItMonth(refDate)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAiModalOpen(false)}
+                  className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                >
+                  Annulla
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Loading */}
+          {isAiRunning && (
+            <div className="flex flex-col items-center gap-3 py-8">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-violet-200 border-t-violet-600" />
+              <div className="text-sm font-semibold text-violet-700">Generazione turni in corso...</div>
+              <div className="text-xs text-slate-500">Analisi conformità e bilanciamento carichi di lavoro</div>
+            </div>
+          )}
+
+          {/* Step 3: Risultati */}
+          {aiResult && !isAiRunning && (
+            <div className="space-y-4">
+              {/* Banner risultato */}
+              <div className={`rounded-xl border px-4 py-3 ${aiResult.created > 0 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className={`text-sm font-semibold ${aiResult.created > 0 ? 'text-emerald-900' : 'text-amber-900'}`}>
+                  {aiResult.created > 0 ? '✅' : '⚠️'} {aiResult.message}
+                </div>
+              </div>
+
+              {/* Lavoratori pianificati */}
+              {(aiResult.scheduledEmployees ?? []).length > 0 && (
+                <details open className="rounded-xl border border-emerald-200 bg-emerald-50/50">
+                  <summary className="cursor-pointer px-4 py-2.5 text-xs font-semibold text-emerald-800">
+                    ✅ Lavoratori pianificati ({aiResult.scheduledEmployees!.length})
+                  </summary>
+                  <div className="border-t border-emerald-200 px-4 py-2">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-emerald-700">
+                          <th className="py-1">Nominativo</th>
+                          <th className="py-1 text-right">Turni assegnati</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aiResult.scheduledEmployees!.map((e, i) => (
+                          <tr key={i} className="border-t border-emerald-100">
+                            <td className="py-1 font-medium text-slate-800">{e.nominativo}</td>
+                            <td className="py-1 text-right font-bold text-emerald-700">{e.turniAssegnati}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+
+              {/* Lavoratori esclusi */}
+              {(aiResult.skippedEmployees ?? []).length > 0 && (
+                <details className="rounded-xl border border-amber-200 bg-amber-50/50">
+                  <summary className="cursor-pointer px-4 py-2.5 text-xs font-semibold text-amber-800">
+                    ⚠️ Lavoratori esclusi ({aiResult.skippedEmployees!.length})
+                  </summary>
+                  <div className="border-t border-amber-200 px-4 py-2">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-amber-700">
+                          <th className="py-1">Nominativo</th>
+                          <th className="py-1">Motivo esclusione</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aiResult.skippedEmployees!.map((e, i) => (
+                          <tr key={i} className="border-t border-amber-100">
+                            <td className="py-1 font-medium text-slate-800">{e.nominativo}</td>
+                            <td className="py-1 text-red-600">{e.motivo}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+
+              {/* Slot non coperti */}
+              {(aiResult.uncoveredSlots ?? []).length > 0 && (
+                <details className="rounded-xl border border-red-200 bg-red-50/50">
+                  <summary className="cursor-pointer px-4 py-2.5 text-xs font-semibold text-red-800">
+                    ❌ Fasce non coperte ({aiResult.uncoveredSlots!.length})
+                  </summary>
+                  <div className="border-t border-red-200 px-4 py-2">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-red-700">
+                          <th className="py-1">Data</th>
+                          <th className="py-1">Giorno</th>
+                          <th className="py-1">Orario</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aiResult.uncoveredSlots!.map((s, i) => (
+                          <tr key={i} className="border-t border-red-100">
+                            <td className="py-1 font-medium text-slate-800">{s.data}</td>
+                            <td className="py-1 text-slate-600">{s.giorno}</td>
+                            <td className="py-1 font-mono text-slate-800">{s.orario}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setIsAiModalOpen(false); setAiResult(null); }}
+                  className="rounded-xl bg-[var(--brand-primary)] px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+                >
+                  Chiudi
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

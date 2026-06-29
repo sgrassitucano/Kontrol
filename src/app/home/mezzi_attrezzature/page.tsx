@@ -2,10 +2,10 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { ModuleHeader } from "@/components/module-ui";
+import { ModuleHeader, EmptyState, StatusPill } from "@/components/module-ui";
 import { ItDateInput } from "@/components/it-date-input";
 
-type TabKey = "scadenze" | "asset" | "assegnazioni";
+type TabKey = "scadenze" | "asset" | "assegnazioni" | "timeline";
 
 type AssetType = "mezzo" | "attrezzatura";
 type OwnershipType = "proprieta" | "noleggio";
@@ -133,6 +133,7 @@ export default function HomeMezziPage() {
   const [assets, setAssets] = useState<AssetRow[]>([]);
   const [obligations, setObligations] = useState<ObligationRow[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
+  const [allAssignments, setAllAssignments] = useState<AssignmentRow[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [sites, setSites] = useState<LookupSite[]>([]);
   const [subSites, setSubSites] = useState<LookupSubSite[]>([]);
@@ -145,6 +146,11 @@ export default function HomeMezziPage() {
   const [selectedObligation, setSelectedObligation] = useState<ObligationRow | null>(null);
 
   const [isBusy, setIsBusy] = useState(false);
+
+  // States for Gantt/Timeline
+  const [timelineDate, setTimelineDate] = useState(() => new Date());
+  const [selectedAssignmentDetail, setSelectedAssignmentDetail] = useState<AssignmentRow | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
   const [assetForm, setAssetForm] = useState({
     assetType: "mezzo" as AssetType,
@@ -188,7 +194,7 @@ export default function HomeMezziPage() {
       const [assetsRes, obligationsRes, lookupsRes] =
         await Promise.all([
           fetch("/api/mezzi_attrezzature/assets"),
-          fetch("/api/mezzi_attrezzature/obligations?dueInDays=60&includeMissing=1"),
+          fetch("/api/mezzi_attrezzature/obligations?dueInDays=365&includeMissing=1"),
           fetch("/api/mezzi_attrezzature/lookups"),
         ]);
 
@@ -241,6 +247,7 @@ export default function HomeMezziPage() {
       }
       setEmployees(nextEmployees);
 
+      // Caricamento assegnazioni attive
       const nextAssignments: AssignmentRow[] = [];
       let assignmentOffset = 0;
       let assignmentsTruncated = true;
@@ -263,6 +270,30 @@ export default function HomeMezziPage() {
         if (chunk.length === 0) break;
       }
       setAssignments(nextAssignments);
+
+      // Caricamento assegnazioni storiche complete per la timeline
+      const nextAllAssignments: AssignmentRow[] = [];
+      let allAssignmentOffset = 0;
+      let allAssignmentsTruncated = true;
+      while (allAssignmentsTruncated) {
+        const allAssignmentsRes = await fetch(
+          `/api/mezzi_attrezzature/assignments?activeOnly=0&limit=5000&offset=${allAssignmentOffset}`,
+        );
+        const assignmentsBody = (await allAssignmentsRes.json()) as {
+          rows?: AssignmentRow[];
+          error?: string;
+          truncated?: boolean;
+        };
+        if (!allAssignmentsRes.ok || assignmentsBody.error) {
+          throw new Error(assignmentsBody.error ?? "Errore caricamento storico assegnazioni.");
+        }
+        const chunk = assignmentsBody.rows ?? [];
+        nextAllAssignments.push(...chunk);
+        allAssignmentsTruncated = Boolean(assignmentsBody.truncated);
+        allAssignmentOffset += chunk.length;
+        if (chunk.length === 0) break;
+      }
+      setAllAssignments(nextAllAssignments);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore caricamento modulo.");
     }
@@ -493,7 +524,7 @@ export default function HomeMezziPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="theme-mezzi space-y-4 animate-tab-content">
       <ModuleHeader
         title="Mezzi e attrezzature"
         description="Registro asset (mezzi targati e attrezzature) con scadenze e assegnazioni ai lavoratori."
@@ -539,6 +570,13 @@ export default function HomeMezziPage() {
             >
               Assegnazioni
             </button>
+            <button
+              type="button"
+              onClick={() => setTab("timeline")}
+              data-active={tab === "timeline" ? "true" : undefined}
+            >
+              Timeline Assegnazioni
+            </button>
           </div>
 
           <input
@@ -550,87 +588,85 @@ export default function HomeMezziPage() {
         </div>
 
         {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
-      </ModuleHeader>
-
-      {tab === "scadenze" ? (
-        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
-          <div className="max-h-[72vh] overflow-y-auto">
-            <table className="w-full table-fixed text-left text-xs">
-              <colgroup>
-                <col style={{ width: "26%" }} />
-                <col style={{ width: "22%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "16%" }} />
-                <col style={{ width: "8%" }} />
-              </colgroup>
-              <thead className="text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Asset</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Obbligo</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Scadenza</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Ultimo</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Stato</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2 text-right">Az.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredObligations.map((row) => (
-                  <tr
-                    key={row.obligationId}
-                    className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
-                  >
-                    <td className="px-4 py-2.5 font-semibold text-slate-800">
-                      {row.asset
-                        ? assetLabel({
-                            assetType: row.asset.assetType,
-                            plate: row.asset.plate,
-                            internalCode: row.asset.internalCode,
-                            brand: row.asset.brand,
-                            model: row.asset.model,
-                          })
-                        : "-"}
-                      <div className="mt-1 text-[11px] font-medium text-slate-500">
-                        {row.asset ? `${row.asset.cantiere} · ${row.asset.sottocantiere}` : ""}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-700">
-                      <div className="font-semibold text-slate-800">{row.obligationLabel}</div>
-                      <div className="mt-1 text-[11px] text-slate-500">{row.vendor || ""}</div>
-                    </td>
-                    <td className="px-4 py-2.5 font-semibold tabular-nums text-slate-800">
-                      {formatDateIt(row.nextDueDate)}
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-slate-600">
-                      {formatDateIt(row.lastDoneDate)}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className={badgeClass(row.status)}>{row.status}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openObligationModal(row)}
-                        className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] px-3 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
-                      >
-                        Gestisci
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {filteredObligations.length === 0 ? (
+      </ModuleHeader>      {tab === "scadenze" ? (
+        filteredObligations.length === 0 ? (
+          <EmptyState
+            title="Nessuna scadenza trovata"
+            description="Non ci sono scadenze attive o registrate per il periodo selezionato che corrispondono alla ricerca."
+            iconType="calendar"
+          />
+        ) : (
+          <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
+            <div className="max-h-[72vh] overflow-y-auto">
+              <table className="w-full table-fixed text-left text-xs">
+                <colgroup>
+                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "8%" }} />
+                </colgroup>
+                <thead className="text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">
-                      Nessuna scadenza trovata.
-                    </td>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Asset</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Obbligo</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Scadenza</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Ultimo</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Stato</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2 text-right">Az.</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody>
+                  {filteredObligations.map((row) => (
+                    <tr
+                      key={row.obligationId}
+                      className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
+                    >
+                      <td className="px-4 py-2.5 font-semibold text-slate-800">
+                        {row.asset
+                          ? assetLabel({
+                              assetType: row.asset.assetType,
+                              plate: row.asset.plate,
+                              internalCode: row.asset.internalCode,
+                              brand: row.asset.brand,
+                              model: row.asset.model,
+                            })
+                          : "-"}
+                        <div className="mt-1 text-[11px] font-medium text-slate-500">
+                          {row.asset ? `${row.asset.cantiere} · ${row.asset.sottocantiere}` : ""}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-700">
+                        <div className="font-semibold text-slate-800">{row.obligationLabel}</div>
+                        <div className="mt-1 text-[11px] text-slate-500">{row.vendor || ""}</div>
+                      </td>
+                      <td className="px-4 py-2.5 font-semibold tabular-nums text-slate-800">
+                        {formatDateIt(row.nextDueDate)}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-slate-600">
+                        {formatDateIt(row.lastDoneDate)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={badgeClass(row.status)}>{row.status}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openObligationModal(row)}
+                          className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] px-3 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
+                        >
+                          Gestisci
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )
       ) : null}
-
       {tab === "asset" ? (
         <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
           <div className="max-h-[72vh] overflow-y-auto">
@@ -702,80 +738,469 @@ export default function HomeMezziPage() {
       ) : null}
 
       {tab === "assegnazioni" ? (
-        <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
-          <div className="max-h-[72vh] overflow-y-auto">
-            <table className="w-full table-fixed text-left text-xs">
-              <colgroup>
-                <col style={{ width: "28%" }} />
-                <col style={{ width: "24%" }} />
-                <col style={{ width: "16%" }} />
-                <col style={{ width: "16%" }} />
-                <col style={{ width: "16%" }} />
-              </colgroup>
-              <thead className="text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Lavoratore</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Asset</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Inizio</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Fine</th>
-                  <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAssignments.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
-                  >
-                    <td className="px-4 py-2.5 text-slate-800">
-                      <div className="font-semibold">
-                        {row.employee ? `${row.employee.cognome} ${row.employee.nome}` : "-"}
-                      </div>
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        {row.employee?.matricola ?? ""}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-800">
-                      <div className="font-semibold">
-                        {row.asset
-                          ? assetLabel({
-                              assetType: row.asset.assetType,
-                              plate: row.asset.plate,
-                              internalCode: row.asset.internalCode,
-                              brand: row.asset.brand,
-                              model: row.asset.model,
-                            })
-                          : "-"}
-                      </div>
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        {row.asset ? `${row.asset.cantiere} · ${row.asset.sottocantiere}` : ""}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 font-semibold tabular-nums text-slate-700">
-                      {formatDateIt(row.startDate)}
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-slate-600">
-                      {formatDateIt(row.endDate)}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-600">
-                      <span className="block line-clamp-2" title={row.note || ""}>
-                        {row.note || "-"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {filteredAssignments.length === 0 ? (
+        filteredAssignments.length === 0 ? (
+          <EmptyState
+            title="Nessuna assegnazione attiva"
+            description="Non sono presenti assegnazioni di veicoli o attrezzature ai dipendenti in corso."
+            iconType="users"
+          />
+        ) : (
+          <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
+            <div className="max-h-[72vh] overflow-y-auto">
+              <table className="w-full table-fixed text-left text-xs">
+                <colgroup>
+                  <col style={{ width: "28%" }} />
+                  <col style={{ width: "24%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "16%" }} />
+                </colgroup>
+                <thead className="text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
-                      Nessuna assegnazione.
-                    </td>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Lavoratore</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Asset</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Inizio</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Fine</th>
+                    <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Note</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody>
+                  {filteredAssignments.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
+                    >
+                      <td className="px-4 py-2.5 text-slate-800">
+                        <div className="font-semibold">
+                          {row.employee ? `${row.employee.cognome} ${row.employee.nome}` : "-"}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          {row.employee?.matricola ?? ""}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-800">
+                        <div className="font-semibold">
+                          {row.asset
+                            ? assetLabel({
+                                assetType: row.asset.assetType,
+                                plate: row.asset.plate,
+                                internalCode: row.asset.internalCode,
+                                brand: row.asset.brand,
+                                model: row.asset.model,
+                              })
+                            : "-"}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          {row.asset ? `${row.asset.cantiere} · ${row.asset.sottocantiere}` : ""}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 font-semibold tabular-nums text-slate-700">
+                        {formatDateIt(row.startDate)}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-slate-600">
+                        {formatDateIt(row.endDate)}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-600">
+                        <span className="block line-clamp-2" title={row.note || ""}>
+                          {row.note || "-"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )
       ) : null}
+
+      {/* TIMELINE / GANTT TAB */}
+      {tab === "timeline" ? (() => {
+        // Calcolo giorni del mese selezionato
+        const year = timelineDate.getFullYear();
+        const month = timelineDate.getMonth(); // 0-indexed
+        
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+        
+        const getDayIso = (dayNum: number) => {
+          const y = String(year);
+          const m = String(month + 1).padStart(2, "0");
+          const d = String(dayNum).padStart(2, "0");
+          return `${y}-${m}-${d}`;
+        };
+
+        const weekdayLabel = (dayNum: number) => {
+          const d = new Date(year, month, dayNum);
+          return ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"][d.getDay()];
+        };
+
+        const isWeekend = (dayNum: number) => {
+          const d = new Date(year, month, dayNum);
+          const w = d.getDay();
+          return w === 0 || w === 6;
+        };
+
+        const isToday = (dayNum: number) => {
+          const today = new Date();
+          return today.getDate() === dayNum && today.getMonth() === month && today.getFullYear() === year;
+        };
+
+        const monthNames = [
+          "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+          "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"
+        ];
+
+        // Filtra gli asset correnti
+        const query = search.trim().toLowerCase();
+        const timelineAssets = assets.filter((a) => {
+          if (!query) return true;
+          const s = [
+            a.assetType,
+            a.ownershipType,
+            a.status,
+            a.category,
+            a.brand,
+            a.model,
+            a.plate,
+            a.internalCode,
+            a.cantiere,
+            a.sottocantiere
+          ].join(" ").toLowerCase();
+          return s.includes(query);
+        });
+
+        const handlePrevMonth = () => {
+          setTimelineDate(new Date(year, month - 1, 1));
+        };
+
+        const handleNextMonth = () => {
+          setTimelineDate(new Date(year, month + 1, 1));
+        };
+
+        return (
+          <div className="space-y-4 animate-tab-content">
+            {/* Controlli Timeline */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-[var(--brand-panel)] border border-[var(--brand-line)] p-3 rounded-2xl">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrevMonth}
+                  data-soft="true"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white border border-[var(--brand-line)] text-slate-700 shadow-sm transition hover:bg-slate-50"
+                >
+                  ←
+                </button>
+                <div className="min-w-[150px] text-center font-bold text-slate-800 text-sm">
+                  {monthNames[month]} {year}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleNextMonth}
+                  data-soft="true"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white border border-[var(--brand-line)] text-slate-700 shadow-sm transition hover:bg-slate-50"
+                >
+                  →
+                </button>
+              </div>
+
+              {/* Legenda */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-600">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-3 w-5 rounded-md bg-gradient-to-r from-blue-500 to-indigo-500 border border-indigo-600/25" />
+                  <span>Assegnazione</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-3 w-5 rounded-md bg-[amber-50] border border-dashed border-amber-300" />
+                  <span>Disponibilità Noleggio</span>
+                </div>
+                <div className="flex items-center gap-1.5 font-mono text-[9px]">
+                  <span className="h-2 w-2 rounded-full bg-red-500" />
+                  <span>Scaduto</span>
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  <span>In Scadenza</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Griglia Gantt */}
+            {timelineAssets.length === 0 ? (
+              <EmptyState
+                title="Nessun asset corrispondente"
+                description="Modifica i filtri o la ricerca per visualizzare la timeline dei mezzi e attrezzature."
+                iconType="search"
+              />
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-[var(--brand-line)] bg-white shadow-sm">
+                <div 
+                  className="min-w-[1300px]"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: `260px repeat(${daysInMonth}, minmax(40px, 1fr))`
+                  }}
+                >
+                  {/* Riga Header: Giorno del mese */}
+                  <div className="sticky left-0 z-30 bg-slate-50 border-b border-r border-[var(--brand-line)] px-4 py-2 text-xs font-bold text-slate-800 flex items-center">
+                    Asset
+                  </div>
+                  {daysArray.map((day) => {
+                    const weekend = isWeekend(day);
+                    const today = isToday(day);
+                    return (
+                      <div
+                        key={`h-day-${day}`}
+                        className={`text-center py-1.5 text-xs font-bold border-b border-r border-[var(--brand-line)] flex flex-col justify-center items-center ${
+                          today ? "bg-blue-50 text-blue-700" : weekend ? "bg-slate-100/60 text-slate-500" : "bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        <span>{day}</span>
+                        <span className="text-[10px] opacity-75 font-medium uppercase">{weekdayLabel(day)[0]}</span>
+                      </div>
+                    );
+                  })}
+
+                  {/* Righe degli Asset */}
+                  {timelineAssets.map((asset) => {
+                    // Calcolo assegnazioni di questo asset
+                    const assetAssigns = allAssignments.filter((a) => a.assetId === asset.id);
+                    // Calcolo obblighi di questo asset
+                    const assetObligations = obligations.filter((o) => o.assetId === asset.id);
+
+                    return (
+                      <div
+                        key={`row-asset-${asset.id}`}
+                        style={{ display: "contents" }}
+                      >
+                        {/* Colonna Sticky Asset */}
+                        <div className="sticky left-0 z-20 bg-white border-b border-r border-[var(--brand-line)] p-3 flex flex-col justify-center min-h-[64px] shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase leading-none ${
+                              asset.assetType === "mezzo" ? "bg-blue-50 text-blue-700 border border-blue-200" : "bg-purple-50 text-purple-700 border border-purple-200"
+                            }`}>
+                              {asset.assetType === "mezzo" ? "Mezzo" : "Attrezzatura"}
+                            </span>
+                            <span className="text-xs font-bold text-slate-900 tracking-tight">
+                              {assetLabel(asset)}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-700 font-semibold mt-1">
+                            {[asset.brand, asset.model].filter(Boolean).join(" ")}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                            {asset.cantiere || "Nessun cantiere"}
+                          </div>
+                        </div>
+
+                        {/* Celle della Timeline */}
+                        {daysArray.map((day) => {
+                          const dayIso = getDayIso(day);
+                          const weekend = isWeekend(day);
+                          const today = isToday(day);
+
+                          // Controlla se la data è fuori dal noleggio (se l'asset è a noleggio)
+                          let isOutOfRental = false;
+                          let isRentalActive = false;
+                          if (asset.ownershipType === "noleggio") {
+                            const rentStart = asset.rentalStartDate;
+                            const rentEnd = asset.rentalEndDate;
+                            if (rentStart && dayIso < rentStart) isOutOfRental = true;
+                            if (rentEnd && dayIso > rentEnd) isOutOfRental = true;
+                            if (!isOutOfRental) isRentalActive = true;
+                          }
+
+                          // Cerca scadenze in questo giorno
+                          const obligationsDueToday = assetObligations.filter((o) => o.nextDueDate === dayIso);
+
+                          return (
+                            <div
+                              key={`cell-${asset.id}-${day}`}
+                              className={`relative border-b border-r border-[var(--brand-line)] flex items-center justify-center transition-colors min-h-[64px] ${
+                                today ? "bg-blue-50/15" : weekend ? "bg-slate-50/30" : "bg-white"
+                              } ${
+                                isOutOfRental ? "bg-[repeating-linear-gradient(-45deg,#f1f5f9,#f1f5f9_4px,#f8fafc_4px,#f8fafc_8px)] opacity-50" : ""
+                              } ${
+                                isRentalActive ? "bg-amber-50/20" : ""
+                              }`}
+                            >
+                              {/* Eventuali indicatori scadenze obblighi */}
+                              {obligationsDueToday.length > 0 && (
+                                <div className="absolute top-1 right-1 z-10 flex gap-0.5">
+                                  {obligationsDueToday.map((ob, idx) => {
+                                    const dotColor = ob.status === "scaduto" ? "bg-red-500 animate-pulse" : "bg-amber-500";
+                                    return (
+                                      <div
+                                        key={idx}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openObligationModal(ob);
+                                        }}
+                                        className={`h-2.5 w-2.5 rounded-full cursor-pointer border border-white shadow-sm ${dotColor}`}
+                                        title={`Scadenza: ${ob.obligationLabel} (${formatDateIt(ob.nextDueDate)})`}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Overlay delle Assegnazioni di questo Asset */}
+                        {assetAssigns.map((assign) => {
+                          const startIso = assign.startDate;
+                          const endIso = assign.endDate ?? "9999-12-31";
+                          
+                          // Verifica se l'assegnazione si sovrappone al mese correntemente visualizzato
+                          const monthStartIso = getDayIso(1);
+                          const monthEndIso = getDayIso(daysInMonth);
+                          
+                          if (startIso > monthEndIso || endIso < monthStartIso) return null;
+
+                          // Calcola le colonne di inizio e fine
+                          const startDay = startIso < monthStartIso ? 1 : Number(startIso.slice(8, 10));
+                          const endDay = endIso > monthEndIso ? daysInMonth : Number(endIso.slice(8, 10));
+
+                          const startCol = startDay + 1; // +1 per colonna asset
+                          const endCol = endDay + 2; // +2 per posizionamento grid esclusivo
+
+                          const startsOutside = startIso < monthStartIso;
+                          const endsOutside = endIso > monthEndIso;
+
+                          const label = assign.employee ? `${assign.employee.cognome} ${assign.employee.nome}` : "Assegnato";
+
+                          return (
+                            <div
+                              key={`assign-bar-${assign.id}`}
+                              onClick={() => {
+                                setSelectedAssignmentDetail(assign);
+                                setIsDetailModalOpen(true);
+                              }}
+                              className="self-center h-8 mx-1 z-10 rounded-lg shadow-sm border text-white font-bold text-[11px] flex items-center justify-between px-2 cursor-pointer transition select-none overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-600 border-indigo-700 hover:brightness-105 active:scale-[0.98]"
+                              style={{
+                                gridRow: `row-asset-${asset.id}`,
+                                gridColumnStart: startCol,
+                                gridColumnEnd: endCol,
+                                marginTop: "16px",
+                                marginBottom: "16px",
+                                transform: "translateY(-4px)"
+                              }}
+                              title={`${label} (${formatDateIt(assign.startDate)} - ${formatDateIt(assign.endDate)})`}
+                            >
+                              <div className="flex items-center gap-1 min-w-0">
+                                {startsOutside && <span className="opacity-75">◀</span>}
+                                <span className="truncate">{label}</span>
+                              </div>
+                              {endsOutside && <span className="opacity-75">▶</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Modale Dettagli Assegnazione */}
+            {isDetailModalOpen && selectedAssignmentDetail && (
+              <Modal 
+                title="Dettagli Assegnazione Mezzo" 
+                onClose={() => {
+                  setIsDetailModalOpen(false);
+                  setSelectedAssignmentDetail(null);
+                }}
+              >
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] p-4 space-y-3">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Lavoratore</div>
+                      <div className="text-sm font-bold text-slate-800">
+                        {selectedAssignmentDetail.employee ? `${selectedAssignmentDetail.employee.cognome} ${selectedAssignmentDetail.employee.nome}` : "-"}
+                      </div>
+                      <div className="text-xs text-slate-500">Matricola: {selectedAssignmentDetail.employee?.matricola}</div>
+                    </div>
+
+                    <div className="border-t border-[var(--brand-line)] pt-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mezzo / Attrezzatura</div>
+                      <div className="text-sm font-bold text-slate-800">
+                        {selectedAssignmentDetail.asset ? assetLabel(selectedAssignmentDetail.asset) : "-"}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {selectedAssignmentDetail.asset ? `${selectedAssignmentDetail.asset.brand} ${selectedAssignmentDetail.asset.model}` : ""}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-[var(--brand-line)] pt-2 grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Data Inizio</div>
+                        <div className="text-sm font-bold text-slate-700">{formatDateIt(selectedAssignmentDetail.startDate)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Data Fine</div>
+                        <div className="text-sm font-bold text-slate-700">{formatDateIt(selectedAssignmentDetail.endDate)}</div>
+                      </div>
+                    </div>
+
+                    {selectedAssignmentDetail.note && (
+                      <div className="border-t border-[var(--brand-line)] pt-2">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Note</div>
+                        <div className="text-xs text-slate-600 bg-white p-2 rounded-lg border border-[var(--brand-line)] mt-1">{selectedAssignmentDetail.note}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    {!selectedAssignmentDetail.endDate && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm("Sei sicuro di voler terminare questa assegnazione oggi?")) return;
+                          setIsBusy(true);
+                          setError("");
+                          try {
+                            const today = new Date().toISOString().slice(0, 10);
+                            const res = await fetch("/api/mezzi_attrezzature/assignments", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                assignmentId: selectedAssignmentDetail.id,
+                                endDate: today
+                              })
+                            });
+                            const body = await res.json();
+                            if (!res.ok || body.error) throw new Error(body.error ?? "Errore chiusura assegnazione.");
+                            setIsDetailModalOpen(false);
+                            setSelectedAssignmentDetail(null);
+                            await loadAll();
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : "Errore chiusura assegnazione.");
+                          } finally {
+                            setIsBusy(false);
+                          }
+                        }}
+                        disabled={isBusy}
+                        className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-bold text-red-700 shadow-sm transition hover:bg-red-100 disabled:opacity-60"
+                      >
+                        Termina Assegnazione Oggi
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDetailModalOpen(false);
+                        setSelectedAssignmentDetail(null);
+                      }}
+                      className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 ml-auto"
+                    >
+                      Chiudi
+                    </button>
+                  </div>
+                </div>
+              </Modal>
+            )}
+          </div>
+        );
+      })() : null}
 
       {isAssetModalOpen ? (
         <Modal title="Nuovo asset" onClose={() => setIsAssetModalOpen(false)}>

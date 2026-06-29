@@ -1587,7 +1587,7 @@ export default function HomeFormazionePage() {
   }, [dashboardDetailByJob]);
 
   return (
-    <div className="space-y-4">
+    <div className="theme-formazione space-y-4 animate-tab-content">
       <ModuleHeader
         title="Formazione"
         description="Elenco lavoratori per corso e stato scadenza."
