@@ -177,13 +177,13 @@ export default function GuidaHomePage() {
   }
 
   function getAccentBg(key: string) {
-    if (key === "lavoratori") return "bg-blue-50 text-blue-700 border-blue-200";
-    if (key === "formazione") return "bg-indigo-50 text-indigo-700 border-indigo-200";
-    if (key === "sorveglianza") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    if (key === "dpi") return "bg-sky-50 text-sky-700 border-sky-200";
-    if (key === "mezzi_attrezzature") return "bg-amber-50 text-amber-700 border-amber-200";
-    if (key === "turni") return "bg-violet-50 text-violet-700 border-violet-200";
-    return "bg-slate-50 text-slate-700 border-slate-200";
+    if (key === "lavoratori") return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
+    if (key === "formazione") return "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20";
+    if (key === "sorveglianza") return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
+    if (key === "dpi") return "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20";
+    if (key === "mezzi_attrezzature") return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
+    if (key === "turni") return "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20";
+    return "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
   }
 
   function scrollToSection(id: string) {
@@ -201,7 +201,7 @@ export default function GuidaHomePage() {
           <span className="inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-blue-200 backdrop-blur-sm">
             Manuale d'Uso
           </span>
-          <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
+          <h1 className="text-3xl font-bold tracking-tight md:text-4xl !text-white">
             KONTROL &mdash; Guida Operativa
           </h1>
           <p className="text-sm leading-relaxed text-slate-300 md:text-base md:leading-8">
@@ -226,9 +226,9 @@ export default function GuidaHomePage() {
               <button
                 key={module.key}
                 onClick={() => scrollToSection(module.key)}
-                className="flex items-center gap-3 rounded-xl border border-[var(--brand-line)] bg-white p-3 text-left transition hover:border-[var(--brand-primary)] hover:shadow-sm group"
+                className="flex items-center gap-3 rounded-xl border border-[var(--brand-line)] bg-slate-50/50 dark:bg-slate-900/50 p-3 text-left transition hover:border-[var(--brand-primary)] hover:shadow-sm group"
               >
-                <div className={["flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border", getAccentBg(module.key)].join(" ")}>
+                <div className={["flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-current", getAccentBg(module.key)].join(" ")}>
                   {getIcon(module.key)}
                 </div>
                 <div className="min-w-0">
@@ -283,12 +283,12 @@ export default function GuidaHomePage() {
                 {/* Corpo Scheda (Due Colonne) */}
                 <div className="mt-5 grid gap-5 md:grid-cols-2">
                   {/* Cosa contiene */}
-                  <div className="rounded-xl border border-[var(--brand-line)] bg-white p-4">
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  <div className="rounded-xl border border-[var(--brand-line)] bg-slate-50/40 dark:bg-slate-900/40 p-4">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-350 uppercase tracking-wide">
                       <Layers className="h-4 w-4 text-slate-500" />
                       <span>Cosa contiene</span>
                     </div>
-                    <ul className="mt-3 space-y-2 text-xs leading-relaxed text-slate-600">
+                    <ul className="mt-3 space-y-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                       {section.cosaTrovi.map((item, idx) => (
                         <li key={idx} className="flex items-start gap-2.5">
                           <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
@@ -299,15 +299,15 @@ export default function GuidaHomePage() {
                   </div>
 
                   {/* Come funziona / Istruzioni */}
-                  <div className="rounded-xl border border-[var(--brand-line)] bg-white p-4">
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  <div className="rounded-xl border border-[var(--brand-line)] bg-slate-50/40 dark:bg-slate-900/40 p-4">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-350 uppercase tracking-wide">
                       <FileText className="h-4 w-4 text-slate-500" />
                       <span>Istruzioni rapide</span>
                     </div>
-                    <ol className="mt-3 space-y-3 text-xs leading-relaxed text-slate-600">
+                    <ol className="mt-3 space-y-3 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                       {section.istruzioniRapide.map((step, idx) => (
                         <li key={idx} className="flex items-start gap-2.5">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold text-[10px] text-slate-600 ring-1 ring-slate-200">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-600 dark:text-slate-400 ring-1 ring-slate-200 dark:ring-slate-750">
                             {idx + 1}
                           </span>
                           <span className="pt-0.5">{step}</span>
@@ -319,12 +319,12 @@ export default function GuidaHomePage() {
 
                 {/* Pagine Interne / Strumenti */}
                 {section.pagineInterne?.length ? (
-                  <div className="mt-4 rounded-xl border border-[var(--brand-line)] bg-white p-4">
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  <div className="mt-4 rounded-xl border border-[var(--brand-line)] bg-slate-50/40 dark:bg-slate-900/40 p-4">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-350 uppercase tracking-wide">
                       <FileSpreadsheet className="h-4 w-4 text-slate-500" />
                       <span>Sottosezioni e viste correlate</span>
                     </div>
-                    <ul className="mt-3 space-y-2 text-xs leading-relaxed text-slate-600">
+                    <ul className="mt-3 space-y-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                       {section.pagineInterne.map((item, idx) => (
                         <li key={idx} className="flex items-start gap-2">
                           <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
@@ -353,32 +353,32 @@ export default function GuidaHomePage() {
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-blue-200 bg-white p-4 transition hover:shadow-sm">
-            <span className="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+          <div className="rounded-xl border border-blue-200/50 bg-slate-50/40 dark:bg-slate-900/40 p-4 transition hover:shadow-sm">
+            <span className="inline-flex rounded-full bg-blue-100 dark:bg-blue-900/30 px-2.5 py-1 text-[10px] font-bold text-blue-700 dark:text-blue-400">
               ADMIN
             </span>
-            <h3 className="mt-2 text-sm font-semibold text-slate-800">Amministratore</h3>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">Amministratore</h3>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-405">
               Possiede l'accesso completo in lettura e scrittura a tutti i moduli del gestionale. Gestisce l'abilitazione degli utenti e visualizza i log diagnostici nella console di Gestione.
             </p>
           </div>
 
-          <div className="rounded-xl border border-emerald-200 bg-white p-4 transition hover:shadow-sm">
-            <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
+          <div className="rounded-xl border border-emerald-200/50 bg-slate-50/40 dark:bg-slate-900/40 p-4 transition hover:shadow-sm">
+            <span className="inline-flex rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
               VIEWER
             </span>
-            <h3 className="mt-2 text-sm font-semibold text-slate-800">Visualizzatore</h3>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">Visualizzatore</h3>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-405">
               Ruolo di sola lettura. Può navigare in tutti i moduli abilitati dall'amministratore, scaricare report ed esportare dati senza possibilità di effettuare modifiche.
             </p>
           </div>
 
-          <div className="rounded-xl border border-violet-200 bg-white p-4 transition hover:shadow-sm">
-            <span className="inline-flex rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-bold text-violet-700">
+          <div className="rounded-xl border border-violet-200/50 bg-slate-50/40 dark:bg-slate-900/40 p-4 transition hover:shadow-sm">
+            <span className="inline-flex rounded-full bg-violet-100 dark:bg-violet-900/30 px-2.5 py-1 text-[10px] font-bold text-violet-700 dark:text-violet-400">
               MANAGER
             </span>
-            <h3 className="mt-2 text-sm font-semibold text-slate-800">Manager Operativo</h3>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">Manager Operativo</h3>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-405">
               Dispone di permessi di lettura/scrittura ristretti al proprio perimetro operativo (cantieri, responsabili o lavoratori a lui specificamente assegnati in anagrafica).
             </p>
           </div>
@@ -386,24 +386,24 @@ export default function GuidaHomePage() {
       </section>
 
       {/* Note Pratiche */}
-      <section className="rounded-[24px] border border-[var(--brand-line)] bg-white p-6">
+      <section className="rounded-[24px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-6">
         <h2 className="text-base font-bold text-[var(--brand-ink)]">Note Pratiche e Risoluzione Problemi</h2>
-        <div className="mt-4 grid gap-4 text-xs text-slate-600 sm:grid-cols-2 md:grid-cols-3">
+        <div className="mt-4 grid gap-4 text-xs text-slate-650 sm:grid-cols-2 md:grid-cols-3">
           <div className="space-y-1">
-            <p className="font-semibold text-slate-800">Accesso Negato</p>
-            <p className="leading-relaxed text-slate-500">
+            <p className="font-semibold text-slate-800 dark:text-slate-200">Accesso Negato</p>
+            <p className="leading-relaxed text-slate-500 dark:text-slate-400">
               Se visualizzi questo avviso, significa che il tuo utente non ha i permessi di lettura per quel modulo. Contatta un amministratore per aggiornare il tuo profilo.
             </p>
           </div>
           <div className="space-y-1">
-            <p className="font-semibold text-slate-800">Filtro Perimetro</p>
-            <p className="leading-relaxed text-slate-500">
+            <p className="font-semibold text-slate-800 dark:text-slate-200">Filtro Perimetro</p>
+            <p className="leading-relaxed text-slate-500 dark:text-slate-400">
               Per i MANAGER, i dati mostrati dipendono esclusivamente dai cantieri associati. Non verranno visualizzate informazioni relative ad altre sedi lavorative.
             </p>
           </div>
           <div className="space-y-1">
-            <p className="font-semibold text-slate-800">Disallineamento Dati</p>
-            <p className="leading-relaxed text-slate-500">
+            <p className="font-semibold text-slate-800 dark:text-slate-200">Disallineamento Dati</p>
+            <p className="leading-relaxed text-slate-500 dark:text-slate-400">
               Tutti i dati dell'applicazione derivano dal file anagrafica centrale più recente. In caso di incongruenze, verifica la corretta importazione del tracciato Excel.
             </p>
           </div>

@@ -1724,7 +1724,7 @@ export default function HomeFormazionePage() {
                   </div>
 
                   <div className="mt-3">
-                    <KpiGrid className="grid-cols-2 sm:grid-cols-4 xl:grid-cols-9">
+                    <KpiGrid className="grid-cols-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9">
                       <KpiDonutChart
                         label="Conformità"
                         percentage={Math.max(0, Math.min(100, Math.round(100 - Number(criticoPct))))}
@@ -2139,12 +2139,12 @@ export default function HomeFormazionePage() {
                   </td>
                   <td className={`sticky left-[56px] z-20 px-4 py-2.5 ${stickyBg} ${textClass}`}>{row.matricola}</td>
                   <td className={`sticky left-[176px] z-20 max-w-[170px] truncate px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.cognome}>
-                    <button type="button" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left font-semibold text-[var(--brand-primary)]">
+                    <button type="button" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left font-semibold text-slate-800 dark:text-slate-200">
                       {row.cognome}
                     </button>
                   </td>
                   <td className={`sticky left-[346px] z-20 max-w-[170px] truncate border-r border-[var(--brand-line)] px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.nome}>
-                    <button type="button" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left font-semibold text-[var(--brand-primary)]">
+                    <button type="button" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left font-semibold text-slate-800 dark:text-slate-200">
                       {row.nome}
                     </button>
                   </td>

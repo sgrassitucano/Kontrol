@@ -707,7 +707,7 @@ export default function HomeSorveglianzaPage() {
         }
       >
         <DashboardCard className="border-0 p-3">
-          <KpiGrid className="sm:grid-cols-2 md:grid-cols-8">
+          <KpiGrid className="grid-cols-2 md:grid-cols-4 2xl:grid-cols-8">
             <KpiDonutChart
               label="Conformità"
               percentage={totalWorkers > 0 ? Math.max(0, Math.min(100, Math.round(100 - (criticoCount / totalWorkers) * 100))) : 100}
@@ -969,13 +969,13 @@ export default function HomeSorveglianzaPage() {
                       onChange={() => toggleWorkerSelection(row.workerId)}
                     />
                   </td>
-                  <td className="w-[14%] px-4 py-2.5">
-                    <button type="button" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline font-semibold text-[var(--brand-primary)] text-left">
+                  <td className="w-1/12 px-4 py-2.5">
+                    <button type="button" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline font-semibold text-slate-800 dark:text-slate-200 text-left">
                       {row.cognome}
                     </button>
                   </td>
-                  <td className="w-[12%] px-4 py-2.5">
-                    <button type="button" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline font-semibold text-[var(--brand-primary)] text-left">
+                  <td className="w-1/12 px-4 py-2.5">
+                    <button type="button" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline font-semibold text-slate-800 dark:text-slate-200 text-left">
                       {row.nome}
                     </button>
                   </td>
