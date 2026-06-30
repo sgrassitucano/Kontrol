@@ -1,3 +1,5 @@
+"use client";
+
 import { ReactNode, useState, useEffect, useRef } from "react";
 import { 
   X, Calendar, BookOpen, AlertTriangle, Eye, ShieldAlert, Award, FileText, 
