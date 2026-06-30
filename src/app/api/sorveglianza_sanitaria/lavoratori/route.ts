@@ -472,7 +472,7 @@ export async function GET(request: Request) {
 }
 
 async function fetchAllEmployees(supabase: SupabaseClient) {
-  const pageSize = 5000;
+  const pageSize = 1000;
   let from = 0;
   let hasMore = true;
   const allRows: EmployeeRow[] = [];

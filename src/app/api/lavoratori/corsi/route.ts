@@ -865,7 +865,7 @@ function buildStatusByEmployeeMap(rows: CourseStatusRow[]) {
 }
 
 async function fetchAllRules(supabase: SupabaseClient) {
-  const pageSize = 10000;
+  const pageSize = 1000;
   let from = 0;
   let hasMore = true;
   const allRows: MatrixRule[] = [];
@@ -907,7 +907,7 @@ async function fetchCourseRowsByEmployeeIds(supabase: SupabaseClient, employeeId
   if (ids.length === 0) return [] as CourseStatusRow[];
   const all: CourseStatusRow[] = [];
   for (const chunk of chunkArray(ids, 500)) {
-    const pageSize = 10000;
+    const pageSize = 1000;
     let from = 0;
     let hasMore = true;
     while (hasMore) {
@@ -954,7 +954,7 @@ async function fetchFreezesByEmployeeIds(supabase: SupabaseClient, employeeIds: 
 }
 
 async function fetchAllRuleLinks(supabase: SupabaseClient) {
-  const pageSize = 10000;
+  const pageSize = 1000;
   let from = 0;
   let hasMore = true;
   const allRows: RuleLinkRow[] = [];
@@ -985,7 +985,7 @@ async function fetchAllRuleLinks(supabase: SupabaseClient) {
 async function fetchAllEmployees(
   supabase: SupabaseClient,
 ) {
-  const pageSize = 5000;
+  const pageSize = 1000;
   let from = 0;
   let hasMore = true;
   const allRows: EmployeeRow[] = [];
