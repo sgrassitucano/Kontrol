@@ -172,8 +172,13 @@ export default function GestioneImportPage() {
     setLastRun(body?.run ?? null);
   }
 
-  async function runImport(mode: "preview" | "commit") {
-    if (!selectedFile) return;
+  const [driveFileId, setDriveFileId] = useState("");
+  const [importSource, setImportSource] = useState<"upload" | "drive">("upload");
+
+  async function runImport(mode: "preview" | "commit", customSource?: "upload" | "drive") {
+    const activeSource = customSource ?? importSource;
+    if (activeSource === "upload" && !selectedFile) return;
+    if (activeSource === "drive" && !driveFileId.trim()) return;
 
     runTokenRef.current += 1;
     const token = runTokenRef.current;
@@ -202,24 +207,45 @@ export default function GestioneImportPage() {
     }, 350);
 
     try {
-      const formData = new FormData();
-      formData.append("mode", mode);
-      formData.append("file", selectedFile);
-      if (mode === "commit") {
-        formData.append("confirmHighDismissals", confirmHighDismissals ? "1" : "0");
-        formData.append("confirmCriticalDismissals", confirmCriticalDismissals ? "1" : "0");
-        formData.append("overrideBlockedDismissals", overrideBlockedDismissals ? "1" : "0");
-        formData.append("confirmDismissalPhrase", confirmDismissalPhrase);
-      }
-
+      let response: Response;
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 180000);
 
-      const response = await fetch("/api/gestione/import", {
-        method: "POST",
-        body: formData,
-        signal: controller.signal,
-      });
+      if (activeSource === "upload") {
+        const formData = new FormData();
+        formData.append("mode", mode);
+        formData.append("file", selectedFile!);
+        if (mode === "commit") {
+          formData.append("confirmHighDismissals", confirmHighDismissals ? "1" : "0");
+          formData.append("confirmCriticalDismissals", confirmCriticalDismissals ? "1" : "0");
+          formData.append("overrideBlockedDismissals", overrideBlockedDismissals ? "1" : "0");
+          formData.append("confirmDismissalPhrase", confirmDismissalPhrase);
+        }
+
+        response = await fetch("/api/gestione/import", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
+      } else {
+        const payload = {
+          mode,
+          fileId: driveFileId.trim(),
+          confirmHighDismissals,
+          confirmCriticalDismissals,
+          overrideBlockedDismissals,
+          confirmDismissalPhrase,
+        };
+
+        response = await fetch("/api/gestione/import-drive", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      }
 
       const payload = await readJsonSafely<ImportResponse | { error: string }>(response);
       if (!response.ok || !payload || "error" in payload) {
@@ -295,35 +321,95 @@ export default function GestioneImportPage() {
       </ModuleHeader>
 
       <PanelCard>
-        <h2 className="text-base font-semibold text-[var(--brand-ink)]">Caricamento file</h2>
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-          <input
-            type="file"
-            accept=".csv,.xls,.xlsx"
-            onChange={(event) => {
-              const nextFile = event.target.files?.[0] ?? null;
-              setSelectedFile(nextFile);
-              setResult(null);
-              setServerError("");
-              setConfirmHighDismissals(false);
-              setConfirmCriticalDismissals(false);
-              setOverrideBlockedDismissals(false);
-              setConfirmDismissalPhrase("");
-            }}
-            className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
-          />
+        <div className="flex items-center gap-4 border-b border-[var(--brand-line)] pb-3">
           <button
             type="button"
-            disabled={!selectedFile || isLoading}
+            onClick={() => {
+              setImportSource("upload");
+              setResult(null);
+              setServerError("");
+            }}
+            className={`text-sm font-bold pb-2 border-b-2 transition ${
+              importSource === "upload"
+                ? "border-[var(--brand-primary)] text-[var(--brand-ink)]"
+                : "border-transparent text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            Carica File Locale
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setImportSource("drive");
+              setResult(null);
+              setServerError("");
+            }}
+            className={`text-sm font-bold pb-2 border-b-2 transition ${
+              importSource === "drive"
+                ? "border-[var(--brand-primary)] text-[var(--brand-ink)]"
+                : "border-transparent text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            Importa da Google Drive
+          </button>
+        </div>
+
+        <h2 className="text-base font-semibold text-[var(--brand-ink)] mt-4">
+          {importSource === "upload" ? "Caricamento file locale" : "Importazione automatica Google Drive"}
+        </h2>
+
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+          {importSource === "upload" ? (
+            <input
+              type="file"
+              accept=".csv,.xls,.xlsx"
+              onChange={(event) => {
+                const nextFile = event.target.files?.[0] ?? null;
+                setSelectedFile(nextFile);
+                setResult(null);
+                setServerError("");
+                setConfirmHighDismissals(false);
+                setConfirmCriticalDismissals(false);
+                setOverrideBlockedDismissals(false);
+                setConfirmDismissalPhrase("");
+              }}
+              className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-600"
+            />
+          ) : (
+            <input
+              type="text"
+              placeholder="Inserisci l'ID del file Google Drive"
+              value={driveFileId}
+              onChange={(e) => {
+                setDriveFileId(e.target.value);
+                setResult(null);
+                setServerError("");
+                setConfirmHighDismissals(false);
+                setConfirmCriticalDismissals(false);
+                setOverrideBlockedDismissals(false);
+                setConfirmDismissalPhrase("");
+              }}
+              className="block w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm text-slate-700 placeholder-slate-400 dark:bg-slate-900/50"
+            />
+          )}
+
+          <button
+            type="button"
+            disabled={
+              (importSource === "upload" && !selectedFile) ||
+              (importSource === "drive" && !driveFileId.trim()) ||
+              isLoading
+            }
             onClick={() => runImport("preview")}
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 shrink-0"
           >
             {isLoading ? "Elaborazione..." : "Anteprima"}
           </button>
           <button
             type="button"
             disabled={
-              !selectedFile ||
+              ((importSource === "upload" && !selectedFile) ||
+                (importSource === "drive" && !driveFileId.trim())) ||
               isLoading ||
               !result ||
               result.mode !== "preview" ||
@@ -353,14 +439,17 @@ export default function GestioneImportPage() {
                     : "Esegui commit import."
             }
             onClick={() => runImport("commit")}
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 shrink-0"
           >
             Conferma import
           </button>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          File selezionato: {selectedFile?.name || "nessuno"}
+          {importSource === "upload"
+            ? `File selezionato: ${selectedFile?.name || "nessuno"}`
+            : `File ID Google Drive: ${driveFileId || "nessuno"}`}
         </p>
+
         {result && isHighDismissals ? (
           <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
             {dismissalGuardrail?.reasons?.length ? (
