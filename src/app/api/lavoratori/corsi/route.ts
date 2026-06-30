@@ -183,7 +183,7 @@ export async function GET(request: Request) {
     const todayIso =
       typeof dateParam === "string" && normalizeDateOnlyIso(dateParam) ? normalizeDateOnlyIso(dateParam)! : todayLocalIso();
 
-    const rowsCacheKey = `training_rows_v1:${auth.userId}:${panel}:${includeExcluded ? 1 : 0}:${String(
+    const rowsCacheKey = `training_rows_v2:${auth.userId}:${panel}:${includeExcluded ? 1 : 0}:${String(
       typeof employeeId === "number" && Number.isFinite(employeeId) ? employeeId : "all",
     )}:${query || "-"}:${todayIso}:${expiringDaysSafe}`;
     const rowsCached = cacheGet<{

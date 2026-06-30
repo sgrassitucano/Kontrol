@@ -232,7 +232,7 @@ export async function GET(request: Request) {
     const thresholdIsoDate = thresholdDate.toISOString().slice(0, 10);
 
     const shouldUseCache = employeeIdsFilter.length === 0;
-    const rowsCacheKey = `surveillance_rows_v1:${auth.userId}:${includeExcluded ? 1 : 0}:${extendedSearch ? 1 : 0}:${query || "-"}:${todayIsoDate}:${expiringDaysSafe}`;
+    const rowsCacheKey = `surveillance_rows_v2:${auth.userId}:${includeExcluded ? 1 : 0}:${extendedSearch ? 1 : 0}:${query || "-"}:${todayIsoDate}:${expiringDaysSafe}`;
     if (shouldUseCache) {
       const rowsCached = cacheGet<{
         rows: WorkerSurveillanceRow[];
