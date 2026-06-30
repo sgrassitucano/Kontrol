@@ -461,6 +461,7 @@ export default function HomeFormazionePage() {
         params.set("date", dateOverride ?? simulationDate);
         params.set("expiringDays", String(expiringDays));
         params.set("panel", "formazione");
+        params.set("limit", "5000");
         params.set("offset", String(offset));
         if (deferredSearch.trim()) params.set("q", deferredSearch.trim());
         if (showExcludedEmployees) params.set("includeExcluded", "1");
@@ -2139,12 +2140,12 @@ export default function HomeFormazionePage() {
                   </td>
                   <td className={`sticky left-[56px] z-20 px-4 py-2.5 ${stickyBg} ${textClass}`}>{row.matricola}</td>
                   <td className={`sticky left-[176px] z-20 max-w-[170px] truncate px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.cognome}>
-                    <button type="button" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left font-semibold text-slate-800 dark:text-slate-200">
+                    <button type="button" data-unstyled="true" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left text-slate-800 dark:text-slate-200">
                       {row.cognome}
                     </button>
                   </td>
                   <td className={`sticky left-[346px] z-20 max-w-[170px] truncate border-r border-[var(--brand-line)] px-4 py-2.5 ${stickyBg} ${textClass}`} title={row.nome}>
-                    <button type="button" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left font-semibold text-slate-800 dark:text-slate-200">
+                    <button type="button" data-unstyled="true" onClick={() => void openWorkerDetail(row)} className="hover:underline text-left text-slate-800 dark:text-slate-200">
                       {row.nome}
                     </button>
                   </td>

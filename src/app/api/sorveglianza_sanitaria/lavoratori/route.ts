@@ -30,7 +30,7 @@ function parseLimitParam(value: string | null, fallback = 500) {
   if (!value) return fallback;
   const n = Math.trunc(Number(value));
   if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(n, 2000);
+  return Math.min(n, 5000);
 }
 
 function parseOffsetParam(value: string | null) {

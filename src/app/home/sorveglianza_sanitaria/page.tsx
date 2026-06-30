@@ -970,12 +970,12 @@ export default function HomeSorveglianzaPage() {
                     />
                   </td>
                   <td className="w-1/12 px-4 py-2.5">
-                    <button type="button" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline font-semibold text-slate-800 dark:text-slate-200 text-left">
+                    <button type="button" data-unstyled="true" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline text-slate-800 dark:text-slate-200 text-left">
                       {row.cognome}
                     </button>
                   </td>
                   <td className="w-1/12 px-4 py-2.5">
-                    <button type="button" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline font-semibold text-slate-800 dark:text-slate-200 text-left">
+                    <button type="button" data-unstyled="true" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline text-slate-800 dark:text-slate-200 text-left">
                       {row.nome}
                     </button>
                   </td>
