@@ -271,6 +271,57 @@ button[data-chip="true"]:hover:not(:disabled) {
   filter: none !important;
 }
 
+/* ── Dark mode overrides for soft/tone buttons ───────────── */
+.dark :is(button, a)[data-soft="true"] {
+  background: #1f2937 !important;
+  border-color: #374151 !important;
+}
+.dark :is(button, a)[data-soft="true"]:hover:not(:disabled) {
+  background: #374151 !important;
+}
+.dark :is(button, a)[data-soft="true"][data-tone="danger"],
+.dark :is(button, a)[data-tone="danger"],
+.dark .module-actions :is(button, a)[data-tone="danger"] {
+  color: #fca5a5 !important;
+  border-color: #7f1d1d !important;
+  background: #1c0a0a !important;
+}
+.dark :is(button, a)[data-soft="true"][data-tone="warning"],
+.dark :is(button, a)[data-tone="warning"],
+.dark .module-actions :is(button, a)[data-tone="warning"] {
+  color: #fcd34d !important;
+  border-color: #78350f !important;
+  background: #1c1208 !important;
+}
+.dark :is(button, a)[data-soft="true"][data-tone="info"],
+.dark :is(button, a)[data-tone="info"],
+.dark .module-actions :is(button, a)[data-tone="info"] {
+  color: #7dd3fc !important;
+  border-color: #075985 !important;
+  background: #082032 !important;
+}
+.dark :is(button, a)[data-soft="true"][data-tone="success"],
+.dark :is(button, a)[data-tone="success"],
+.dark .module-actions :is(button, a)[data-tone="success"] {
+  color: #6ee7b7 !important;
+  border-color: #065f46 !important;
+  background: #021c12 !important;
+}
+.dark :is(button, a)[data-soft="true"][data-tone="purple"],
+.dark :is(button, a)[data-tone="purple"],
+.dark .module-actions :is(button, a)[data-tone="purple"] {
+  color: #c4b5fd !important;
+  border-color: #5b21b6 !important;
+  background: #1a0a3c !important;
+}
+.dark :is(button, a)[data-soft="true"][data-tone="muted"],
+.dark :is(button, a)[data-tone="muted"],
+.dark .module-actions :is(button, a)[data-tone="muted"] {
+  color: #94a3b8 !important;
+  border-color: var(--brand-line) !important;
+  background: #1f2937 !important;
+}
+
 .bg-\[var\(--brand-primary\)\] {
   color: #ffffff !important;
   font-weight: 700 !important;

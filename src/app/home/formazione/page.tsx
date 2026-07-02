@@ -2409,20 +2409,20 @@ export default function HomeFormazionePage() {
                                   {item.label}
                                 </span>
                               </td>
-                              <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">{item.total}</td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-200">{item.total}</td>
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="scaduto" count={item.base.counts.scaduto} pct={item.base.percentages.scaduto} />
                               </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="da_fare" count={item.base.counts["da fare"]} pct={item.base.percentages["da fare"]} />
                               </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="in_scadenza" count={item.base.counts["in scadenza"]} pct={item.base.percentages["in scadenza"]} />
                               </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="programmato" count={item.base.counts.programmato} pct={item.base.percentages.programmato} />
                               </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="upgrade" count={item.base.counts.upgrade} pct={item.base.percentages.upgrade} />
                               </td>
                             </tr>
@@ -2512,20 +2512,20 @@ export default function HomeFormazionePage() {
                                   {item.label}
                                 </span>
                               </td>
-                              <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">{item.total}</td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-200">{item.total}</td>
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="scaduto" count={item.operativi.counts.scaduto} pct={item.operativi.percentages.scaduto} />
                               </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="da_fare" count={item.operativi.counts["da fare"]} pct={item.operativi.percentages["da fare"]} />
                               </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="in_scadenza" count={item.operativi.counts["in scadenza"]} pct={item.operativi.percentages["in scadenza"]} />
                               </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="programmato" count={item.operativi.counts.programmato} pct={item.operativi.percentages.programmato} />
                               </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-slate-800">
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
                                 <StateCell tone="upgrade" count={item.operativi.counts.upgrade} pct={item.operativi.percentages.upgrade} />
                               </td>
                             </tr>

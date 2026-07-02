@@ -252,7 +252,7 @@ export function EventModal(props: {
               {filteredEventWorkers.map((worker) => (
                 <label
                   key={`search-${worker.workerId}`}
-                  className="flex cursor-pointer items-start gap-2 border-b border-[var(--brand-line)] px-3 py-2 text-left text-xs transition last:border-b-0 hover:bg-white"
+                  className="flex cursor-pointer items-start gap-2 border-b border-[var(--brand-line)] px-3 py-2 text-left text-xs transition last:border-b-0 hover:bg-[var(--brand-panel-2)]"
                 >
                   <input
                     type="checkbox"
@@ -262,7 +262,7 @@ export function EventModal(props: {
                     className="mt-0.5"
                   />
                   <span className="min-w-0">
-                    <span className="block truncate font-semibold text-slate-800">{worker.fullName}</span>
+                    <span className="block truncate font-semibold text-slate-800 dark:text-slate-200">{worker.fullName}</span>
                     <span className="block truncate text-[11px] text-slate-500">
                       {worker.matricola} - {worker.cantiere} / {worker.sottocantiere}
                     </span>
@@ -279,13 +279,13 @@ export function EventModal(props: {
               <p className="text-xs text-slate-600">
                 <span className="font-semibold text-[var(--brand-ink)]">{selectedEventWorkers.length}</span> selezionati.
               </p>
-              <div className="mt-2 max-h-44 overflow-auto rounded-lg border border-[var(--brand-line)] bg-white">
+              <div className="mt-2 max-h-44 overflow-auto rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)]">
                 {selectedEventWorkers.slice(0, 60).map((worker) => (
                   <div
                     key={`sel-${worker.workerId}`}
                     className="border-b border-[var(--brand-line)] px-3 py-2 text-xs last:border-b-0"
                   >
-                    <div className="font-semibold text-slate-800">{worker.fullName}</div>
+                    <div className="font-semibold text-slate-800 dark:text-slate-200">{worker.fullName}</div>
                     <div className="text-[11px] text-slate-500">
                       {worker.matricola} - {worker.cantiere} / {worker.sottocantiere}
                     </div>
