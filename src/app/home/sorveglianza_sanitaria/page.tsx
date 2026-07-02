@@ -1295,12 +1295,13 @@ export default function HomeSorveglianzaPage() {
                   <div className="space-y-3">
                     <div className="space-y-2 rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-950 p-4 shadow-sm">
                       <p className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Pianificazione</p>
-                      <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 font-medium cursor-pointer">
+                      <label className="flex items-center gap-2 text-xs text-slate-600 font-medium cursor-pointer">
                         <input
                           type="checkbox"
                           checked={detailPlanned}
                           onChange={(event) => setDetailPlanned(event.target.checked)}
-                          className="rounded text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
+                          disabled={workerDetailLoading}
+                          className="rounded text-[var(--brand-primary)] focus:ring-[var(--brand-primary)] disabled:opacity-50"
                         />
                         Segna come programmato
                       </label>
@@ -1311,8 +1312,9 @@ export default function HomeSorveglianzaPage() {
                       <input
                         value={detailProvider}
                         onChange={(event) => setDetailProvider(event.target.value)}
+                        disabled={workerDetailLoading}
                         placeholder="Es. Morelli Fabri / Moriste / …"
-                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 px-3 py-2 text-xs"
+                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs disabled:opacity-50"
                       />
                       <p className="text-[10px] text-slate-400">
                         Usato in tabella/export quando la matrice risulta “MISTO” o vuota.
@@ -1324,7 +1326,8 @@ export default function HomeSorveglianzaPage() {
                       <select
                         value={detailOverrideMode}
                         onChange={(event) => setDetailOverrideMode(event.target.value as "default" | "SI" | "NO")}
-                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 px-3 py-2 text-xs"
+                        disabled={workerDetailLoading}
+                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs disabled:opacity-50"
                       >
                         <option value="default">Default (matrice)</option>
                         <option value="SI">Visita SI</option>
@@ -1333,8 +1336,9 @@ export default function HomeSorveglianzaPage() {
                       <input
                         value={detailOverrideNote}
                         onChange={(event) => setDetailOverrideNote(event.target.value)}
+                        disabled={workerDetailLoading}
                         placeholder="Nota override (opzionale)"
-                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 px-3 py-2 text-xs"
+                        className="w-full rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs disabled:opacity-50"
                       />
                     </div>
 
@@ -1346,7 +1350,8 @@ export default function HomeSorveglianzaPage() {
                             type="checkbox"
                             checked={detailExcluded}
                             onChange={(event) => setDetailExcluded(event.target.checked)}
-                            className="rounded text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
+                            disabled={workerDetailLoading}
+                            className="rounded text-[var(--brand-primary)] focus:ring-[var(--brand-primary)] disabled:opacity-50"
                           />
                           Escludi
                         </label>
@@ -1355,8 +1360,8 @@ export default function HomeSorveglianzaPage() {
                         value={detailExclusionNote}
                         onChange={(event) => setDetailExclusionNote(event.target.value)}
                         placeholder="Motivazione esclusione (opzionale)"
-                        className="min-h-[84px] w-full resize-none rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-900 px-3 py-2 text-xs"
-                        disabled={!detailExcluded}
+                        className="min-h-[84px] w-full resize-none rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs disabled:opacity-50"
+                        disabled={workerDetailLoading || !detailExcluded}
                       />
                     </div>
                   </div>

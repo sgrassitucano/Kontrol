@@ -222,21 +222,24 @@ export function SurveillanceEventModal(props: {
                       <button
                         key={w.workerId}
                         type="button"
+                        data-unstyled="true"
                         onClick={() => toggleWorkerSelection(w.workerId)}
                         className={[
-                          "flex w-full items-center justify-between rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-left text-sm",
-                          checked ? "ring-2 ring-[var(--brand-primary)]" : "",
+                          "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition",
+                          checked
+                            ? "border-[var(--brand-primary)] bg-[var(--brand-tint)] text-[var(--brand-ink)]"
+                            : "border-[var(--brand-line)] bg-white text-[var(--brand-ink)] hover:bg-[var(--brand-panel-2)]",
                         ].join(" ")}
                       >
                         <div className="min-w-0">
-                          <p className="truncate font-semibold text-[var(--brand-ink)]">
+                          <p className="truncate font-semibold">
                             {w.matricola} · {w.fullName}
                           </p>
                           <p className="truncate text-xs text-slate-500">
                             {w.cantiere} {w.sottocantiere ? `· ${w.sottocantiere}` : ""}
                           </p>
                         </div>
-                        <input type="checkbox" readOnly checked={checked} />
+                        <input type="checkbox" readOnly checked={checked} className="pointer-events-none" />
                       </button>
                     );
                   })}

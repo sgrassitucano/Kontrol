@@ -2282,32 +2282,28 @@ export default function HomeFormazionePage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  data-unstyled="true"
                   onClick={() => setShowOnlyProblemJobsInDetail((v) => !v)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+                  className={[
+                    "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition",
+                    showOnlyProblemJobsInDetail
+                      ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
+                      : "border-[var(--brand-line)] bg-white text-slate-600 hover:bg-[var(--brand-panel-2)]",
+                  ].join(" ")}
                 >
-                  <span
-                    className={[
-                      "inline-flex h-4 w-4 items-center justify-center rounded border border-[var(--brand-line)]",
-                      showOnlyProblemJobsInDetail ? "bg-[var(--brand-primary)] text-white" : "bg-white text-white",
-                    ].join(" ")}
-                  >
-                    ✓
-                  </span>
                   Solo problematiche
                 </button>
                 <button
                   type="button"
+                  data-unstyled="true"
                   onClick={() => setShowEmptyJobsInDetail((v) => !v)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+                  className={[
+                    "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition",
+                    showEmptyJobsInDetail
+                      ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
+                      : "border-[var(--brand-line)] bg-white text-slate-600 hover:bg-[var(--brand-panel-2)]",
+                  ].join(" ")}
                 >
-                  <span
-                    className={[
-                      "inline-flex h-4 w-4 items-center justify-center rounded border border-[var(--brand-line)]",
-                      showEmptyJobsInDetail ? "bg-[var(--brand-primary)] text-white" : "bg-white text-white",
-                    ].join(" ")}
-                  >
-                    ✓
-                  </span>
                   Mostra mansioni vuote
                 </button>
                 <button

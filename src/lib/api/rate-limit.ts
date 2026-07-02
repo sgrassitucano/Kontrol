@@ -73,4 +73,3 @@ export class InMemoryRateLimiter {
 export const trainingImportLimiter = new InMemoryRateLimiter(5, 60 * 60 * 1000); // 5 imports per hour
 export const medicalImportLimiter = new InMemoryRateLimiter(5, 60 * 60 * 1000); // 5 imports per hour
 export const shiftGenerateLimiter = new InMemoryRateLimiter(15, 60 * 1000);     // 15 generazioni al minuto
-export const copilotLimiter = new InMemoryRateLimiter(20, 60 * 1000);           // 20 messaggi al minuto per utente

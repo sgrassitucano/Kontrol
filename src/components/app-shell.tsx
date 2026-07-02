@@ -14,13 +14,9 @@ import {
   Shield,
   Truck,
   Users,
-  Sparkles,
-  Sun,
-  Moon,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { moduleDefinitions, type AppModuleKey } from "@/lib/modules";
-import { CopilotSidebar } from "@/components/copilot-sidebar";
 
 function isActive(pathname: string, href: string) {
   if (href === "/home") {
@@ -76,34 +72,11 @@ export function AppShell({ children }: AppShellProps) {
   const sidebarCollapsed = sidebarOverride ?? isTableFocusRoute;
   const [modulesByKey, setModulesByKey] = useState<Record<string, { canRead: boolean; canWrite: boolean }> | null>(null);
   const [profile, setProfile] = useState<MeResponse["profile"] | null>(null);
-  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      if (savedTheme === "dark") {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
-    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      setTheme("dark");
-      document.documentElement.classList.add("dark");
-    }
+    // Force light mode — remove any previously saved dark preference
+    localStorage.removeItem("theme");
+    document.documentElement.classList.remove("dark");
   }, []);
-
-  const toggleTheme = () => {
-    const nextTheme = theme === "light" ? "dark" : "light";
-    setTheme(nextTheme);
-    localStorage.setItem("theme", nextTheme);
-    if (nextTheme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  };
 
   useEffect(() => {
     if (isLoginPage) return;
@@ -283,39 +256,6 @@ export function AppShell({ children }: AppShellProps) {
                 ) : null}
                 <button
                   type="button"
-                  onClick={toggleTheme}
-                  className={[
-                    "inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-800 text-[var(--brand-ink)] shadow-sm transition hover:bg-slate-50 dark:hover:bg-slate-700",
-                    sidebarCollapsed ? "px-2 py-1.5" : "px-3 py-1.5"
-                  ].join(" ")}
-                  title={theme === "light" ? "Attiva Dark Mode" : "Attiva Light Mode"}
-                >
-                  {theme === "light" ? (
-                    <>
-                      <Moon className="h-5 w-5 text-slate-700 dark:text-slate-300 shrink-0" />
-                      {!sidebarCollapsed ? <span className="text-xs font-bold">Tema Scuro</span> : null}
-                    </>
-                  ) : (
-                    <>
-                      <Sun className="h-5 w-5 text-amber-500 shrink-0 animate-spin" style={{ animationDuration: '6s' }} />
-                      {!sidebarCollapsed ? <span className="text-xs font-bold">Tema Chiaro</span> : null}
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsCopilotOpen(true)}
-                  className={[
-                    "inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-800 text-[var(--brand-ink)] shadow-sm transition hover:bg-slate-50 dark:hover:bg-slate-700",
-                    sidebarCollapsed ? "px-2 py-1.5" : "px-3 py-1.5"
-                  ].join(" ")}
-                  title="Apri Assistente AI"
-                >
-                  <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400 animate-pulse shrink-0" />
-                  {!sidebarCollapsed ? <span className="text-xs font-bold">KONTROL Copilot</span> : null}
-                </button>
-                <button
-                  type="button"
                   onClick={logout}
                   className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-3 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
                 >
@@ -333,7 +273,6 @@ export function AppShell({ children }: AppShellProps) {
           </main>
         </div>
       </div>
-      <CopilotSidebar isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} />
     </div>
   );
 }
