@@ -8,21 +8,20 @@ export type AuthenticatedUserContext = {
   userId: string;
 };
 
+export type RouteContext = { params: Promise<Record<string, string>> };
+
 export type AuthenticatedRouteHandler = (
   request: Request,
-  context: any,
+  context: RouteContext,
   userContext: AuthenticatedUserContext
 ) => Promise<Response> | Response;
 
-/**
- * Middleware wrapper that validates the user session and checks access permissions for a specific module.
- */
 export function withModuleAccess(
   module: AppModuleKey,
   requireWrite: boolean,
   handler: AuthenticatedRouteHandler
 ) {
-  return async (request: Request, context: any) => {
+  return async (request: Request, context: RouteContext) => {
     const auth = await requireModuleAccess(module, requireWrite);
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -31,15 +30,12 @@ export function withModuleAccess(
   };
 }
 
-/**
- * Middleware wrapper that validates the user session and checks access permissions for any of the specified modules.
- */
 export function withAnyModuleAccess(
   modules: AppModuleKey[],
   requireWrite: boolean,
   handler: AuthenticatedRouteHandler
 ) {
-  return async (request: Request, context: any) => {
+  return async (request: Request, context: RouteContext) => {
     const auth = await requireAnyModuleAccess(modules, requireWrite);
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });

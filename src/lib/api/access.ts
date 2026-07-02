@@ -49,11 +49,16 @@ export async function requireAnyModuleAccess(modules: AppModuleKey[], requireWri
   const base = await requireUser();
   if (!base.ok) return base;
 
-  for (const moduleKey of modules) {
-    const { data, error } = await base.supabase.rpc("has_module_access", {
-      target_module: moduleKey,
-      require_write: requireWrite,
-    });
+  const results = await Promise.all(
+    modules.map((moduleKey) =>
+      base.supabase.rpc("has_module_access", {
+        target_module: moduleKey,
+        require_write: requireWrite,
+      }),
+    ),
+  );
+
+  for (const { data, error } of results) {
     if (error) return { ok: false as const, status: 500, error: error.message };
     if (data) return base;
   }
