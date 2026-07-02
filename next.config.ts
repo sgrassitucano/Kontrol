@@ -9,6 +9,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@napi-rs/canvas"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
