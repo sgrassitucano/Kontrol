@@ -84,7 +84,7 @@ export async function POST(request: Request) {
           .eq("id", importRunId);
         if (error) importRunUpdateError = error.message;
       }
-      cacheDeleteByPrefix("surveillance_rows_v1:");
+      cacheDeleteByPrefix("surveillance_rows_v2:");
       if (importRunUpdateError) {
         return NextResponse.json({
           ...result,

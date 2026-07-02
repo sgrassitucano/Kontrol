@@ -100,11 +100,12 @@ export async function DELETE(request: Request) {
 
   try {
     const url = new URL(request.url);
-    const id = url.searchParams.get("id");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) return NextResponse.json({ error: "Parametro id mancante." }, { status: 400 });
     const { error } = await auth.supabase
       .from("training_plan_drafts")
       .delete()
-      .eq(id ? "id" : "created_by", id ? id : auth.userId); // basic delete logic
+      .eq("id", id);
     if (error) throw new Error(error.message);
     return NextResponse.json({ success: true });
   } catch (error) {

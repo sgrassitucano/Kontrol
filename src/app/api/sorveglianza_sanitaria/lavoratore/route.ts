@@ -324,7 +324,7 @@ export async function PATCH(request: Request) {
       throw new Error((firstError as { error?: { message: string } }).error?.message);
     }
 
-    cacheDeleteByPrefix("surveillance_rows_v1:");
+    cacheDeleteByPrefix("surveillance_rows_v2:");
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

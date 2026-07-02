@@ -315,6 +315,7 @@ export async function PATCH(request: Request) {
         .eq("id", userId)
         .single();
       if (profileError) throw new Error(profileError.message);
+      if (!profile) throw new Error("Profilo utente non trovato.");
       const effectiveRole = (profile as { role: UserRole }).role;
 
       if (effectiveRole !== "manager") {

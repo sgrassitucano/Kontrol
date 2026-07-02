@@ -676,7 +676,7 @@ export async function POST(request: Request) {
         summary,
         status: "completed",
       });
-      cacheDeleteByPrefix("surveillance_rows_v1:");
+      cacheDeleteByPrefix("surveillance_rows_v2:");
 
       const response: PdfImportResponse = {
         mode,
@@ -929,7 +929,7 @@ export async function POST(request: Request) {
         summary,
         status: "completed",
       });
-      cacheDeleteByPrefix("surveillance_rows_v1:");
+      cacheDeleteByPrefix("surveillance_rows_v2:");
     }
 
     const response: PdfImportResponse = {

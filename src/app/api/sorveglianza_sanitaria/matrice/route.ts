@@ -151,7 +151,7 @@ export const PATCH = withModuleAccess("gestione", true, async (request, context,
     if (error) throw new Error(error.message);
 
     cacheDelete("medical_matrix_v1");
-    cacheDeleteByPrefix("surveillance_rows_v1:");
+    cacheDeleteByPrefix("surveillance_rows_v2:");
 
     return NextResponse.json({ ok: true });
   } catch (error) {

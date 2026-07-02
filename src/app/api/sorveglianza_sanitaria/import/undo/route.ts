@@ -30,7 +30,7 @@ export async function POST() {
       | { deletedRows?: number; restoredRows?: number; skippedRows?: number }
       | null;
 
-    cacheDeleteByPrefix("surveillance_rows_v1:");
+    cacheDeleteByPrefix("surveillance_rows_v2:");
     return NextResponse.json({
       ok: true,
       importRunId: run.id,

@@ -165,7 +165,7 @@ export async function POST(request: Request) {
     const firstError = results.find((r) => r.error)?.error ?? null;
     if (firstError) return NextResponse.json({ error: firstError }, { status: 500 });
 
-    cacheDeleteByPrefix("surveillance_rows_v1:");
+    cacheDeleteByPrefix("surveillance_rows_v2:");
     return NextResponse.json({
       ok: true,
       employees: employeeIds.length,
