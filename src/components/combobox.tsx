@@ -119,6 +119,7 @@ export function Combobox(props: {
                   <button
                     key={opt.id}
                     type="button"
+                    data-unstyled="true"
                     onMouseEnter={() => setActiveIndex(idx)}
                     onMouseDown={(ev) => ev.preventDefault()}
                     onClick={() => choose(opt)}

@@ -2557,6 +2557,7 @@ export default function HomeFormazionePage() {
               </div>
               <button
                 type="button"
+                data-unstyled="true"
                 onClick={() => {
                   setIsWorkerDetailOpen(false);
                   setWorkerDetailEmployeeId(null);
@@ -2575,6 +2576,7 @@ export default function HomeFormazionePage() {
               <div className="flex gap-2">
                 <button
                   type="button"
+                  data-unstyled="true"
                   onClick={() => setWorkerDetailTab("formazione")}
                   className={[
                     "rounded-full px-4 py-1.5 text-xs font-semibold transition",
@@ -2587,6 +2589,7 @@ export default function HomeFormazionePage() {
                 </button>
                 <button
                   type="button"
+                  data-unstyled="true"
                   onClick={() => setWorkerDetailTab("esclusioni")}
                   className={[
                     "rounded-full px-4 py-1.5 text-xs font-semibold transition",
@@ -2656,6 +2659,7 @@ export default function HomeFormazionePage() {
                             <div className="flex flex-wrap items-center justify-end gap-1.5 mt-2 pt-2 border-t border-[var(--brand-line)]">
                               <button
                                 type="button"
+                                data-unstyled="true"
                                 disabled={employeeExclusion.isActive || !courseId}
                                 onClick={() => {
                                   if (!courseId) return;
@@ -2679,6 +2683,7 @@ export default function HomeFormazionePage() {
                               </button>
                               <button
                                 type="button"
+                                data-unstyled="true"
                                 disabled={employeeExclusion.isActive || !courseId}
                                 onClick={() => courseId && void requestCourseExclusionToggle(courseId)}
                                 className={[
@@ -2695,6 +2700,7 @@ export default function HomeFormazionePage() {
                               {isExcluded && courseId ? (
                                 <button
                                   type="button"
+                                  data-unstyled="true"
                                   disabled={employeeExclusion.isActive}
                                   onClick={() => void deleteExcludedCourse(courseId)}
                                   className={[
@@ -2801,6 +2807,7 @@ export default function HomeFormazionePage() {
                           <button
                             key={item.label}
                             type="button"
+                            data-unstyled="true"
                             disabled={disabled}
                             onClick={() => {
                               if (!id) return;
@@ -2935,6 +2942,7 @@ export default function HomeFormazionePage() {
                 <div className="mt-4 flex justify-end gap-2">
                   <button
                     type="button"
+                    data-unstyled="true"
                     onClick={() => setIsExclusionNoteModalOpen(false)}
                     className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
                   >
@@ -3013,6 +3021,7 @@ export default function HomeFormazionePage() {
                   <div>
                     <button
                       type="button"
+                      data-unstyled="true"
                       disabled={importLoading || importUndoLoading || isDownloadingImportReport}
                       onClick={() => void downloadFrom(`/api/import-runs/errors?importRunId=${encodeURIComponent(importLastRun.id)}`)}
                       className="rounded-lg border border-[var(--brand-line)] bg-white px-3 py-1.5 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -3267,6 +3276,7 @@ export default function HomeFormazionePage() {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
+                data-unstyled="true"
                 onClick={() => {
                   setIsImportModalOpen(false);
                   resetImportForm();

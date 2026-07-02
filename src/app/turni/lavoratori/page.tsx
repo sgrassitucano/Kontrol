@@ -1045,6 +1045,7 @@ export default function TurniLavoratoriPage() {
               </button>
               <button
                 type="button"
+                data-unstyled="true"
                 onClick={() => {
                   setAbsenceForm({ absenceType: "malattia", note: "" });
                   setIsAbsenceModalOpen(true);
@@ -1057,6 +1058,7 @@ export default function TurniLavoratoriPage() {
               {shiftForm.shiftId ? (
                 <button
                   type="button"
+                  data-unstyled="true"
                   onClick={deleteShift}
                   disabled={isBusy}
                   className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1067,6 +1069,7 @@ export default function TurniLavoratoriPage() {
             </div>
             <button
               type="button"
+              data-unstyled="true"
               onClick={() => setIsShiftModalOpen(false)}
               className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
             >
@@ -1118,6 +1121,7 @@ export default function TurniLavoratoriPage() {
             </button>
             <button
               type="button"
+              data-unstyled="true"
               onClick={() => setIsAbsenceModalOpen(false)}
               className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
             >

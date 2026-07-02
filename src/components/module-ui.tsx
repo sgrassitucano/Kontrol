@@ -453,8 +453,9 @@ export function DetailDrawer(props: {
               <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Matricola: {data?.worker.matricola ?? "..."}</p>
             </div>
           </div>
-          <button 
-            type="button" 
+          <button
+            type="button"
+            data-unstyled="true"
             onClick={props.onClose}
             className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
           >
@@ -466,6 +467,7 @@ export function DetailDrawer(props: {
           {(["generale", "corsi", "visite", "dpi"] as const).map((tab) => (
             <button
               key={tab}
+              data-unstyled="true"
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-3 text-xs font-semibold border-b-2 transition-all capitalize ${
                 activeTab === tab
@@ -702,6 +704,7 @@ export function ActionMenu(props: {
     <div className="relative inline-block text-left shrink-0" ref={menuRef}>
       <button
         type="button"
+        data-unstyled="true"
         onClick={() => setOpen(!open)}
         className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
       >
@@ -714,6 +717,7 @@ export function ActionMenu(props: {
             <button
               key={idx}
               type="button"
+              data-unstyled="true"
               onClick={() => {
                 act.onClick();
                 setOpen(false);

@@ -225,6 +225,7 @@ export default function GuidaHomePage() {
             return (
               <button
                 key={module.key}
+                data-unstyled="true"
                 onClick={() => scrollToSection(module.key)}
                 className="flex items-center gap-3 rounded-xl border border-[var(--brand-line)] bg-slate-50/50 dark:bg-slate-900/50 p-3 text-left transition hover:border-[var(--brand-primary)] hover:shadow-sm group"
               >

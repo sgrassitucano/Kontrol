@@ -234,6 +234,7 @@ export default function SorveglianzaImportPage() {
               <div>
                 <button
                   type="button"
+                  data-unstyled="true"
                   disabled={isLoading || isUndoing || isDownloadingReport}
                   onClick={() => void downloadFrom(`/api/import-runs/errors?importRunId=${encodeURIComponent(lastRun.id)}`)}
                   className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -263,6 +264,7 @@ export default function SorveglianzaImportPage() {
           </Link>
           <button
             type="button"
+            data-unstyled="true"
             disabled={isLoading || isUndoing}
             onClick={() => void undoLastImport()}
             className="inline-flex items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"

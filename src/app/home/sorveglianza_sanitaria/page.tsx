@@ -1079,6 +1079,7 @@ export default function HomeSorveglianzaPage() {
                     <button
                       key={opt.key}
                       type="button"
+                      data-unstyled="true"
                       onClick={() => setDashboardGroupBy(opt.key)}
                       className={[
                         "rounded-full px-4 py-2 text-sm font-semibold transition",
@@ -1254,6 +1255,7 @@ export default function HomeSorveglianzaPage() {
               </div>
               <button
                 type="button"
+                data-unstyled="true"
                 onClick={closeWorkerDetail}
                 className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                 title="Chiudi"
@@ -1376,6 +1378,7 @@ export default function HomeSorveglianzaPage() {
             <div className="flex items-center justify-end gap-2 border-t border-[var(--brand-line)] bg-slate-50 dark:bg-slate-900/30 px-4 py-3 shrink-0">
               <button
                 type="button"
+                data-unstyled="true"
                 onClick={closeWorkerDetail}
                 className="rounded-xl border border-[var(--brand-line)] bg-white dark:bg-slate-800 dark:text-slate-200 px-4 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
               >

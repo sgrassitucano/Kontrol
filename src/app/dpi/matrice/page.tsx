@@ -303,6 +303,7 @@ export default function DpiMatricePage() {
                       <div className="flex items-start justify-between gap-2">
                         <button
                           type="button"
+                          data-unstyled="true"
                           onClick={() => openEdit(dpi)}
                           className="min-w-0 text-left font-semibold text-slate-900 hover:underline"
                           title="Modifica DPI"

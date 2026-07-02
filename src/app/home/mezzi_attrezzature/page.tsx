@@ -1178,6 +1178,7 @@ export default function HomeMezziPage() {
                             setIsBusy(false);
                           }
                         }}
+                        data-unstyled="true"
                         disabled={isBusy}
                         className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-bold text-red-700 shadow-sm transition hover:bg-red-100 disabled:opacity-60"
                       >
@@ -1186,6 +1187,7 @@ export default function HomeMezziPage() {
                     )}
                     <button
                       type="button"
+                      data-unstyled="true"
                       onClick={() => {
                         setIsDetailModalOpen(false);
                         setSelectedAssignmentDetail(null);
@@ -1438,6 +1440,7 @@ export default function HomeMezziPage() {
           <div className="mt-5 flex items-center justify-end gap-2">
             <button
               type="button"
+              data-unstyled="true"
               onClick={() => setIsAssetModalOpen(false)}
               className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
               disabled={isBusy}
@@ -1505,6 +1508,7 @@ export default function HomeMezziPage() {
           <div className="mt-5 flex items-center justify-end gap-2">
             <button
               type="button"
+              data-unstyled="true"
               onClick={() => setIsAssignModalOpen(false)}
               className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--brand-line)] bg-white px-4 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
               disabled={isBusy}

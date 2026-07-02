@@ -368,6 +368,7 @@ export function SurveillanceEventModal(props: {
         <div className="flex items-center justify-end gap-2 border-t border-[var(--brand-line)] bg-[var(--brand-panel)] px-5 py-4">
           <button
             type="button"
+            data-unstyled="true"
             onClick={onClose}
             className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-[var(--brand-ink)]"
           >

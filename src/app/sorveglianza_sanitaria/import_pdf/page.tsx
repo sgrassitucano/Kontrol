@@ -584,6 +584,7 @@ export default function SorveglianzaPdfImportPage() {
               <div>
                 <button
                   type="button"
+                  data-unstyled="true"
                   disabled={isLoading || isDownloadingReport}
                   onClick={() => void downloadFrom(`/api/import-runs/errors?importRunId=${encodeURIComponent(lastRun.id)}`)}
                   className="rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -668,6 +669,7 @@ export default function SorveglianzaPdfImportPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  data-unstyled="true"
                   disabled={!rows.length || isLoading}
                   onClick={() => {
                     setRows((prev) =>
@@ -683,6 +685,7 @@ export default function SorveglianzaPdfImportPage() {
                 </button>
                 <button
                   type="button"
+                  data-unstyled="true"
                   disabled={!rows.length || isLoading}
                   onClick={() => {
                     setRows((prev) => prev.map((r) => ({ ...r, applyRow: r.status === "dubbio" && Boolean(r.employeeId) })));
@@ -693,6 +696,7 @@ export default function SorveglianzaPdfImportPage() {
                 </button>
                 <button
                   type="button"
+                  data-unstyled="true"
                   disabled={!rows.length || isLoading}
                   onClick={() => {
                     setRows((prev) => prev.map((r) => ({ ...r, applyRow: false })));
