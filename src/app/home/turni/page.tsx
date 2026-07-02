@@ -33,6 +33,15 @@ function nowMonth() {
   return `${y}-${m}`;
 }
 
+function nextMonth(value: string) {
+  const match = String(value ?? "").match(/^(\d{4})-(\d{2})$/);
+  if (!match) return value;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = new Date(y, m, 1); // month is 0-based -> this is the following month
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function parseYearMonth(value: string) {
   const match = String(value ?? "").match(/^(\d{4})-(\d{2})$/);
   if (!match) return null;
@@ -108,6 +117,10 @@ export default function HomeTurniPage() {
 
   const [actionError, setActionError] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
+
+  const [copyToMonth, setCopyToMonth] = useState(() => nextMonth(nowMonth()));
+  const [isCopying, setIsCopying] = useState(false);
+  const [copyMessage, setCopyMessage] = useState("");
 
   const loadOptions = useCallback(async () => {
     setIsOptionsLoading(true);
@@ -271,6 +284,81 @@ export default function HomeTurniPage() {
       setIsDownloading(false);
     }
   }, [canExport, exportQueryString, imageMode, month, monthParsed, weekStart]);
+
+  const downloadPdf = useCallback(async () => {
+    setActionError("");
+    if (!monthParsed) {
+      setActionError("Mese non valido.");
+      return;
+    }
+    if (!canExport) {
+      setActionError("Seleziona almeno un lavoratore o un filtro (cantiere/sottocantiere/responsabile/referente).");
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      const params = new URLSearchParams(exportQueryString);
+      params.set("mode", imageMode);
+      if (imageMode === "week") params.set("weekStart", weekStart);
+      else params.set("month", month);
+      await downloadFrom(`/api/turni/pdf?${params.toString()}`);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Errore export PDF.");
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [canExport, exportQueryString, imageMode, month, monthParsed, weekStart]);
+
+  const copyMonth = useCallback(async () => {
+    setActionError("");
+    setCopyMessage("");
+    if (!monthParsed) {
+      setActionError("Mese di origine non valido.");
+      return;
+    }
+    const toParsed = parseYearMonth(copyToMonth);
+    if (!toParsed) {
+      setActionError("Mese di destinazione non valido.");
+      return;
+    }
+    if (month === copyToMonth) {
+      setActionError("Origine e destinazione coincidono.");
+      return;
+    }
+    setIsCopying(true);
+    try {
+      const response = await fetch("/api/turni/copy-month", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromMonth: month,
+          toMonth: copyToMonth,
+          siteIds: selectedSiteIds.length > 0 ? selectedSiteIds : undefined,
+          employeeIds: selectedEmployeeIds.length > 0 ? selectedEmployeeIds : undefined,
+        }),
+      });
+      const body = (await response.json()) as {
+        created?: number;
+        conflicts?: number;
+        skippedInvalidDay?: number;
+        skippedInactive?: number;
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error ?? "Errore copia mese.");
+      const parts = [
+        `Creati: ${body.created ?? 0}`,
+        body.conflicts ? `conflitti: ${body.conflicts}` : null,
+        body.skippedInactive ? `saltati (non attivi): ${body.skippedInactive}` : null,
+        body.skippedInvalidDay ? `saltati (giorno assente): ${body.skippedInvalidDay}` : null,
+      ].filter(Boolean);
+      setCopyMessage(parts.join(" · "));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Errore copia mese.");
+    } finally {
+      setIsCopying(false);
+    }
+  }, [copyToMonth, month, monthParsed, selectedEmployeeIds, selectedSiteIds]);
 
   return (
     <div className="space-y-4">
@@ -517,6 +605,14 @@ export default function HomeTurniPage() {
                 >
                   Esporta JPG
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadPdf()}
+                  className="rounded-xl px-4 py-2 text-sm transition disabled:opacity-60"
+                  disabled={isDownloading}
+                >
+                  Esporta PDF
+                </button>
               </div>
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -557,6 +653,51 @@ export default function HomeTurniPage() {
             </div>
             {actionError ? <p className="mt-3 text-xs font-medium text-red-600">{actionError}</p> : null}
           </div>
+        </div>
+      </DashboardCard>
+
+      <DashboardCard>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-base font-bold text-[var(--brand-ink)]">Copia mese</h2>
+        </div>
+        <div className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel-2)] p-3">
+          <p className="text-xs text-slate-600">
+            Duplica i turni di un mese sul mese successivo, mantenendo giorno del mese e orario. Salta i lavoratori non in
+            forza e i turni già presenti. I filtri Cantiere e Lavoratori qui sopra restringono la copia. Le pause non
+            vengono copiate.
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto]">
+            <div>
+              <label className="text-xs font-bold text-[var(--brand-ink)]">Da (origine)</label>
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex items-end justify-center pb-2 text-slate-400">→</div>
+            <div>
+              <label className="text-xs font-bold text-[var(--brand-ink)]">A (destinazione)</label>
+              <input
+                type="month"
+                value={copyToMonth}
+                onChange={(e) => setCopyToMonth(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => void copyMonth()}
+                className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
+                disabled={isCopying}
+              >
+                {isCopying ? "Copia in corso…" : "Copia turni"}
+              </button>
+            </div>
+          </div>
+          {copyMessage ? <p className="mt-3 text-xs font-medium text-emerald-700">{copyMessage}</p> : null}
         </div>
       </DashboardCard>
     </div>
