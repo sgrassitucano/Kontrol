@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import sharp from "sharp";
 import { PDFDocument } from "pdf-lib";
 import { requireModuleAccess } from "@/lib/api/access";
-import { buildShiftSvgs } from "@/lib/turni/shift-images";
+import { buildShiftImages } from "@/lib/turni/shift-images";
 
 export const runtime = "nodejs";
 
@@ -15,7 +14,7 @@ export async function GET(request: Request) {
 
   try {
     const url = new URL(request.url);
-    const result = await buildShiftSvgs(auth.supabase, url);
+    const result = await buildShiftImages(auth.supabase, url);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
     if (result.items.length === 0) {
       return NextResponse.json({ error: "Nessun turno trovato per la selezione." }, { status: 400 });
@@ -26,8 +25,7 @@ export async function GET(request: Request) {
     const maxH = A4.h - MARGIN * 2;
 
     for (const item of result.items) {
-      const pngBuffer = await sharp(Buffer.from(item.svg)).png({ compressionLevel: 9 }).toBuffer();
-      const png = await doc.embedPng(pngBuffer);
+      const png = await doc.embedPng(item.png);
       const scale = Math.min(maxW / png.width, maxH / png.height, 1);
       const w = png.width * scale;
       const h = png.height * scale;

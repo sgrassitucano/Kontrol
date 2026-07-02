@@ -1232,6 +1232,38 @@ export default function TurniCantierePage() {
                   Annulla
                 </button>
               </div>
+
+              <details className="rounded-xl border border-[var(--brand-line)] bg-slate-50">
+                <summary className="cursor-pointer px-4 py-2.5 text-xs font-semibold text-slate-700">
+                  ℹ️ Come funziona l&apos;AI Scheduler (leggi prima di usarlo)
+                </summary>
+                <div className="space-y-2 border-t border-[var(--brand-line)] px-4 py-3 text-xs text-slate-600">
+                  <p>
+                    Genera automaticamente i turni per <strong>tutti i giorni del mese selezionato</strong>, sul
+                    cantiere/sottocantiere corrente, usando le fasce orarie del template attivo del cantiere.
+                  </p>
+                  <p className="font-semibold text-slate-700">Chi viene escluso automaticamente:</p>
+                  <ul className="list-disc space-y-1 pl-4">
+                    <li>Lavoratori non in forza attiva (dimessi/sospesi).</li>
+                    <li>Idoneità medica scaduta (visita sanitaria oltre la data di scadenza).</li>
+                    <li>Formazione obbligatoria scaduta, persa o mai completata su un corso assegnato.</li>
+                    <li>Assenze registrate (ferie/malattia) che coprono l&apos;orario del turno.</li>
+                    <li>Turni già esistenti sullo stesso lavoratore che si sovrappongono in orario.</li>
+                  </ul>
+                  <p className="font-semibold text-slate-700">Come sceglie chi assegnare:</p>
+                  <p>
+                    Per ogni fascia oraria scoperta, tra i lavoratori disponibili e conformi sceglie quello con{" "}
+                    <strong>meno turni già assegnati in questa esecuzione</strong> (bilanciamento del carico). Se
+                    nessun lavoratore è disponibile, la fascia resta scoperta ed è segnalata nel risultato.
+                  </p>
+                  <p>
+                    I turni creati hanno stato <strong>pianificato</strong> (non annullano né sovrascrivono turni
+                    esistenti) e nota &quot;Pianificato da AI Scheduler&quot;. Non tocca mesi bloccati (lock mensile).
+                    Rilancia lo strumento più volte se vuoi correggere fasce scoperte dopo aver risolto assenze o
+                    conformità.
+                  </p>
+                </div>
+              </details>
             </div>
           )}
 

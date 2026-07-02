@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import JSZip from "jszip";
 import sharp from "sharp";
 import { requireModuleAccess } from "@/lib/api/access";
-import { buildShiftSvgs } from "@/lib/turni/shift-images";
+import { buildShiftImages } from "@/lib/turni/shift-images";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const format = (url.searchParams.get("format") ?? "jpg").toLowerCase();
 
-    const result = await buildShiftSvgs(auth.supabase, url);
+    const result = await buildShiftImages(auth.supabase, url);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 
     const zip = new JSZip();
@@ -22,10 +22,7 @@ export async function GET(request: Request) {
 
     for (const item of result.items) {
       const fileName = `${item.baseName}.${format === "png" ? "png" : "jpg"}`;
-      const image =
-        format === "png"
-          ? await sharp(Buffer.from(item.svg)).png({ compressionLevel: 9 }).toBuffer()
-          : await sharp(Buffer.from(item.svg)).jpeg({ quality: 90 }).toBuffer();
+      const image = format === "png" ? item.png : await sharp(item.png).jpeg({ quality: 90 }).toBuffer();
       zip.file(fileName, image);
       count += 1;
     }

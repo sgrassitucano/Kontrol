@@ -1,6 +1,25 @@
+import path from "path";
+import { createCanvas, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+/**
+ * Serverless runtimes (Vercel/AWS Lambda) ship with no system fonts, so
+ * SVG-based text rendering via sharp/librsvg silently produces blank/illegible
+ * text there even though it looks fine on a dev machine with fonts installed.
+ * @napi-rs/canvas embeds its own font rasterizer and works identically with
+ * or without system fonts as long as we register a font file explicitly.
+ */
+const FONT_FAMILY = "TurniSans";
+const FONT_FAMILY_BOLD = "TurniSansBold";
+let fontsRegistered = false;
+function ensureFontsRegistered() {
+  if (fontsRegistered) return;
+  GlobalFonts.registerFromPath(path.join(process.cwd(), "public/fonts/LiberationSans-Regular.ttf"), FONT_FAMILY);
+  GlobalFonts.registerFromPath(path.join(process.cwd(), "public/fonts/LiberationSans-Bold.ttf"), FONT_FAMILY_BOLD);
+  fontsRegistered = true;
+}
 
 type ShiftState = "planned" | "actual" | "cancelled";
 type ShiftSource = "template" | "manual" | "import";
@@ -20,20 +39,11 @@ type ShiftRow = {
   sub_sites: unknown;
 };
 
-export type ShiftSvgItem = { baseName: string; svg: string };
+export type ShiftImageItem = { baseName: string; png: Buffer };
 
-export type BuildShiftSvgsResult =
-  | { ok: true; items: ShiftSvgItem[]; mode: "week" | "month"; labelRange: string }
+export type BuildShiftImagesResult =
+  | { ok: true; items: ShiftImageItem[]; mode: "week" | "month"; labelRange: string }
   | { ok: false; status: number; error: string };
-
-function escapeXml(value: string) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&apos;");
-}
 
 function parseIsoDateOnly(value: string) {
   const match = String(value ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -205,14 +215,32 @@ function buildMonthGrid(monthIso: string) {
   return { monthStart, cells };
 }
 
-function buildWorkerWeekSvg(args: {
+function drawText(
+  ctx: SKRSContext2D,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  bold: boolean,
+  color: string,
+  align: "left" | "right" = "left",
+) {
+  ctx.font = `${size}px ${bold ? FONT_FAMILY_BOLD : FONT_FAMILY}`;
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(text, x, y);
+}
+
+function buildWorkerWeekImage(args: {
   weekStart: string;
   worker: { matricola: string; cognome: string; nome: string };
   rowsByDay: Array<{
     dayIso: string;
     lines: Array<{ text: string; badgeText: string; badgeColor: string; cancelled: boolean }>;
   }>;
-}) {
+}): Buffer {
+  ensureFontsRegistered();
   const width = 1080;
   const paddingX = 48;
   const titleFont = 44;
@@ -229,28 +257,34 @@ function buildWorkerWeekSvg(args: {
   });
   const height = baseHeight + contentLines * lineH + 80;
 
-  let y = 56;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
 
+  let y = 56;
   const title = "Turni settimanali";
   const sub = `${args.worker.cognome} ${args.worker.nome} (${args.worker.matricola})`;
   const range = `${isoToItDate(args.weekStart)} — ${isoToItDate(addDaysIso(args.weekStart, 6))}`;
 
-  let svg = "";
-  svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
-  svg += `<rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>`;
-  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${titleFont}" font-weight="700" fill="#0f172a">${escapeXml(title)}</text>`;
+  drawText(ctx, title, paddingX, y, titleFont, true, "#0f172a");
   y += 50;
-  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${headerFont}" font-weight="600" fill="#0f172a">${escapeXml(sub)}</text>`;
+  drawText(ctx, sub, paddingX, y, headerFont, false, "#0f172a");
   y += 36;
-  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${smallFont}" fill="#475569">Settimana: ${escapeXml(range)}</text>`;
+  drawText(ctx, `Settimana: ${range}`, paddingX, y, smallFont, false, "#475569");
   y += 34;
 
-  svg += `<line x1="${paddingX}" x2="${width - paddingX}" y1="${y}" y2="${y}" stroke="#e2e8f0" stroke-width="2"/>`;
+  ctx.strokeStyle = "#e2e8f0";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(paddingX, y);
+  ctx.lineTo(width - paddingX, y);
+  ctx.stroke();
   y += 30;
 
   args.rowsByDay.forEach((dayBlock, idx) => {
     const dayTitle = `${weekdayLabelMon0(idx)} ${isoToItDate(dayBlock.dayIso)}`;
-    svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${rowFont}" font-weight="700" fill="#1e293b">${escapeXml(dayTitle)}</text>`;
+    drawText(ctx, dayTitle, paddingX, y, rowFont, true, "#1e293b");
     y += lineH;
 
     const lines =
@@ -258,24 +292,37 @@ function buildWorkerWeekSvg(args: {
         ? dayBlock.lines
         : [{ text: "—", badgeText: "", badgeColor: "#94a3b8", cancelled: false }];
     lines.forEach((line) => {
-      const deco = line.cancelled ? ' text-decoration="line-through"' : "";
-      svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${rowFont}" fill="#0f172a"${deco}>${escapeXml(line.text)}</text>`;
-      svg += `<text x="${width - paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${smallFont}" font-weight="700" fill="${escapeXml(line.badgeColor)}" text-anchor="end">${escapeXml(line.badgeText)}</text>`;
+      drawText(ctx, line.text, paddingX, y, rowFont, false, "#0f172a");
+      if (line.cancelled) {
+        const textWidth = ctx.measureText(line.text).width;
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(paddingX, y - rowFont * 0.32);
+        ctx.lineTo(paddingX + textWidth, y - rowFont * 0.32);
+        ctx.stroke();
+      }
+      drawText(ctx, line.badgeText, width - paddingX, y, smallFont, true, line.badgeColor, "right");
       y += lineH;
     });
 
-    svg += `<line x1="${paddingX}" x2="${width - paddingX}" y1="${y - 18}" y2="${y - 18}" stroke="#f1f5f9" stroke-width="2"/>`;
+    ctx.strokeStyle = "#f1f5f9";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(paddingX, y - 18);
+    ctx.lineTo(width - paddingX, y - 18);
+    ctx.stroke();
   });
 
-  svg += `</svg>`;
-  return svg;
+  return canvas.toBuffer("image/png");
 }
 
-function buildWorkerMonthSvg(args: {
+function buildWorkerMonthImage(args: {
   month: string;
   worker: { matricola: string; cognome: string; nome: string };
   cells: Array<{ iso: string; inMonth: boolean; tone: "none" | "template" | "manual" | "cancelled"; lines: string[] }>;
-}) {
+}): Buffer {
+  ensureFontsRegistered();
   const width = 1400;
   const paddingX = 40;
   const titleFont = 44;
@@ -296,23 +343,24 @@ function buildWorkerMonthSvg(args: {
     return "#ffffff";
   };
 
-  let svg = "";
-  svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
-  svg += `<rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>`;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
 
   let y = 56;
-  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${titleFont}" font-weight="700" fill="#0f172a">${escapeXml("Turni mensili")}</text>`;
+  drawText(ctx, "Turni mensili", paddingX, y, titleFont, true, "#0f172a");
   y += 50;
-  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${headerFont}" font-weight="600" fill="#0f172a">${escapeXml(`${args.worker.cognome} ${args.worker.nome} (${args.worker.matricola})`)}</text>`;
+  drawText(ctx, `${args.worker.cognome} ${args.worker.nome} (${args.worker.matricola})`, paddingX, y, headerFont, false, "#0f172a");
   y += 34;
-  svg += `<text x="${paddingX}" y="${y}" font-family="Arial, sans-serif" font-size="${smallFont}" fill="#475569">Mese: ${escapeXml(args.month)}</text>`;
+  drawText(ctx, `Mese: ${args.month}`, paddingX, y, smallFont, false, "#475569");
   y += 28;
 
   const gridTop = y + 12;
   const weekLabels = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
   weekLabels.forEach((label, i) => {
     const x = paddingX + i * cellW;
-    svg += `<text x="${x + 8}" y="${gridTop - 10}" font-family="Arial, sans-serif" font-size="${smallFont}" font-weight="700" fill="#334155">${escapeXml(label)}</text>`;
+    drawText(ctx, label, x + 8, gridTop - 10, smallFont, true, "#334155");
   });
 
   for (let idx = 0; idx < 42; idx += 1) {
@@ -323,35 +371,37 @@ function buildWorkerMonthSvg(args: {
     const x = paddingX + col * cellW;
     const y0 = gridTop + row * cellH;
 
-    const bg = cell.inMonth ? toneBg(cell.tone) : "#f8fafc";
-    svg += `<rect x="${x}" y="${y0}" width="${cellW}" height="${cellH}" fill="${bg}" stroke="#e2e8f0" stroke-width="2"/>`;
+    ctx.fillStyle = cell.inMonth ? toneBg(cell.tone) : "#f8fafc";
+    ctx.fillRect(x, y0, cellW, cellH);
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y0, cellW, cellH);
 
     const dayNum = cell.iso.slice(8, 10);
-    svg += `<text x="${x + 8}" y="${y0 + 26}" font-family="Arial, sans-serif" font-size="${cellFont}" font-weight="700" fill="${cell.inMonth ? "#0f172a" : "#94a3b8"}">${escapeXml(dayNum)}</text>`;
+    drawText(ctx, dayNum, x + 8, y0 + 26, cellFont, true, cell.inMonth ? "#0f172a" : "#94a3b8");
 
     const maxLines = 3;
     const lines = cell.lines.slice(0, maxLines);
     lines.forEach((t, i) => {
-      svg += `<text x="${x + 8}" y="${y0 + 54 + i * 26}" font-family="Arial, sans-serif" font-size="${smallFont}" fill="#0f172a">${escapeXml(t)}</text>`;
+      drawText(ctx, t, x + 8, y0 + 54 + i * 26, smallFont, false, "#0f172a");
     });
     if (cell.lines.length > maxLines) {
-      svg += `<text x="${x + 8}" y="${y0 + 54 + maxLines * 26}" font-family="Arial, sans-serif" font-size="${smallFont}" fill="#475569">${escapeXml(`+${cell.lines.length - maxLines} turni`)}</text>`;
+      drawText(ctx, `+${cell.lines.length - maxLines} turni`, x + 8, y0 + 54 + maxLines * 26, smallFont, false, "#475569");
     }
   }
 
-  svg += `</svg>`;
-  return svg;
+  return canvas.toBuffer("image/png");
 }
 
 /**
- * Shared data → SVG pipeline for turni worker calendars.
+ * Shared data → PNG pipeline for turni worker calendars.
  * Used by both the JPG/PNG export (worker-images) and the PDF export routes
  * so the two never drift.
  */
-export async function buildShiftSvgs(
+export async function buildShiftImages(
   supabase: SupabaseServerClient,
   url: URL,
-): Promise<BuildShiftSvgsResult> {
+): Promise<BuildShiftImagesResult> {
   const mode = (url.searchParams.get("mode") ?? "week").toLowerCase();
   const weekStartParam = url.searchParams.get("weekStart");
   const monthParam = url.searchParams.get("month");
@@ -478,11 +528,11 @@ export async function buildShiftSvgs(
     return { ok: false, status: 400, error: `Troppi lavoratori per export (${byEmployee.size}). Restringi i filtri.` };
   }
 
-  const items: ShiftSvgItem[] = [];
+  const items: ShiftImageItem[] = [];
 
   for (const [, list] of byEmployee.entries()) {
     const employeeMeta = extractEmployeeMeta(list[0]?.employees);
-    let svg = "";
+    let png: Buffer;
     let baseName = "";
 
     if (mode === "week") {
@@ -515,7 +565,7 @@ export async function buildShiftSvgs(
         return { dayIso, lines };
       });
 
-      svg = buildWorkerWeekSvg({ weekStart: weekStartIso, worker: employeeMeta, rowsByDay });
+      png = buildWorkerWeekImage({ weekStart: weekStartIso, worker: employeeMeta, rowsByDay });
 
       baseName = [
         "TURNI_WEEK",
@@ -552,7 +602,7 @@ export async function buildShiftSvgs(
         });
         return { iso: c.iso, inMonth: c.inMonth, tone, lines };
       });
-      svg = buildWorkerMonthSvg({ month: monthLabel, worker: employeeMeta, cells });
+      png = buildWorkerMonthImage({ month: monthLabel, worker: employeeMeta, cells });
 
       baseName = [
         "TURNI_MONTH",
@@ -563,7 +613,7 @@ export async function buildShiftSvgs(
       ].join("_");
     }
 
-    items.push({ baseName, svg });
+    items.push({ baseName, png });
   }
 
   return { ok: true, items, mode, labelRange };

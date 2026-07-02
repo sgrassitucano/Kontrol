@@ -2,7 +2,24 @@ import { NextResponse } from "next/server";
 import { withModuleAccess } from "@/lib/api/with-module-access";
 import { AppError } from "@/lib/api/error-handler";
 import { shiftGenerateLimiter } from "@/lib/api/rate-limit";
+import { resolveCourseState, todayLocalIso, type CourseRow, type CourseStatusRow } from "@/lib/training/engine";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+const TRAINING_EXPIRING_DAYS = 30;
+
+function normalizeIsoDate(value: unknown) {
+  const match = String(value ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
+function computeMedicalState(args: { todayIso: string; requiresVisit: boolean; nextDueDate: string | null }) {
+  const { todayIso, requiresVisit, nextDueDate } = args;
+  if (!requiresVisit) return "idoneo" as const;
+  const dueIso = nextDueDate ? normalizeIsoDate(nextDueDate) : null;
+  if (!dueIso) return "da fare" as const;
+  if (dueIso < todayIso) return "scaduto" as const;
+  return "idoneo" as const;
+}
 
 export const runtime = "nodejs";
 
@@ -158,31 +175,43 @@ export const POST = withModuleAccess("turni", true, async (request, context, { s
     }
 
     // 3. Caricamento dati anagrafici e conformità di sicurezza dei lavoratori
-    const [employeesRes, trainingRes, medicalRes, absencesRes, existingShiftsRes] = await Promise.all([
-      supabase.from("employees").select("id, cognome, nome, status").in("id", employeeIds),
-      supabase.from("training_employee_courses").select("employee_id, course_id, stato").in("employee_id", employeeIds),
-      supabase.from("medical_surveillance_records").select("employee_id, stato").in("employee_id", employeeIds),
+    const [employeesRes, trainingRes, coursesRes, medicalRes, absencesRes, existingShiftsRes] = await Promise.all([
+      supabase.from("employees").select("id, first_name, last_name, status").in("id", employeeIds),
+      supabase.from("training_employee_courses").select("employee_id, course_id, completion_date, expiry_date, planned_date, manual_state").in("employee_id", employeeIds),
+      supabase.from("training_courses").select("id, code, title, is_active, validity_years, is_unlimited"),
+      supabase.from("medical_surveillance_records").select("employee_id, requires_visit, next_due_date").in("employee_id", employeeIds),
       supabase.from("turni_employee_absences").select("employee_id, start_at, end_at, absence_type").in("employee_id", employeeIds).neq("state", "cancelled"),
       supabase.from("turni_employee_shifts").select("employee_id, start_at, end_at").in("employee_id", employeeIds).neq("state", "cancelled").lt("start_at", end.toISOString()).gt("end_at", start.toISOString())
     ]);
 
     if (employeesRes.error) throw new Error(employeesRes.error.message);
     if (trainingRes.error) throw new Error(trainingRes.error.message);
+    if (coursesRes.error) throw new Error(coursesRes.error.message);
     if (medicalRes.error) throw new Error(medicalRes.error.message);
     if (absencesRes.error) throw new Error(absencesRes.error.message);
     if (existingShiftsRes.error) throw new Error(existingShiftsRes.error.message);
 
     const employeesMap = new Map((employeesRes.data ?? []).map(e => [e.id, e]));
+    const coursesById = new Map<number, CourseRow>((coursesRes.data ?? []).map((c) => [c.id, c as CourseRow]));
+    const todayIso = todayLocalIso();
+
     const trainingByEmp = new Map<number, string[]>();
-    for (const t of trainingRes.data ?? []) {
-      if (t.stato === "scaduto" || t.stato === "da fare") {
+    for (const t of (trainingRes.data ?? []) as CourseStatusRow[]) {
+      const course = coursesById.get(t.course_id);
+      const state = resolveCourseState(t, course, undefined, todayIso, TRAINING_EXPIRING_DAYS);
+      if (state === "scaduto" || state === "perso" || state === "da fare") {
         const list = trainingByEmp.get(t.employee_id) ?? [];
         list.push(String(t.course_id));
         trainingByEmp.set(t.employee_id, list);
       }
     }
 
-    const medicalByEmp = new Map((medicalRes.data ?? []).map(m => [m.employee_id, m.stato]));
+    const medicalByEmp = new Map(
+      (medicalRes.data ?? []).map((m) => [
+        m.employee_id,
+        computeMedicalState({ todayIso, requiresVisit: Boolean(m.requires_visit), nextDueDate: m.next_due_date }),
+      ]),
+    );
     const absencesByEmp = new Map<number, typeof absencesRes.data>();
     for (const a of absencesRes.data ?? []) {
       const list = absencesByEmp.get(a.employee_id) ?? [];
@@ -198,7 +227,7 @@ export const POST = withModuleAccess("turni", true, async (request, context, { s
       const emp = employeesMap.get(id);
       if (!emp) continue;
       
-      const label = `${emp.cognome} ${emp.nome}`;
+      const label = `${emp.last_name} ${emp.first_name}`;
       
       // A. Stato in forza
       if (emp.status !== "attivo") {
@@ -334,7 +363,7 @@ export const POST = withModuleAccess("turni", true, async (request, context, { s
       .map(([id, count]) => {
         const emp = employeesMap.get(id);
         return {
-          nominativo: emp ? `${emp.cognome} ${emp.nome}` : `Lavoratore #${id}`,
+          nominativo: emp ? `${emp.last_name} ${emp.first_name}` : `Lavoratore #${id}`,
           turniAssegnati: count
         };
       });

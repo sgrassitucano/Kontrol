@@ -56,6 +56,7 @@ export default function GestioneImportPage() {
   const [confirmCriticalDismissals, setConfirmCriticalDismissals] = useState(false);
   const [overrideBlockedDismissals, setOverrideBlockedDismissals] = useState(false);
   const [confirmDismissalPhrase, setConfirmDismissalPhrase] = useState("");
+  const [driveStatus, setDriveStatus] = useState<{ configured: boolean; serviceAccountEmail: string | null } | null>(null);
 
   const derivedCounts = useMemo(() => {
     const warningRows = result?.errors?.filter((row) => row.errorType === "row_imported_with_issues").length ?? 0;
@@ -174,6 +175,23 @@ export default function GestioneImportPage() {
 
   const [driveFileId, setDriveFileId] = useState("");
   const [importSource, setImportSource] = useState<"upload" | "drive">("upload");
+
+  useEffect(() => {
+    if (importSource !== "drive" || driveStatus !== null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/api/gestione/import-drive/status");
+        const body = await response.json();
+        if (!cancelled && response.ok) setDriveStatus(body);
+      } catch {
+        // Silently ignore: status panel just stays in "verifying" state.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [importSource, driveStatus]);
 
   async function runImport(mode: "preview" | "commit", customSource?: "upload" | "drive") {
     const activeSource = customSource ?? importSource;
@@ -324,6 +342,7 @@ export default function GestioneImportPage() {
         <div className="flex items-center gap-4 border-b border-[var(--brand-line)] pb-3">
           <button
             type="button"
+            data-unstyled="true"
             onClick={() => {
               setImportSource("upload");
               setResult(null);
@@ -339,6 +358,7 @@ export default function GestioneImportPage() {
           </button>
           <button
             type="button"
+            data-unstyled="true"
             onClick={() => {
               setImportSource("drive");
               setResult(null);
@@ -357,6 +377,46 @@ export default function GestioneImportPage() {
         <h2 className="text-base font-semibold text-[var(--brand-ink)] mt-4">
           {importSource === "upload" ? "Caricamento file locale" : "Importazione automatica Google Drive"}
         </h2>
+
+        {importSource === "drive" ? (
+          <div className="mt-3 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel-2)] p-3">
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                  driveStatus === null
+                    ? "bg-slate-300"
+                    : driveStatus.configured
+                      ? "bg-emerald-500"
+                      : "bg-red-500"
+                }`}
+              />
+              <p className="text-xs font-bold text-[var(--brand-ink)]">
+                {driveStatus === null
+                  ? "Verifica connessione Google Drive…"
+                  : driveStatus.configured
+                    ? "Connessione a Google Drive configurata"
+                    : "Google Drive non configurato sul server"}
+              </p>
+            </div>
+            {driveStatus?.configured && driveStatus.serviceAccountEmail ? (
+              <p className="mt-1 text-xs text-slate-600">
+                Account di servizio: <span className="font-mono">{driveStatus.serviceAccountEmail}</span>. Condividi il
+                file/cartella Google Drive da importare con questo indirizzo (permesso di sola lettura), poi incolla
+                l&apos;ID del file qui sotto.
+              </p>
+            ) : driveStatus && !driveStatus.configured ? (
+              <p className="mt-1 text-xs text-red-600">
+                Manca la variabile d&apos;ambiente <span className="font-mono">GOOGLE_SERVICE_ACCOUNT_JSON</span> su
+                Vercel. Senza questa configurazione l&apos;import da Drive non può funzionare.
+              </p>
+            ) : null}
+            <p className="mt-2 text-xs text-slate-500">
+              L&apos;ID del file si trova nell&apos;URL di Google Drive:
+              drive.google.com/file/d/<span className="font-mono">ID_FILE</span>/view. Al momento l&apos;import va
+              avviato manualmente da questa pagina; non è ancora schedulabile automaticamente.
+            </p>
+          </div>
+        ) : null}
 
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
           {importSource === "upload" ? (
