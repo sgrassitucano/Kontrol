@@ -55,15 +55,18 @@ export async function POST(request: Request) {
       supabaseAdmin.from("sites").select("id, name"),
       supabaseAdmin.from("sub_sites").select("id, name, site_id"),
     ]);
+    if (sitesRes.error) throw new Error("Errore caricamento siti: " + sitesRes.error.message);
+    if (subSitesRes.error) throw new Error("Errore caricamento sotto-siti: " + subSitesRes.error.message);
 
     const siteMap = new Map((sitesRes.data ?? []).map(s => [s.id, s.name]));
     const subSiteMap = new Map((subSitesRes.data ?? []).map(s => [s.id, s.name]));
 
     // B. Caricamento lavoratori attivi
-    const { data: employees } = await supabaseAdmin
+    const { data: employees, error: empError } = await supabaseAdmin
       .from("employees")
       .select("id, cognome, nome, matricola, mansione, site_id, sub_site_id")
       .eq("is_active", true);
+    if (empError) throw new Error("Errore caricamento dipendenti: " + empError.message);
 
     const activeEmployees = (employees ?? []).map(e => ({
       id: e.id,
@@ -75,12 +78,14 @@ export async function POST(request: Request) {
     }));
 
     // C. Caricamento criticità Formazione (corsi scaduti, in scadenza o da fare)
-    const { data: training } = await supabaseAdmin
-      .from("training_employee_courses")
-      .select("employee_id, course_id, date_scadenza, stato")
-      .in("stato", ["scaduto", "in scadenza", "da fare"]);
-
-    const { data: courses } = await supabaseAdmin.from("training_courses").select("id, title, code");
+    const [trainingRes, coursesRes] = await Promise.all([
+      supabaseAdmin.from("training_employee_courses").select("employee_id, course_id, date_scadenza, stato").in("stato", ["scaduto", "in scadenza", "da fare"]),
+      supabaseAdmin.from("training_courses").select("id, title, code"),
+    ]);
+    if (trainingRes.error) throw new Error("Errore caricamento formazione: " + trainingRes.error.message);
+    if (coursesRes.error) throw new Error("Errore caricamento corsi: " + coursesRes.error.message);
+    const training = trainingRes.data;
+    const courses = coursesRes.data;
     const courseMap = new Map((courses ?? []).map(c => [c.id, `${c.code} - ${c.title}`]));
     
     // Mappa per associare i nomi ai record di corso
@@ -96,10 +101,11 @@ export async function POST(request: Request) {
       }));
 
     // D. Caricamento criticità Sorveglianza Sanitaria
-    const { data: medical } = await supabaseAdmin
+    const { data: medical, error: medError } = await supabaseAdmin
       .from("medical_surveillance_records")
       .select("employee_id, data_scadenza, stato")
       .in("stato", ["scaduto", "in scadenza"]);
+    if (medError) throw new Error("Errore caricamento visite mediche: " + medError.message);
 
     const criticalMedical = (medical ?? [])
       .filter(m => employeeNameMap.has(m.employee_id))
@@ -114,6 +120,8 @@ export async function POST(request: Request) {
       supabaseAdmin.from("fleet_assets").select("id, targa, marca, modello, status"),
       supabaseAdmin.from("fleet_asset_assignments").select("asset_id, employee_id").is("end_date", null),
     ]);
+    if (assetsRes.error) throw new Error("Errore caricamento flotta: " + assetsRes.error.message);
+    if (assignmentsRes.error) throw new Error("Errore caricamento assegnazioni flotta: " + assignmentsRes.error.message);
 
     const activeAssignments = new Map((assignmentsRes.data ?? []).map(a => [a.asset_id, a.employee_id]));
 
@@ -124,12 +132,14 @@ export async function POST(request: Request) {
     }));
 
     // F. Caricamento criticità DPI consegnati
-    const { data: dpi } = await supabaseAdmin
-      .from("dpi_employee_items")
-      .select("employee_id, item_id, stato")
-      .in("stato", ["da consegnare", "scaduto"]);
-
-    const { data: dpiItems } = await supabaseAdmin.from("dpi_items").select("id, title");
+    const [dpiRes, dpiItemsRes] = await Promise.all([
+      supabaseAdmin.from("dpi_employee_items").select("employee_id, item_id, stato").in("stato", ["da consegnare", "scaduto"]),
+      supabaseAdmin.from("dpi_items").select("id, title"),
+    ]);
+    if (dpiRes.error) throw new Error("Errore caricamento DPI: " + dpiRes.error.message);
+    if (dpiItemsRes.error) throw new Error("Errore caricamento catalogo DPI: " + dpiItemsRes.error.message);
+    const dpi = dpiRes.data;
+    const dpiItems = dpiItemsRes.data;
     const dpiMap = new Map((dpiItems ?? []).map(d => [d.id, d.title]));
 
     const criticalDpi = (dpi ?? [])

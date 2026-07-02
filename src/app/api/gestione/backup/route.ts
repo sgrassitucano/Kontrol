@@ -196,8 +196,11 @@ export async function POST(request: Request) {
     const truncateTables = INSERT_ORDER.filter(t => t !== "profiles").map(t => `public."${t}"`).join(", ");
     await dbClient.query(`TRUNCATE TABLE ${truncateTables} CASCADE`);
 
+    const safeTablePattern = /^[a-z_][a-z0-9_]*$/i;
+
     // 2. Ripopolamento tabelle in ordine di dipendenza chiavi esterne (INSERT_ORDER)
     for (const tableName of INSERT_ORDER) {
+      if (!safeTablePattern.test(tableName)) throw new Error(`Nome tabella non valido: "${tableName}"`);
       const rows = tables[tableName];
       if (!Array.isArray(rows) || rows.length === 0) continue;
 

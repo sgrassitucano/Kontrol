@@ -69,10 +69,11 @@ export async function POST(request: Request) {
         if (upsertErr) throw new Error("Errore aggiornamento corso programmato: " + upsertErr.message);
 
         // Delete any draft
-        await supabase
+        const { error: deleteErr } = await supabase
           .from("training_plan_drafts")
           .delete()
           .match({ employee_id: item.employee_id, course_id: item.course_id });
+        if (deleteErr) throw new Error("Errore eliminazione bozza: " + deleteErr.message);
       }
     }
 
