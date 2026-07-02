@@ -181,6 +181,7 @@ export async function processAnagraficaImport({
   importedBy,
   confirmHighDismissals,
   confirmCriticalDismissals,
+  overrideBlockedDismissals,
   confirmDismissalPhrase,
 }: ImportParams): Promise<ImportResult> {
   const parsed = parseWorkbook(fileBuffer);
@@ -258,7 +259,45 @@ export async function processAnagraficaImport({
 
   const normalizedPhrase = (confirmDismissalPhrase ?? "").trim().toUpperCase();
 
+  const persistBlockedRun = async (reason: string) => {
+    try {
+      await supabase.from("import_runs").insert({
+        source: "anagrafica",
+        file_name: fileName,
+        imported_by: importedBy ?? null,
+        total_rows: summaryBase.totalRows,
+        processed_rows: 0,
+        error_rows: allErrors.length,
+        status: "blocked",
+        blocked_reason: reason,
+      });
+    } catch {
+      // Best-effort logging only: a failure here must not hide the guardrail
+      // message from the person who just tried to commit.
+    }
+  };
+
+  // "blocked" is the highest guardrail tier and requires its own explicit
+  // unlock, separate from (and in addition to) the critical-tier checks
+  // below. Without this, overrideBlockedDismissals was accepted by the API
+  // but never actually checked, so a "blocked" import could go through with
+  // just the critical checkbox + phrase, same as a merely "critical" one.
+  if (dismissalGuardrail.requiresBlockOverride && !overrideBlockedDismissals) {
+    await persistBlockedRun(dismissalGuardrail.reasons.join(" "));
+    return {
+      mode: "preview",
+      summary: summaryBase,
+      previewRows,
+      dismissalPreviewRows,
+      dismissalGuardrail,
+      errors: allErrors,
+      importRunId: null,
+      message: "BLOCCO PROTETTIVO: scostamento troppo grande rispetto allo storico. Sblocco esplicito richiesto prima del commit.",
+    };
+  }
+
   if (dismissalGuardrail.requiresCriticalConfirmation && !confirmCriticalDismissals) {
+    await persistBlockedRun(dismissalGuardrail.reasons.join(" "));
     return {
       mode: "preview",
       summary: summaryBase,
@@ -272,6 +311,7 @@ export async function processAnagraficaImport({
   }
 
   if (dismissalGuardrail.requiresHighConfirmation && !confirmHighDismissals) {
+    await persistBlockedRun(dismissalGuardrail.reasons.join(" "));
     return {
       mode: "preview",
       summary: summaryBase,
@@ -288,6 +328,7 @@ export async function processAnagraficaImport({
     dismissalGuardrail.requiresPhraseConfirmation &&
     normalizedPhrase !== DISMISSAL_CONFIRMATION_PHRASE
   ) {
+    await persistBlockedRun(dismissalGuardrail.reasons.join(" "));
     return {
       mode: "preview",
       summary: summaryBase,
@@ -617,7 +658,7 @@ export function assessDismissalGuardrail(args: {
   previousSnapshotTaxCodes: number | null;
   averageSnapshotTaxCodes: number | null;
   recentRunCount: number;
-}) {
+}): DismissalGuardrail {
   const {
     existingActiveEmployees,
     dismissedRows,

@@ -32,6 +32,7 @@ type LastImportRun = {
   totalRows?: number;
   processedRows?: number;
   errorRows?: number;
+  blockedReason?: string | null;
 };
 
 function formatDateTimeIt(value: string) {
@@ -322,6 +323,15 @@ export default function GestioneImportPage() {
                 ? ` · ${lastRun.processedRows}/${lastRun.totalRows}`
                 : ""}
             </p>
+            {lastRun.status === "blocked" ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
+                <p className="font-bold">Ultimo tentativo di import bloccato dal controllo protettivo.</p>
+                {lastRun.blockedReason ? <p className="mt-1">{lastRun.blockedReason}</p> : null}
+                <p className="mt-1 text-red-700">
+                  Rivedi il file, poi ripeti l&apos;import qui sotto e conferma esplicitamente per procedere.
+                </p>
+              </div>
+            ) : null}
             {typeof lastRun.errorRows === "number" && lastRun.errorRows > 0 ? (
               <div>
                 <button

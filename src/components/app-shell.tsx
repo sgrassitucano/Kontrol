@@ -72,6 +72,7 @@ export function AppShell({ children }: AppShellProps) {
   const sidebarCollapsed = sidebarOverride ?? isTableFocusRoute;
   const [modulesByKey, setModulesByKey] = useState<Record<string, { canRead: boolean; canWrite: boolean }> | null>(null);
   const [profile, setProfile] = useState<MeResponse["profile"] | null>(null);
+  const [hasBlockedImport, setHasBlockedImport] = useState(false);
   useEffect(() => {
     // Force light mode — remove any previously saved dark preference
     localStorage.removeItem("theme");
@@ -98,6 +99,27 @@ export function AppShell({ children }: AppShellProps) {
       cancelled = true;
     };
   }, [isLoginPage, router]);
+
+  useEffect(() => {
+    if (profile?.role !== "admin") {
+      setHasBlockedImport(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/api/import-runs/last?source=anagrafica");
+        if (!response.ok) return;
+        const body = (await response.json()) as { run?: { status?: string } | null };
+        if (!cancelled) setHasBlockedImport(body.run?.status === "blocked");
+      } catch {
+        // Badge is best-effort; a failed check just means no badge this load.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.role]);
 
   const visibleModules = useMemo(() => {
     if (!modulesByKey) return [];
@@ -187,10 +209,26 @@ export function AppShell({ children }: AppShellProps) {
                           ].join(" ")}
                         >
                           <span className="inline-flex items-center gap-2">
-                            <span aria-hidden className={iconWrapClass}>
+                            <span aria-hidden className={["relative", iconWrapClass].join(" ")}>
                               {moduleIcon}
+                              {module.key === "gestione" && hasBlockedImport ? (
+                                <span
+                                  title="Import bloccato: serve intervento admin"
+                                  className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"
+                                />
+                              ) : null}
                             </span>
-                            {!sidebarCollapsed ? <span>{module.label}</span> : null}
+                            {!sidebarCollapsed ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                {module.label}
+                                {module.key === "gestione" && hasBlockedImport ? (
+                                  <span
+                                    title="Import bloccato: serve intervento admin"
+                                    className="inline-block h-2 w-2 rounded-full bg-red-500"
+                                  />
+                                ) : null}
+                              </span>
+                            ) : null}
                           </span>
                         </div>
                       ) : (
