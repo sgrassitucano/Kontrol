@@ -781,6 +781,8 @@ export async function GET(request: Request) {
       { name: "altri operativi", kind: "altri_operativi", rows: altriOperativi },
     ];
 
+    console.log(`[formazione/export] employees=${employees.length} exportableRows=${exportableRows.length}`);
+
     reportSheets.forEach((sheetCfg) => {
       const sheet: Record<(typeof headers)[number], string>[] = [];
       sheetCfg.rows.forEach((row) => {
@@ -788,7 +790,10 @@ export async function GET(request: Request) {
         if (!employee) return;
         sheet.push(buildExportRow(employee, row, sheetCfg.kind));
       });
-      const ws = XLSX.utils.json_to_sheet(sheet, { header: [...headers] });
+      const ws =
+        sheet.length > 0
+          ? XLSX.utils.json_to_sheet(sheet, { header: [...headers] })
+          : XLSX.utils.aoa_to_sheet([[...headers]]);
       applyCalibri10WithBoldHeader(ws);
       XLSX.utils.book_append_sheet(workbook, ws, sanitizeSheetName(sheetCfg.name));
     });

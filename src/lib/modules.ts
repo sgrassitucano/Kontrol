@@ -38,6 +38,11 @@ export const moduleDefinitions: ModuleDefinition[] = [
     accent: "from-[#3f5e9d] to-[#6f92c8]",
     children: [
       {
+        label: "Pianificazione",
+        href: "/home/formazione/pianificazione",
+        description: "Raggruppa e programma i fabbisogni formativi.",
+      },
+      {
         label: "Matrice",
         href: "/formazione/matrice",
         description: "Vista placeholder per la matrice formazione.",

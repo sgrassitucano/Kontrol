@@ -203,6 +203,9 @@ export async function POST(request: Request) {
 
       // Estrai le colonne ed i valori di ciascuna riga
       const columns = Object.keys(rows[0]);
+      const safeColPattern = /^[a-z_][a-z0-9_]*$/i;
+      const badCol = columns.find(c => !safeColPattern.test(c));
+      if (badCol) throw new Error(`Nome colonna non valido nel backup: "${badCol}"`);
       const columnsStr = columns.map(c => `"${c}"`).join(", ");
 
       for (const row of rows) {

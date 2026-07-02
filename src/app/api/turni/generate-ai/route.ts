@@ -163,7 +163,7 @@ export const POST = withModuleAccess("turni", true, async (request, context, { s
       supabase.from("training_employee_courses").select("employee_id, course_id, stato").in("employee_id", employeeIds),
       supabase.from("medical_surveillance_records").select("employee_id, stato").in("employee_id", employeeIds),
       supabase.from("turni_employee_absences").select("employee_id, start_at, end_at, absence_type").in("employee_id", employeeIds).neq("state", "cancelled"),
-      supabase.from("turni_employee_shifts").select("employee_id, start_at, end_at").neq("state", "cancelled").lt("start_at", end.toISOString()).gt("end_at", start.toISOString())
+      supabase.from("turni_employee_shifts").select("employee_id, start_at, end_at").in("employee_id", employeeIds).neq("state", "cancelled").lt("start_at", end.toISOString()).gt("end_at", start.toISOString())
     ]);
 
     if (employeesRes.error) throw new Error(employeesRes.error.message);

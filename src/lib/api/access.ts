@@ -9,7 +9,7 @@ export async function getCurrentUserContext(supabase: Awaited<ReturnType<typeof 
   if (roleError) throw new Error(roleError.message);
   if (isActiveError) throw new Error(isActiveError.message);
   return {
-    role: (role ?? "manager") as "admin" | "viewer" | "manager",
+    role: (role ?? "viewer") as "admin" | "viewer" | "manager",
     isActive: Boolean(isActive),
   };
 }

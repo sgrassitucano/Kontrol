@@ -411,6 +411,7 @@ export async function commitLegacyTrainingImport({
     course_id: number;
     completion_date: string | null;
     expiry_date: string | null;
+    planned_date: string | null;
   }> = [];
   let skippedDaFareRows = 0;
   let skippedMissingStartDateRows = 0;
@@ -432,6 +433,7 @@ export async function commitLegacyTrainingImport({
         course_id: course.id,
         completion_date: row.startDate,
         expiry_date: null,
+        planned_date: null,
       });
       continue;
     }
@@ -447,16 +449,17 @@ export async function commitLegacyTrainingImport({
       course_id: course.id,
       completion_date: completionDate,
       expiry_date: expiryDate,
+      planned_date: null,
     });
   }
 
   if (importRunId && payload.length > 0) {
     const employeeIds = Array.from(new Set(payload.map((r) => r.employee_id)));
-    const existingByKey = new Map<string, { employee_id: number; course_id: number; completion_date: string | null; expiry_date: string | null }>();
+    const existingByKey = new Map<string, { employee_id: number; course_id: number; completion_date: string | null; expiry_date: string | null; planned_date: string | null }>();
     for (const part of chunkArray(employeeIds, 500)) {
       const { data, error } = await supabase
         .from("training_employee_courses")
-        .select("employee_id,course_id,completion_date,expiry_date")
+        .select("employee_id,course_id,completion_date,expiry_date,planned_date")
         .in("employee_id", part);
       if (error) throw new Error(error.message);
       (data ?? []).forEach((row) => {
@@ -477,6 +480,7 @@ export async function commitLegacyTrainingImport({
               course_id: before.course_id,
               completion_date: before.completion_date,
               expiry_date: before.expiry_date,
+              planned_date: before.planned_date,
             }
           : null,
         after_row: {
@@ -484,6 +488,7 @@ export async function commitLegacyTrainingImport({
           course_id: row.course_id,
           completion_date: row.completion_date,
           expiry_date: row.expiry_date,
+          planned_date: row.planned_date,
         },
       };
     });

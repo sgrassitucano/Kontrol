@@ -296,16 +296,15 @@ async function fetchAllScopeRules(supabase: SupabaseClient) {
       .order("id")
       .range(from, to);
     if (error) throw new Error(error.message);
-    const rows = ((data ?? []) as Array<ScopeRuleRow & { is_active?: boolean | null }>).filter(
-      (row) => row.is_active !== false,
-    );
+    const rawRows = (data ?? []) as Array<ScopeRuleRow & { is_active?: boolean | null }>;
+    const rows = rawRows.filter((row) => row.is_active !== false);
     allRows.push(...rows);
     if (allRows.length > MAX_EXPORT_SCOPE_RULES) {
       throw new TooManyRowsError(
         `Troppe regole scope (> ${MAX_EXPORT_SCOPE_RULES}). Restringi il dataset o applica paginazione.`,
       );
     }
-    if (rows.length < pageSize) hasMore = false;
+    if (rawRows.length < pageSize) hasMore = false;
     else from += pageSize;
   }
 
@@ -607,8 +606,13 @@ export async function GET(request: Request) {
       "limitazioni": limitations,
     }));
 
+    console.log(`[sorveglianza/export] employees=${employees.length} rows=${rows.length}`);
+
     const workbook = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(sheet, { header: [...headers] });
+    const ws =
+      sheet.length > 0
+        ? XLSX.utils.json_to_sheet(sheet, { header: [...headers] })
+        : XLSX.utils.aoa_to_sheet([[...headers]]);
     applyCalibri10WithBoldHeader(ws);
     XLSX.utils.book_append_sheet(workbook, ws, "Sorveglianza");
 

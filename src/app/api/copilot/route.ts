@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
+import { copilotLimiter } from "@/lib/api/rate-limit";
 
 // Protezione: qualsiasi utente loggato con accesso operativo può usare il Copilot
 async function requireAuth() {
@@ -9,7 +10,7 @@ async function requireAuth() {
     data: { user },
   } = await supabaseServer.auth.getUser();
   if (!user) return { ok: false as const, status: 401, error: "Non autenticato." };
-  return { ok: true as const, email: user.email };
+  return { ok: true as const, email: user.email, userId: user.id };
 }
 
 export const runtime = "nodejs";
@@ -18,6 +19,17 @@ export async function POST(request: Request) {
   const auth = await requireAuth();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const rateCheck = copilotLimiter.check(auth.userId);
+  if (!rateCheck.success) {
+    return NextResponse.json(
+      { error: "Troppe richieste al copilot. Riprova tra poco." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil((rateCheck.reset - Date.now()) / 1000)) },
+      },
+    );
   }
 
   const geminiApiKey = process.env.GEMINI_API_KEY;
