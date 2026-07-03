@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, KpiDonutChart, ActionMenu } from "@/components/module-ui";
+import { DashboardCard, ModuleHeader, ActionMenu } from "@/components/module-ui";
+import { KpiTile } from "@/components/kpi-tile";
 import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
 import { isoToItDate } from "@/lib/it-date";
 import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
@@ -495,7 +496,6 @@ export default function HomeSorveglianzaPage() {
     return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
   }
 
-  const criticoCount = meta.counts.scaduto + meta.counts.daFare;
   const excludedCount = meta.excludedByRule;
   const totalWorkers = meta.totalActiveEmployees;
 
@@ -707,108 +707,96 @@ export default function HomeSorveglianzaPage() {
         }
       >
         <DashboardCard className="border-0 p-3">
-          <KpiGrid className="grid-cols-2 md:grid-cols-4 2xl:grid-cols-8">
-            <KpiDonutChart
-              label="Conformità"
-              percentage={totalWorkers > 0 ? Math.max(0, Math.min(100, Math.round(100 - (criticoCount / totalWorkers) * 100))) : 100}
-              description="Visite mediche in regola"
-              tone={totalWorkers > 0 && Math.round(100 - (criticoCount / totalWorkers) * 100) >= 90 ? "success" : totalWorkers > 0 && Math.round(100 - (criticoCount / totalWorkers) * 100) >= 75 ? "warning" : "danger"}
-              onClick={() => setStatusFilter("")}
-              isActive={statusFilter === ""}
-            />
-            <KpiCard label="Totale lavoratori attivi" value={totalWorkers} subValue="100%" />
-            <KpiCard
-              label="Critico"
-              value={criticoCount}
-              subValue={pct(criticoCount, totalWorkers)}
-              tone="danger"
-              onClick={() => setStatusFilter("critico")}
-            />
-            <KpiCard
-              label="In scadenza"
-              value={meta.counts.inScadenza}
-              subValue={pct(meta.counts.inScadenza, totalWorkers)}
-              tone="warning"
-              onClick={() => setStatusFilter("in scadenza")}
-            />
-            <KpiCard
-              label="Da fare (prima visita)"
-              value={meta.counts.daFare}
-              subValue={pct(meta.counts.daFare, totalWorkers)}
-              tone="danger"
-              onClick={() => setStatusFilter("da fare")}
-            />
-            <KpiCard
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-sm font-bold text-[var(--brand-ink)]">Sorveglianza sanitaria</span>
+            <span className="text-xs text-slate-500">
+              Totale lavoratori: <span className="font-semibold text-slate-700 tabular-nums">{totalWorkers}</span> · Conformi:{" "}
+              <span className="font-semibold text-emerald-600 tabular-nums">{meta.counts.idoneo}</span>{" "}
+              ({pct(meta.counts.idoneo, totalWorkers)})
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <KpiTile
               label="Scaduto"
-              value={meta.counts.scaduto}
-              subValue={pct(meta.counts.scaduto, totalWorkers)}
+              hint="Visita scaduta, da rifare."
               tone="danger"
+              count={meta.counts.scaduto}
+              total={totalWorkers}
+              isActive={statusFilter === "scaduto"}
               onClick={() => setStatusFilter("scaduto")}
             />
-            <KpiCard
+            <KpiTile
+              label="Da fare"
+              hint="Prima visita mai effettuata."
+              tone="danger"
+              count={meta.counts.daFare}
+              total={totalWorkers}
+              isActive={statusFilter === "da fare"}
+              onClick={() => setStatusFilter("da fare")}
+            />
+            <KpiTile
+              label="In scadenza"
+              hint="Visita valida ma in scadenza entro la soglia."
+              tone="amber"
+              count={meta.counts.inScadenza}
+              total={totalWorkers}
+              isActive={statusFilter === "in scadenza"}
+              onClick={() => setStatusFilter("in scadenza")}
+            />
+            <KpiTile
               label="Programmato"
-              value={meta.counts.programmato}
-              subValue={pct(meta.counts.programmato, totalWorkers)}
-              tone="info"
+              hint="Visita già pianificata."
+              tone="blue"
+              count={meta.counts.programmato}
+              total={totalWorkers}
+              isActive={statusFilter === "programmato"}
               onClick={() => setStatusFilter("programmato")}
             />
-            <KpiCard
-              label="Esclusi"
-              value={excludedCount}
-              subValue={pct(excludedCount, totalWorkers)}
-              tone="muted"
+            <KpiTile
+              label="Sospeso"
+              hint="Lavoratore in periodo di sospensione (maternità, infortunio, malattia, distacco)."
+              tone="grey"
+              count={meta.counts.sospeso}
+              total={totalWorkers}
+              isActive={statusFilter === "sospeso"}
+              onClick={() => setStatusFilter("sospeso")}
+            />
+            <KpiTile
+              label="Conforme"
+              hint="Visita valida, nessuna azione richiesta."
+              tone="green"
+              count={meta.counts.idoneo}
+              total={totalWorkers}
+              isActive={statusFilter === ""}
+              onClick={() => setStatusFilter("")}
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+            <button
+              type="button"
+              data-unstyled="true"
               onClick={() => {
                 setIncludeExcluded(true);
                 setStatusFilter("escluso");
               }}
-            />
-          </KpiGrid>
+              className="hover:text-[var(--brand-primary)]"
+              title="Esclusi da regola mansione/scope o esclusione manuale."
+            >
+              Esclusi: <span className="font-semibold tabular-nums">{excludedCount}</span> ({pct(excludedCount, totalWorkers)})
+            </button>
+          </div>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setStatusFilter("")}
-                data-chip="true"
-                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
-              >
-                Tutti
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter("critico")}
-                data-chip="true"
-                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
-              >
-                Critico ({criticoCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIncludeExcluded(true);
-                  setStatusFilter("escluso");
-                }}
-                data-chip="true"
-                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
-              >
-                Esclusi ({meta.excludedByRule})
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter("sospeso")}
-                data-chip="true"
-                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
-              >
-                Sospesi ({meta.counts.sospeso})
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter("programmato")}
-                data-chip="true"
-                className="rounded-xl px-3 py-2 text-sm transition disabled:opacity-60"
-              >
-                Programmati ({meta.counts.programmato})
-              </button>
+              {statusFilter ? (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("")}
+                  className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
+                >
+                  Reset filtro
+                </button>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
