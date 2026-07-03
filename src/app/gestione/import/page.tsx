@@ -204,6 +204,8 @@ export default function GestioneImportPage() {
   useEffect(() => {
     if (lastRun?.status === "preview" && lastRun.previewData && !result) {
       const { previewRows, dismissalPreviewRows, dismissalGuardrail, errors } = lastRun.previewData;
+      setImportSource("drive");
+      setDriveFileId(lastRun.id);
       setResult({
         mode: "preview",
         summary: {
