@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
     const { data, error } = await auth.supabase
       .from("import_runs")
-      .select("id,source,file_name,status,created_at,imported_by,total_rows,processed_rows,error_rows,blocked_reason")
+      .select("id,source,file_name,status,created_at,imported_by,total_rows,processed_rows,error_rows,blocked_reason,preview_data")
       .eq("source", source)
       .order("created_at", { ascending: false })
       .limit(1);
@@ -34,6 +34,7 @@ export async function GET(request: Request) {
           processed_rows: number;
           error_rows: number;
           blocked_reason: string | null;
+          preview_data: unknown | null;
         }
       | undefined;
 
@@ -68,6 +69,7 @@ export async function GET(request: Request) {
             processedRows: run.processed_rows,
             errorRows: run.error_rows,
             blockedReason: run.blocked_reason,
+            previewData: run.preview_data,
           }
         : null,
     });

@@ -257,6 +257,12 @@ export async function processAnagraficaImport({
         processed_rows: 0,
         error_rows: allErrors.length,
         status: "preview",
+        preview_data: {
+          previewRows,
+          dismissalPreviewRows,
+          dismissalGuardrail,
+          errors: allErrors,
+        },
       })
       .select("id")
       .single();

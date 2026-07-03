@@ -33,6 +33,12 @@ type LastImportRun = {
   processedRows?: number;
   errorRows?: number;
   blockedReason?: string | null;
+  previewData?: {
+    previewRows: ImportPreviewRow[];
+    dismissalPreviewRows: DismissalPreviewRow[];
+    dismissalGuardrail: DismissalGuardrail;
+    errors: ImportErrorRow[];
+  } | null;
 };
 
 function formatDateTimeIt(value: string) {
@@ -193,6 +199,34 @@ export default function GestioneImportPage() {
       cancelled = true;
     };
   }, [importSource, driveStatus]);
+
+  // Auto-populate result when cron creates a preview
+  useEffect(() => {
+    if (lastRun?.status === "preview" && lastRun.previewData && !result) {
+      const { previewRows, dismissalPreviewRows, dismissalGuardrail, errors } = lastRun.previewData;
+      setResult({
+        mode: "preview",
+        summary: {
+          totalRows: lastRun.totalRows ?? 0,
+          validRows: lastRun.totalRows ?? 0,
+          errorRows: lastRun.errorRows ?? 0,
+          newRows: 0,
+          updatedRows: 0,
+          reactivatedRows: 0,
+          dismissedRows: 0,
+          existingActiveEmployees: 0,
+          snapshotTaxCodes: 0,
+          dismissalRisk: dismissalGuardrail?.level ?? "none",
+        },
+        previewRows,
+        dismissalPreviewRows,
+        dismissalGuardrail,
+        errors,
+        importRunId: lastRun.id,
+        message: "Anteprima caricata.",
+      });
+    }
+  }, [lastRun, result]);
 
   async function runImport(mode: "preview" | "commit", customSource?: "upload" | "drive") {
     const activeSource = customSource ?? importSource;
