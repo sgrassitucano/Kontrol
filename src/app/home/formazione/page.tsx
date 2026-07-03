@@ -3327,12 +3327,14 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
     (row) => row.corsoCode === "FORM_BASE" || row.corsoCode.startsWith("FORM_BASE+") || row.corsoCode.startsWith("FORM_SPEC_"),
   );
 
+  // Allineato a buildWorkerBuckets: scaduto/da fare/upgrade/in scadenza battono sempre
+  // programmato. Pianificare un corso non deve nascondere altre criticità del lavoratore.
   const stateRank = (s: WorkerCourseRow["stato"]) => {
-    if (s === "programmato") return 1;
-    if (s === "scaduto") return 2;
-    if (s === "da fare") return 3;
-    if (s === "upgrade") return 4;
-    if (s === "in scadenza") return 5;
+    if (s === "scaduto") return 1;
+    if (s === "da fare") return 2;
+    if (s === "upgrade") return 3;
+    if (s === "in scadenza") return 4;
+    if (s === "programmato") return 5;
     if (s === "escluso") return 6;
     if (s === "sospeso") return 6;
     return 7;
