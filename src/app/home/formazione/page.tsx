@@ -1634,23 +1634,19 @@ export default function HomeFormazionePage() {
       const total = workersByJob.get(jobKey)?.size ?? 0;
       const baseRowsForJob = baseRowsByJob.get(jobKey) ?? [];
       const operativiRowsForJob = operativiRowsByJob.get(jobKey) ?? [];
-      const baseSummary = buildDashboardSummary(baseRowsForJob, total);
-      const operativiSummary = buildDashboardSummary(operativiRowsForJob, total);
+      const baseBuckets = buildWorkerBuckets(baseRowsForJob, total);
+      const operativiBuckets = buildWorkerBuckets(operativiRowsForJob, total);
 
       return {
         jobKey,
         label,
         isExtra,
         total,
-        base: baseSummary,
-        operativi: operativiSummary,
-        baseCritico:
-          baseSummary.counts.scaduto + baseSummary.counts["da fare"] + baseSummary.counts.programmato + baseSummary.counts.upgrade,
+        base: baseBuckets,
+        operativi: operativiBuckets,
+        baseCritico: baseBuckets.scaduto + baseBuckets.daFare + baseBuckets.upgrade + baseBuckets.inScadenza,
         operativiCritico:
-          operativiSummary.counts.scaduto +
-          operativiSummary.counts["da fare"] +
-          operativiSummary.counts.programmato +
-          operativiSummary.counts.upgrade,
+          operativiBuckets.bloccato + operativiBuckets.scaduto + operativiBuckets.upgrade + operativiBuckets.inScadenza,
       };
     });
   }, [dashboardRows, jobEntities]);
@@ -2346,6 +2342,12 @@ export default function HomeFormazionePage() {
                                 Upgrade
                               </span>
                             </th>
+                            <th className="w-[92px] px-2 py-2 text-right">
+                              <span className="inline-flex items-center justify-end gap-1">
+                                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                                Conforme
+                              </span>
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2353,13 +2355,8 @@ export default function HomeFormazionePage() {
                             .filter((item) => showEmptyJobsInDetail || item.total > 0)
                             .filter((item) => {
                               if (!showOnlyProblemJobsInDetail) return true;
-                              const c = item.base.counts;
-                              const problems =
-                                c.scaduto +
-                                c["da fare"] +
-                                c["in scadenza"] +
-                                c.programmato +
-                                c.upgrade;
+                              const b = item.base;
+                              const problems = b.scaduto + b.daFare + b.inScadenza + b.programmato + b.upgrade;
                               return problems > 0;
                             })
                             .map((item, index) => (
@@ -2385,19 +2382,22 @@ export default function HomeFormazionePage() {
                               </td>
                               <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-200">{item.total}</td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="scaduto" count={item.base.counts.scaduto} pct={item.base.percentages.scaduto} />
+                                <StateCell tone="scaduto" count={item.base.scaduto} pct={percentage(item.base.scaduto, item.total)} />
                               </td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="da_fare" count={item.base.counts["da fare"]} pct={item.base.percentages["da fare"]} />
+                                <StateCell tone="da_fare" count={item.base.daFare} pct={percentage(item.base.daFare, item.total)} />
                               </td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="in_scadenza" count={item.base.counts["in scadenza"]} pct={item.base.percentages["in scadenza"]} />
+                                <StateCell tone="in_scadenza" count={item.base.inScadenza} pct={percentage(item.base.inScadenza, item.total)} />
                               </td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="programmato" count={item.base.counts.programmato} pct={item.base.percentages.programmato} />
+                                <StateCell tone="programmato" count={item.base.programmato} pct={percentage(item.base.programmato, item.total)} />
                               </td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="upgrade" count={item.base.counts.upgrade} pct={item.base.percentages.upgrade} />
+                                <StateCell tone="upgrade" count={item.base.upgrade} pct={percentage(item.base.upgrade, item.total)} />
+                              </td>
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
+                                <StateCell tone="conforme" count={item.base.conforme} pct={percentage(item.base.conforme, item.total)} />
                               </td>
                             </tr>
                           ))}
@@ -2419,6 +2419,12 @@ export default function HomeFormazionePage() {
                           <tr>
                             <th className="sticky left-0 z-20 w-[420px] bg-white px-3 py-2">Mansione</th>
                             <th className="w-[72px] px-2 py-2 text-right">Dip</th>
+                            <th className="w-[92px] px-2 py-2 text-right">
+                              <span className="inline-flex items-center justify-end gap-1">
+                                <span className="h-2 w-2 rounded-full bg-red-700" />
+                                Bloccato
+                              </span>
+                            </th>
                             <th className="w-[92px] px-2 py-2 text-right">
                               <span className="inline-flex items-center justify-end gap-1">
                                 <span className="h-2 w-2 rounded-full bg-red-600" />
@@ -2449,6 +2455,12 @@ export default function HomeFormazionePage() {
                                 Upgrade
                               </span>
                             </th>
+                            <th className="w-[92px] px-2 py-2 text-right">
+                              <span className="inline-flex items-center justify-end gap-1">
+                                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                                Conforme
+                              </span>
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2456,13 +2468,8 @@ export default function HomeFormazionePage() {
                             .filter((item) => showEmptyJobsInDetail || item.total > 0)
                             .filter((item) => {
                               if (!showOnlyProblemJobsInDetail) return true;
-                              const c = item.operativi.counts;
-                              const problems =
-                                c.scaduto +
-                                c["da fare"] +
-                                c["in scadenza"] +
-                                c.programmato +
-                                c.upgrade;
+                              const o = item.operativi;
+                              const problems = o.bloccato + o.scaduto + o.daFare + o.inScadenza + o.programmato + o.upgrade;
                               return problems > 0;
                             })
                             .map((item, index) => (
@@ -2488,19 +2495,25 @@ export default function HomeFormazionePage() {
                               </td>
                               <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-200">{item.total}</td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="scaduto" count={item.operativi.counts.scaduto} pct={item.operativi.percentages.scaduto} />
+                                <StateCell tone="bloccato" count={item.operativi.bloccato} pct={percentage(item.operativi.bloccato, item.total)} />
                               </td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="da_fare" count={item.operativi.counts["da fare"]} pct={item.operativi.percentages["da fare"]} />
+                                <StateCell tone="scaduto" count={item.operativi.scaduto} pct={percentage(item.operativi.scaduto, item.total)} />
                               </td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="in_scadenza" count={item.operativi.counts["in scadenza"]} pct={item.operativi.percentages["in scadenza"]} />
+                                <StateCell tone="da_fare" count={item.operativi.daFare} pct={percentage(item.operativi.daFare, item.total)} />
                               </td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="programmato" count={item.operativi.counts.programmato} pct={item.operativi.percentages.programmato} />
+                                <StateCell tone="in_scadenza" count={item.operativi.inScadenza} pct={percentage(item.operativi.inScadenza, item.total)} />
                               </td>
                               <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
-                                <StateCell tone="upgrade" count={item.operativi.counts.upgrade} pct={item.operativi.percentages.upgrade} />
+                                <StateCell tone="programmato" count={item.operativi.programmato} pct={percentage(item.operativi.programmato, item.total)} />
+                              </td>
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
+                                <StateCell tone="upgrade" count={item.operativi.upgrade} pct={percentage(item.operativi.upgrade, item.total)} />
+                              </td>
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-800 dark:text-slate-200">
+                                <StateCell tone="conforme" count={item.operativi.conforme} pct={percentage(item.operativi.conforme, item.total)} />
                               </td>
                             </tr>
                           ))}
@@ -3592,14 +3605,14 @@ function StateCell({
   count,
   pct,
 }: {
-  tone: "scaduto" | "da_fare" | "in_scadenza" | "programmato" | "upgrade";
+  tone: "scaduto" | "da_fare" | "in_scadenza" | "programmato" | "upgrade" | "bloccato" | "conforme";
   count: number;
   pct: number;
 }) {
   const cls =
     count === 0
       ? "border-slate-200 bg-slate-50 text-slate-600"
-      : tone === "scaduto"
+      : tone === "scaduto" || tone === "bloccato"
         ? "border-red-200 bg-red-50 text-red-700"
         : tone === "da_fare"
           ? "border-rose-200 bg-rose-50 text-rose-700"
@@ -3607,7 +3620,9 @@ function StateCell({
             ? "border-amber-200 bg-amber-50 text-amber-800"
             : tone === "programmato"
               ? "border-sky-200 bg-sky-50 text-sky-800"
-              : "border-purple-200 bg-purple-50 text-purple-800";
+              : tone === "conforme"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-purple-200 bg-purple-50 text-purple-800";
 
   return (
     <div className="flex flex-col items-end leading-tight">

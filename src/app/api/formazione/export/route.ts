@@ -4,7 +4,7 @@ import { applyCalibri10WithBoldHeader } from "@/lib/excel";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { requireModuleAccess } from "@/lib/api/access";
 import { isoToItDate } from "@/lib/it-date";
-import { resolveCourseState, isValidCourseStatus } from "@/lib/training/engine";
+import { resolveCourseState, isValidCourseStatus, findBrokenPrerequisiteChain } from "@/lib/training/engine";
 import type { SupabaseClient } from "@supabase/supabase-js";
 type XlsxWriteOptionsWithStyles = XLSX.WritingOptions & { cellStyles?: boolean };
 
@@ -115,7 +115,8 @@ type WorkerCourseRow = {
     | "sospeso"
     | "programmato"
     | "upgrade"
-    | "escluso";
+    | "escluso"
+    | "bloccato";
   upgradeInfo: string | null;
   responsabile: string;
   referente: string;
@@ -417,6 +418,7 @@ export async function GET(request: Request) {
       const excludedCourseCodes = excludedCourseIds ? buildExcludedCourseCodeSet(excludedCourseIds, courseMap) : null;
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
+      const employeeStatusByCourseId = new Map(employeeStatusRows.map((row) => [row.course_id, row]));
       const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso, excludedCourseIds);
       let requiredCourseIds = collapseLeveledCourseRequirements(rawRequiredIds, courseMap, excludedCourseCodes);
       applyExemptions(requiredCourseIds, validCompletedCourseIds, exemptionsByFromCourseId);
@@ -571,6 +573,15 @@ export async function GET(request: Request) {
               ? resolveCourseState(undefined, undefined, freeze, todayIso, expiringDaysSafe, false)
               : resolveCourseState(statusEntry, course, freeze, todayIso, expiringDaysSafe, false);
 
+          const brokenChain =
+            !courseExcluded && !lost && state === "idoneo"
+              ? findBrokenPrerequisiteChain(courseId, employeeStatusByCourseId, courseMap, prerequisitesByFromCourseId, todayIso)
+              : null;
+          const finalState = brokenChain ? "bloccato" : (state as WorkerCourseRow["stato"]);
+          const blockNote = brokenChain
+            ? `Bloccato da: ${brokenChain.courseTitle} (${brokenChain.courseCode}) non in regola`
+            : null;
+
           const outputRow: WorkerCourseRow = {
             workerId: employee.id,
             matricola: employee.matricola,
@@ -584,11 +595,11 @@ export async function GET(request: Request) {
             dataConclusione: lost ? null : statusEntry?.completion_date ?? null,
             dataScadenza: lost ? null : statusEntry?.expiry_date ?? null,
             dataPrevista: lost ? null : statusEntry?.planned_date ?? null,
-            stato: state as WorkerCourseRow["stato"],
+            stato: finalState,
             upgradeInfo: null,
             responsabile: employee.responsible_code,
             referente: employee.referral ?? "",
-            note: lost ? "" : statusEntry?.note ?? "",
+            note: mergeNotes(lost ? "" : statusEntry?.note ?? "", blockNote),
             origine: "obbligatorio",
           };
 
