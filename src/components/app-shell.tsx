@@ -73,6 +73,7 @@ export function AppShell({ children }: AppShellProps) {
   const [modulesByKey, setModulesByKey] = useState<Record<string, { canRead: boolean; canWrite: boolean }> | null>(null);
   const [profile, setProfile] = useState<MeResponse["profile"] | null>(null);
   const [hasBlockedImport, setHasBlockedImport] = useState(false);
+  const [hasPreviewImport, setHasPreviewImport] = useState(false);
   useEffect(() => {
     // Force light mode — remove any previously saved dark preference
     localStorage.removeItem("theme");
@@ -103,6 +104,7 @@ export function AppShell({ children }: AppShellProps) {
   useEffect(() => {
     if (profile?.role !== "admin") {
       setHasBlockedImport(false);
+      setHasPreviewImport(false);
       return;
     }
     let cancelled = false;
@@ -111,7 +113,10 @@ export function AppShell({ children }: AppShellProps) {
         const response = await fetch("/api/import-runs/last?source=anagrafica");
         if (!response.ok) return;
         const body = (await response.json()) as { run?: { status?: string } | null };
-        if (!cancelled) setHasBlockedImport(body.run?.status === "blocked");
+        if (!cancelled) {
+          setHasBlockedImport(body.run?.status === "blocked");
+          setHasPreviewImport(body.run?.status === "preview");
+        }
       } catch {
         // Badge is best-effort; a failed check just means no badge this load.
       }
@@ -211,20 +216,20 @@ export function AppShell({ children }: AppShellProps) {
                           <span className="inline-flex items-center gap-2">
                             <span aria-hidden className={["relative", iconWrapClass].join(" ")}>
                               {moduleIcon}
-                              {module.key === "gestione" && hasBlockedImport ? (
+                              {module.key === "gestione" && (hasBlockedImport || hasPreviewImport) ? (
                                 <span
-                                  title="Import bloccato: serve intervento admin"
-                                  className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"
+                                  title={hasBlockedImport ? "Import bloccato: serve intervento admin" : "Import in anteprima: conferma per completare"}
+                                  className={["absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-white", hasBlockedImport ? "bg-red-500" : "bg-amber-500"].join(" ")}
                                 />
                               ) : null}
                             </span>
                             {!sidebarCollapsed ? (
                               <span className="inline-flex items-center gap-1.5">
                                 {module.label}
-                                {module.key === "gestione" && hasBlockedImport ? (
+                                {module.key === "gestione" && (hasBlockedImport || hasPreviewImport) ? (
                                   <span
-                                    title="Import bloccato: serve intervento admin"
-                                    className="inline-block h-2 w-2 rounded-full bg-red-500"
+                                    title={hasBlockedImport ? "Import bloccato: serve intervento admin" : "Import in anteprima: conferma per completare"}
+                                    className={["inline-block h-2 w-2 rounded-full", hasBlockedImport ? "bg-red-500" : "bg-amber-500"].join(" ")}
                                   />
                                 ) : null}
                               </span>
