@@ -60,7 +60,9 @@ export const GET = withModuleAccess("gestione", true, async (request, context, {
     if (entitiesResult.error) throw new Error(entitiesResult.error);
     if (rulesError) throw new Error(rulesError.message);
 
-    const coursesRows = courses ?? [];
+    // Gli aggiornamenti non sono mai assegnabili in matrice: sono impliciti nel corso
+    // nativo (chi deve fare CORSO_X deve anche rinnovarlo, non serve un obbligo separato).
+    const coursesRows = (courses ?? []).filter((c) => !String(c.code).endsWith("_AGGIORNAMENTO"));
     if (coursesRows.length > MAX_COURSES) {
       throw new AppError(400, "TOO_MANY_ROWS", "Troppi corsi per matrice formazione. Riduci il dataset o applica paginazione.");
     }

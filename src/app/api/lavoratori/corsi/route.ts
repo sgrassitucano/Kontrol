@@ -243,9 +243,16 @@ export async function GET(request: Request) {
           `Troppi corsi formazione (> ${MAX_COURSES}). Restringi il dataset o applica paginazione.`,
         );
       }
+      // Difesa: gli aggiornamenti non sono mai un obbligo diretto in matrice, sono impliciti
+      // nel corso nativo. Scarta eventuali regole matrice sporche che li puntano direttamente.
+      const aggiornamentoCourseIds = new Set(
+        courseRows.filter((c) => c.code.endsWith("_AGGIORNAMENTO")).map((c) => c.id),
+      );
+      const cleanRules = ((rules ?? []) as MatrixRule[]).filter((rule) => !aggiornamentoCourseIds.has(rule.course_id));
+
       const out = {
         courses: courseRows,
-        rules: (rules ?? []) as MatrixRule[],
+        rules: cleanRules,
         ruleLinks: (ruleLinks ?? []) as RuleLinkRow[],
       };
       cacheSet(staticKey, out, 5 * 60 * 1000);
