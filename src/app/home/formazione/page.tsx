@@ -90,6 +90,8 @@ type DashboardWorkerBuckets = {
   escluso: number;
   sospeso: number;
   senzaObbligo: number;
+  // Di ciascun bucket critico, quanti hanno già l'aggiornamento specifico programmato.
+  withProgrammatoSubcount: Record<"bloccato" | "scaduto" | "daFare" | "upgrade" | "inScadenza", number>;
 };
 
 type DashboardSummary = {
@@ -3421,6 +3423,16 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
 // Assegna ogni lavoratore a UN solo bucket = suo stato peggiore tra i corsi DOVUTI
 // (origine "obbligatorio") della categoria. Corsi aggiuntivi non incidono sulla conformità.
 // La somma dei bucket = totale lavoratori azienda (i mancanti nel dataset = senzaObbligo).
+// Mappa un corso al proprio corso di "aggiornamento" (rinnovo). Le tre formazioni
+// specifiche (basso/medio/alto) condividono un unico aggiornamento generico, non
+// uno per livello — così deciso: l'aggiornamento è identico per tutte e tre.
+function aggiornamentoCodeFor(courseCode: string): string | null {
+  if (courseCode.endsWith("_AGGIORNAMENTO")) return null;
+  if (courseCode.startsWith("FORM_SPEC_")) return "FORM_SPEC_AGGIORNAMENTO";
+  if (courseCode === "FORM_BASE" || courseCode.startsWith("FORM_BASE+")) return "FORM_SPEC_AGGIORNAMENTO";
+  return `${courseCode}_AGGIORNAMENTO`;
+}
+
 function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: number): DashboardWorkerBuckets {
   type BucketKey =
     | "bloccato"
@@ -3490,20 +3502,50 @@ function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: numbe
     sospeso: 0,
   };
 
+  // Sotto-conteggio per bucket: quanti dei lavoratori del bucket hanno GIÀ pianificato
+  // il corso di aggiornamento che risolve esattamente il problema che li rende peggiori
+  // (non un obbligo diverso). Es: FORM_SPEC_ALTO scaduto conta solo se FORM_SPEC_AGGIORNAMENTO
+  // risulta programmato; CORSO_RLS programmato non conta per uno scaduto su FORM_SPEC_ALTO.
+  const withProgrammatoSubcount: Record<BucketKey, number> = {
+    bloccato: 0,
+    scaduto: 0,
+    daFare: 0,
+    upgrade: 0,
+    inScadenza: 0,
+    programmato: 0,
+    conforme: 0,
+    escluso: 0,
+    sospeso: 0,
+  };
+
   let workersWithObligation = 0;
   dueByWorker.forEach((dueRows) => {
     workersWithObligation += 1;
     let worst: BucketKey = "conforme";
     let worstPriority = PRIORITY.conforme;
+    let worstRows: WorkerCourseRow[] = [];
     for (const row of dueRows) {
       const bucket = bucketOfRow(row);
       const p = PRIORITY[bucket];
       if (p < worstPriority) {
         worstPriority = p;
         worst = bucket;
+        worstRows = [row];
+      } else if (p === worstPriority && bucket === worst) {
+        worstRows.push(row);
       }
     }
     tally[worst] += 1;
+
+    if (worst !== "programmato" && worst !== "conforme") {
+      const rowsByCode = new Map(dueRows.map((r) => [r.corsoCode, r]));
+      const alreadyRescheduled = worstRows.some((row) => {
+        const aggCode = aggiornamentoCodeFor(row.corsoCode);
+        if (!aggCode) return false;
+        return rowsByCode.get(aggCode)?.stato === "programmato";
+      });
+      if (alreadyRescheduled) withProgrammatoSubcount[worst] += 1;
+    }
   });
 
   // Lavoratori senza alcun obbligo nella categoria: differenza sul totale azienda.
@@ -3519,6 +3561,7 @@ function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: numbe
     conforme: tally.conforme,
     escluso: tally.escluso,
     sospeso: tally.sospeso,
+    withProgrammatoSubcount,
     senzaObbligo,
   };
 }

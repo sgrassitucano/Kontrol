@@ -16,9 +16,10 @@ export type DashboardWorkerBuckets = {
   escluso: number;
   sospeso: number;
   senzaObbligo: number;
+  withProgrammatoSubcount: Record<"bloccato" | "scaduto" | "daFare" | "upgrade" | "inScadenza", number>;
 };
 
-export type DashboardBucketKey = keyof DashboardWorkerBuckets;
+export type DashboardBucketKey = Exclude<keyof DashboardWorkerBuckets, "withProgrammatoSubcount">;
 export type DashboardCategory = "base" | "operativi";
 
 type Tone = "danger" | "amber" | "yellow" | "blue" | "green" | "grey";
@@ -67,12 +68,14 @@ function Tile({
   def,
   count,
   total,
+  programmatoSubcount,
   isActive,
   onClick,
 }: {
   def: TileDef;
   count: number;
   total: number;
+  programmatoSubcount?: number;
   isActive: boolean;
   onClick: () => void;
 }) {
@@ -95,6 +98,14 @@ function Tile({
         <span className="text-2xl font-bold tabular-nums">{count}</span>
         <span className="text-xs font-medium opacity-70 tabular-nums">{pct(count, total)}%</span>
       </span>
+      {programmatoSubcount ? (
+        <span
+          className="mt-0.5 text-[10px] font-medium opacity-70"
+          title="Di questi, quanti hanno già l'aggiornamento specifico pianificato."
+        >
+          di cui {programmatoSubcount} programmati
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -159,6 +170,11 @@ function Panel({
             def={def}
             count={buckets[def.key]}
             total={total}
+            programmatoSubcount={
+              def.key === "bloccato" || def.key === "scaduto" || def.key === "daFare" || def.key === "upgrade" || def.key === "inScadenza"
+                ? buckets.withProgrammatoSubcount[def.key]
+                : undefined
+            }
             isActive={activeCategory === category && activeBucket === def.key}
             onClick={() => onSelect(category, def.key)}
           />
