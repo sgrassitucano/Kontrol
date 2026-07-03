@@ -245,6 +245,26 @@ export async function processAnagraficaImport({
   };
 
   if (mode === "preview") {
+    // Save preview run to DB so it appears in UI and badge
+    let previewRunId: string | null = null;
+    const previewInsert = await supabase
+      .from("import_runs")
+      .insert({
+        source: "anagrafica",
+        file_name: fileName,
+        imported_by: importedBy ?? null,
+        total_rows: summaryBase.totalRows,
+        processed_rows: 0,
+        error_rows: allErrors.length,
+        status: "preview",
+      })
+      .select("id")
+      .single();
+
+    if (!previewInsert.error && previewInsert.data?.id) {
+      previewRunId = previewInsert.data.id;
+    }
+
     return {
       mode,
       summary: summaryBase,
@@ -252,7 +272,7 @@ export async function processAnagraficaImport({
       dismissalPreviewRows,
       dismissalGuardrail,
       errors: allErrors,
-      importRunId: null,
+      importRunId: previewRunId,
       message: "Anteprima completata.",
     };
   }
