@@ -6,6 +6,7 @@ import { DashboardCard, ModuleHeader, PanelCard, ActionMenu } from "@/components
 import { EventModal } from "./event-modal";
 import { DashboardKpi, type DashboardBucketKey, type DashboardCategory as KpiCategory } from "./_components/dashboard-kpi";
 import { MultiSelectDropdown } from "./_components/multi-select-dropdown";
+import { ImportProgrammatiModal } from "./_components/import-programmati-modal";
 import {
   isoToItDate,
   formatDateIt,
@@ -280,6 +281,7 @@ export default function HomeFormazionePage() {
   const [dashboardTotalByAnagrafica, setDashboardTotalByAnagrafica] = useState(0);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isImportProgrammatiModalOpen, setIsImportProgrammatiModalOpen] = useState(false);
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<Set<number>>(() => new Set());
   const [eventModalInit, setEventModalInit] = useState<EventModalInit>({
     courseCode: "",
@@ -1706,6 +1708,14 @@ export default function HomeFormazionePage() {
             </button>
             <button
               type="button"
+              onClick={() => setIsImportProgrammatiModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+              title="Importa programmati da file export compilato"
+            >
+              Importa programmati
+            </button>
+            <button
+              type="button"
               onClick={() => void runExport()}
               className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               title="Export Excel"
@@ -2955,6 +2965,12 @@ export default function HomeFormazionePage() {
             await reloadEmployeeRowsAndMaybeDetail(employeeId);
           }
         }}
+      />
+
+      <ImportProgrammatiModal
+        isOpen={isImportProgrammatiModalOpen}
+        onClose={() => setIsImportProgrammatiModalOpen(false)}
+        onCommitted={() => void loadRows()}
       />
 
       {isImportModalOpen ? (
