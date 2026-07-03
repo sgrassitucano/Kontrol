@@ -345,8 +345,23 @@ export default function GestioneImportPage() {
                 </button>
               </div>
             ) : null}
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              <p className="font-bold">⚙️ Automazione giornaliera attiva</p>
+              <p className="mt-1">
+                Scansiona cartella "Caricamenti portali" ogni giorno alle 10:00 e crea un&apos;anteprima import
+                {lastRun && !lastRun.importedByName ? ` (ultima: ${formatDateTimeIt(lastRun.createdAt)})` : ""}
+                . Conferma manualmente da questa pagina per completare.
+              </p>
+            </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+            <p className="font-bold">⚙️ Automazione giornaliera attiva</p>
+            <p className="mt-1">
+              Scansiona cartella "Caricamenti portali" ogni giorno alle 10:00. In attesa della prima esecuzione cron.
+            </p>
+          </div>
+        )}
       </ModuleHeader>
 
       <PanelCard>
