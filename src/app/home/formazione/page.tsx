@@ -2,8 +2,27 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeJobCode } from "@/lib/training/normalize";
-import { DashboardCard, KpiCard, KpiGrid, ModuleHeader, PanelCard, KpiDonutChart, ActionMenu } from "@/components/module-ui";
+import { DashboardCard, ModuleHeader, PanelCard, ActionMenu } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
+import { DashboardKpi, type DashboardBucketKey, type DashboardCategory as KpiCategory } from "./_components/dashboard-kpi";
+import { MultiSelectDropdown } from "./_components/multi-select-dropdown";
+import {
+  isoToItDate,
+  formatDateIt,
+  isoToMonthYear,
+  monthYearSortKey,
+  capitalizeFirst,
+  matchText,
+  matchSearchQuery,
+  matchTextTokens,
+  todayLocalIso,
+  formatIsoToItDate,
+  normalizeItDateDraft,
+  parseStrictItDateToIso,
+  getDefaultSimulationDate,
+  csvEscape,
+  downloadCsvFile,
+} from "./_lib/format";
 import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 import { Eye, Calendar, Award, FileText } from "lucide-react";
 
@@ -22,7 +41,6 @@ const FORMAZIONE_TABLE_WIDTH =
   90 +
   90 +
   120 +
-  190 +
   80 +
   FORMAZIONE_NOTE_COL_WIDTH;
 
@@ -51,6 +69,7 @@ type WorkerCourseRow = {
     | "upgrade"
     | "escluso";
   upgradeInfo: string | null;
+  blockedBy?: { code: string; title: string } | null;
   responsabile: string;
   referente: string;
   note: string;
@@ -59,10 +78,25 @@ type WorkerCourseRow = {
 
 type DashboardStateKey = "scaduto" | "da fare" | "in scadenza" | "programmato" | "upgrade" | "escluso";
 
+// Partizione worst-wins a livello lavoratore: mutuamente esclusiva, somma = totale.
+type DashboardWorkerBuckets = {
+  scaduto: number;
+  daFare: number;
+  bloccato: number;
+  inScadenza: number;
+  upgrade: number;
+  programmato: number;
+  conforme: number;
+  escluso: number;
+  sospeso: number;
+  senzaObbligo: number;
+};
+
 type DashboardSummary = {
   total: number;
   counts: Record<DashboardStateKey, number>;
   percentages: Record<DashboardStateKey, number>;
+  workers: DashboardWorkerBuckets;
 };
 
 type JobEntity = {
@@ -181,6 +215,7 @@ type DashboardCategory = "base" | "operativi";
 type DashboardFilter = {
   category: DashboardCategory;
   states: WorkerCourseRow["stato"][] | null;
+  blocked?: boolean;
 };
 
 const DASHBOARD_BASE_CODES = new Set([
@@ -274,6 +309,8 @@ export default function HomeFormazionePage() {
   const [tableScrollWidth, setTableScrollWidth] = useState(FORMAZIONE_TABLE_WIDTH);
   const [dashboardCategoryFilter, setDashboardCategoryFilter] = useState<"base" | "operativi" | null>(null);
   const [dashboardStateFilter, setDashboardStateFilter] = useState<WorkerCourseRow["stato"][] | null>(null);
+  const [dashboardBlockedFilter, setDashboardBlockedFilter] = useState(false);
+  const [dashboardActiveBucket, setDashboardActiveBucket] = useState<DashboardBucketKey | null>(null);
   const [isDashboardCollapsed, setIsDashboardCollapsed] = useState(false);
   const [isWorkerDetailOpen, setIsWorkerDetailOpen] = useState(false);
   const [workerDetailEmployeeId, setWorkerDetailEmployeeId] = useState<number | null>(null);
@@ -914,6 +951,7 @@ export default function HomeFormazionePage() {
         if (dashboardCategoryFilter === "base" && !isBase) return false;
         if (dashboardCategoryFilter === "operativi" && isBase) return false;
       }
+      if (dashboardBlockedFilter && !row.blockedBy) return false;
       if (dashboardStateFilter && dashboardStateFilter.length > 0) {
         if (!dashboardStateFilter.includes(row.stato)) return false;
       }
@@ -968,6 +1006,7 @@ export default function HomeFormazionePage() {
     columnFilters.sottocantiere,
     dashboardCategoryFilter,
     dashboardStateFilter,
+    dashboardBlockedFilter,
     rows,
     deferredSearch,
   ]);
@@ -1075,12 +1114,44 @@ export default function HomeFormazionePage() {
     if (!next) {
       setDashboardCategoryFilter(null);
       setDashboardStateFilter(null);
+      setDashboardBlockedFilter(false);
+      setDashboardActiveBucket(null);
       return;
     }
     if (next.states && next.states.includes("escluso")) setShowExcludedEmployees(true);
     setDashboardCategoryFilter(next.category);
     setDashboardStateFilter(next.states);
+    setDashboardBlockedFilter(Boolean(next.blocked));
   }, []);
+
+  // Traduce il click su un tile KPI (bucket worst-wins) nel filtro tabella corrispondente.
+  const selectDashboardBucket = useCallback(
+    (category: KpiCategory, bucket: DashboardBucketKey | null) => {
+      // Toggle: riclick sullo stesso bucket azzera.
+      if (dashboardCategoryFilter === category && dashboardActiveBucket === bucket) {
+        applyDashboardFilter(null);
+        return;
+      }
+
+      const statesByBucket: Record<DashboardBucketKey, WorkerCourseRow["stato"][] | null> = {
+        scaduto: ["scaduto", "perso"],
+        daFare: ["da fare"],
+        bloccato: null,
+        inScadenza: ["in scadenza"],
+        upgrade: ["upgrade"],
+        programmato: ["programmato"],
+        conforme: ["idoneo"],
+        escluso: ["escluso"],
+        sospeso: ["sospeso"],
+        senzaObbligo: null,
+      };
+
+      const states = bucket ? statesByBucket[bucket] : null;
+      applyDashboardFilter({ category, states, blocked: bucket === "bloccato" });
+      setDashboardActiveBucket(bucket);
+    },
+    [applyDashboardFilter, dashboardActiveBucket, dashboardCategoryFilter],
+  );
 
   const resetAllFilters = useCallback(() => {
     setSearch("");
@@ -1681,7 +1752,7 @@ export default function HomeFormazionePage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {dashboardCategoryFilter || (dashboardStateFilter && dashboardStateFilter.length > 0) ? (
+            {dashboardCategoryFilter || (dashboardStateFilter && dashboardStateFilter.length > 0) || dashboardBlockedFilter ? (
               <button
                 type="button"
                 onClick={() => applyDashboardFilter(null)}
@@ -1701,118 +1772,14 @@ export default function HomeFormazionePage() {
           </div>
         </div>
         {!isDashboardCollapsed ? (
-          <div className="grid gap-3">
-            {(
-              [
-                { title: "Base", category: "base" as const, summary: pageDashboardData.base.summary, rows: pageDashboardData.base.rows },
-                { title: "Operativi", category: "operativi" as const, summary: pageDashboardData.operativi.summary, rows: pageDashboardData.operativi.rows },
-              ] as const
-            ).map((panel) => {
-              const summary = panel.summary;
-              const excludedCount = excludedByScopeEmployees;
-              const criticoCount =
-                summary.counts.scaduto +
-                summary.counts["da fare"] +
-                summary.counts.upgrade +
-                summary.counts["in scadenza"];
-              const totalWorkers = totalActiveEmployees;
-              const criticoPct = percentage(criticoCount, totalWorkers);
-
-              return (
-                <div key={panel.category} className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-bold text-[var(--brand-ink)]">{panel.title}</h3>
-                  </div>
-
-                  <div className="mt-3">
-                    <KpiGrid className="grid-cols-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9">
-                      <KpiDonutChart
-                        label="Conformità"
-                        percentage={Math.max(0, Math.min(100, Math.round(100 - Number(criticoPct))))}
-                        description="Lavoratori in regola"
-                        tone={100 - Number(criticoPct) >= 90 ? "success" : 100 - Number(criticoPct) >= 75 ? "warning" : "danger"}
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
-                        isActive={dashboardCategoryFilter === panel.category && dashboardStateFilter === null}
-                      />
-                      <KpiCard
-                        label="Totale"
-                        value={totalWorkers}
-                        subValue="100%"
-                        hint="Totale lavoratori in forza (attivi)."
-                        layout="dashboard"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: null })}
-                      />
-                      <KpiCard
-                        label="Critico"
-                        value={criticoCount}
-                        subValue={`${criticoPct}%`}
-                        hint="scaduto + da fare + upgrade + in scadenza (non programmati)"
-                        layout="dashboard"
-                        tone="danger"
-                        onClick={() =>
-                          applyDashboardFilter({ category: panel.category, states: ["scaduto", "da fare", "upgrade", "in scadenza"] })
-                        }
-                      />
-                      <KpiCard
-                        label="Programmato"
-                        value={summary.counts.programmato}
-                        subValue={`${percentage(summary.counts.programmato, totalWorkers)}%`}
-                        hint="Corsi pianificati. Riduce i Critici solo quando programmi un corso critico."
-                        layout="dashboard"
-                        tone="info"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["programmato"] })}
-                      />
-                      <KpiCard
-                        label="Da fare"
-                        value={summary.counts["da fare"]}
-                        subValue={`${percentage(summary.counts["da fare"], totalWorkers)}%`}
-                        hint="Da fare (solo se non programmato)."
-                        layout="dashboard"
-                        tone="danger"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["da fare"] })}
-                      />
-                      <KpiCard
-                        label="Scaduto"
-                        value={summary.counts.scaduto}
-                        subValue={`${percentage(summary.counts.scaduto, totalWorkers)}%`}
-                        hint="Scadenza passata rispetto alla data filtro (solo se non programmato)."
-                        layout="dashboard"
-                        tone="danger"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["scaduto"] })}
-                      />
-                      <KpiCard
-                        label="Upgrade"
-                        value={summary.counts.upgrade}
-                        subValue={`${percentage(summary.counts.upgrade, totalWorkers)}%`}
-                        hint="Richiesta specifica superiore rispetto a quella svolta (solo se non programmato)."
-                        layout="dashboard"
-                        tone="purple"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["upgrade"] })}
-                      />
-                      <KpiCard
-                        label="In scadenza"
-                        value={summary.counts["in scadenza"]}
-                        subValue={`${percentage(summary.counts["in scadenza"], totalWorkers)}%`}
-                        hint={`In scadenza entro ${expiringDays} gg dalla data filtro (solo se non programmato).`}
-                        layout="dashboard"
-                        tone="warning"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["in scadenza"] })}
-                      />
-                      <KpiCard
-                        label="Esclusi"
-                        value={excludedCount}
-                        subValue={`${percentage(excludedCount, totalWorkers)}%`}
-                        hint="Esclusi da scope o per regola."
-                        layout="dashboard"
-                        tone="muted"
-                        onClick={() => applyDashboardFilter({ category: panel.category, states: ["escluso"] })}
-                      />
-                    </KpiGrid>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <DashboardKpi
+            baseBuckets={pageDashboardData.base.summary.workers}
+            operativiBuckets={pageDashboardData.operativi.summary.workers}
+            total={totalActiveEmployees}
+            activeCategory={dashboardCategoryFilter}
+            activeBucket={dashboardActiveBucket}
+            onSelect={selectDashboardBucket}
+          />
         ) : null}
       </DashboardCard>
 
@@ -1918,7 +1885,6 @@ export default function HomeFormazionePage() {
               <col style={{ width: 90 }} />
               <col style={{ width: 90 }} />
               <col style={{ width: 120 }} />
-              <col style={{ width: 190 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: FORMAZIONE_NOTE_COL_WIDTH }} />
             </colgroup>
@@ -2015,11 +1981,6 @@ export default function HomeFormazionePage() {
                   </button>
                 </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
-                  <button type="button" onClick={() => toggleSort("origine")} className="inline-flex items-center gap-1">
-                    Origine {sortIcon("origine")}
-                  </button>
-                </th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("stato")} className="inline-flex items-center gap-1">
                     Stato {sortIcon("stato")}
                   </button>
@@ -2087,14 +2048,6 @@ export default function HomeFormazionePage() {
                   />
                 </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2" />
-                <th className="sticky top-8 z-10 bg-white px-3 py-2">
-                  <MultiSelectDropdown
-                    selected={columnFilters.origine}
-                    options={origineFilterOptions}
-                    onChange={(selected) => setColumnFilters((v) => ({ ...v, origine: selected }))}
-                    placeholder="Tutte"
-                  />
-                </th>
                 <th className="sticky top-8 z-10 bg-white px-3 py-2">
                   <MultiSelectDropdown
                     selected={columnFilters.stato}
@@ -2165,11 +2118,6 @@ export default function HomeFormazionePage() {
                     {formatDateIt(row.dataPrevista)}
                   </td>
                   <td className="px-4 py-2.5">
-                    <span className={originClassName(row.origine)} title={row.origine}>
-                      {row.origine}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
                     <div className="flex min-w-0 items-center gap-2">
                       <button
                         type="button"
@@ -2180,11 +2128,22 @@ export default function HomeFormazionePage() {
                           statusClassName(row.stato),
                           "transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60",
                         ].join(" ")}
-                        title="Cambia stato (Evento)"
+                        title={
+                          row.blockedBy
+                            ? `Bloccato: ${row.blockedBy.title} (${row.blockedBy.code}) non in regola`
+                            : "Cambia stato (Evento)"
+                        }
                       >
-                        {row.stato}
+                        {row.blockedBy ? "bloccato" : row.stato}
                       </button>
-                      {row.stato === "upgrade" && row.upgradeInfo ? (
+                      {row.blockedBy ? (
+                        <span
+                          className="min-w-0 flex-1 truncate text-[11px] font-semibold text-red-600"
+                          title={`Prerequisito non in regola: ${row.blockedBy.title} (${row.blockedBy.code})`}
+                        >
+                          ⚠ {row.blockedBy.code}
+                        </span>
+                      ) : row.stato === "upgrade" && row.upgradeInfo ? (
                         <span
                           className={`min-w-0 flex-1 truncate text-[11px] font-semibold ${textClass}`}
                           title={row.upgradeInfo}
@@ -2195,6 +2154,26 @@ export default function HomeFormazionePage() {
                     </div>
                   </td>
                   <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        data-unstyled="true"
+                        onClick={() => {
+                          setSelectedWorkerIds(new Set([row.workerId]));
+                          openEventModal({
+                            courseCode: row.corsoCode,
+                            courseSearch: `${row.corsoCode} ${row.corso}`.trim(),
+                            type: "SVOLTO",
+                            date: "",
+                            note: "",
+                          });
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-[var(--brand-line)] bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-[var(--brand-panel-2)]"
+                        title="Registra corso svolto"
+                      >
+                        <Award className="h-3.5 w-3.5" />
+                        Svolto
+                      </button>
                     <ActionMenu
                       actions={[
                         {
@@ -2208,20 +2187,6 @@ export default function HomeFormazionePage() {
                           onClick: () => openQuickAction(row)
                         },
                         {
-                          label: "Registra Corso Svolto",
-                          icon: <Award className="h-3.5 w-3.5" />,
-                          onClick: () => {
-                            setSelectedWorkerIds(new Set([row.workerId]));
-                            openEventModal({
-                              courseCode: row.corsoCode,
-                              courseSearch: `${row.corsoCode} ${row.corso}`.trim(),
-                              type: "SVOLTO",
-                              date: "",
-                              note: ""
-                            });
-                          }
-                        },
-                        {
                           label: "Scarica Fascicolo PDF",
                           icon: <FileText className="h-3.5 w-3.5" />,
                           onClick: () => {
@@ -2230,6 +2195,7 @@ export default function HomeFormazionePage() {
                         }
                       ]}
                     />
+                    </div>
                   </td>
                   <td style={{ width: FORMAZIONE_NOTE_COL_WIDTH, minWidth: FORMAZIONE_NOTE_COL_WIDTH }} className={`px-4 py-2.5 ${textClass}`}>
                     <input
@@ -2250,7 +2216,7 @@ export default function HomeFormazionePage() {
               })}
               {!isLoading && sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={16} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={15} className="px-4 py-8 text-center text-sm text-slate-500">
                     Nessun dato disponibile.
                   </td>
                 </tr>
@@ -3326,79 +3292,8 @@ function statusClassName(status: WorkerCourseRow["stato"]) {
   return `${base} border-slate-300 bg-slate-100 text-slate-700`;
 }
 
-function originClassName(origine: WorkerCourseRow["origine"]) {
-  const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold leading-none";
-  if (origine === "aggiuntivo") {
-    return `${base} border-violet-900/25 bg-violet-200/60 text-slate-950`;
-  }
-  return `${base} border-slate-400/60 bg-slate-200/70 text-slate-900`;
-}
-
-function matchText(value: string, filter: string) {
-  const normalizedFilter = filter.trim().toLowerCase();
-  if (!normalizedFilter) return true;
-  const normalizedValue = value.toLowerCase();
-  if (normalizedValue.includes(normalizedFilter)) return true;
-  const formattedValue = isoToItDate(value).toLowerCase();
-  if (formattedValue !== normalizedValue && formattedValue.includes(normalizedFilter)) return true;
-  return false;
-}
-
-function normalizeSearchText(value: unknown) {
-  return String(value ?? "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function matchSearchQuery(parts: Array<string | null | undefined>, query: string) {
-  const normalizedQuery = normalizeSearchText(query);
-  if (!normalizedQuery) return true;
-  const haystack = normalizeSearchText(parts.filter(Boolean).join(" "));
-  if (!haystack) return false;
-  const tokens = normalizedQuery.split(" ").filter(Boolean);
-  return tokens.every((token) => haystack.includes(token));
-}
-
-function matchTextTokens(value: string, filter: string) {
-  const tokens = filter
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
-  if (tokens.length === 0) return true;
-  const hay = String(value ?? "").toLowerCase();
-  return tokens.every((t) => hay.includes(t));
-}
-
 function isDashboardBaseCode(code: string) {
   return DASHBOARD_BASE_CODES.has(code) || code.startsWith("FORM_BASE+");
-}
-
-function isoToItDate(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return value;
-  return `${match[3]}/${match[2]}/${match[1]}`;
-}
-
-function isoToMonthYear(value: string | null) {
-  if (!value) return "(vuoto)";
-  const match = value.match(/^(\d{4})-(\d{2})/);
-  if (!match) return "(vuoto)";
-  return `${match[2]}/${match[1]}`;
-}
-
-function monthYearSortKey(value: string) {
-  const match = value.match(/^(\d{2})\/(\d{4})$/);
-  if (!match) return -1;
-  const month = Number(match[1]);
-  const year = Number(match[2]);
-  if (!Number.isFinite(month) || !Number.isFinite(year)) return -1;
-  return year * 12 + month;
 }
 
 function buildMonthYearFilterOptions(
@@ -3412,101 +3307,10 @@ function buildMonthYearFilterOptions(
   return list;
 }
 
-function capitalizeFirst(value: string) {
-  const v = String(value ?? "").trim();
-  if (!v) return v;
-  return v.charAt(0).toUpperCase() + v.slice(1);
-}
-
 function formatStatoLabel(value: WorkerCourseRow["stato"]) {
   if (value === "da fare") return "Da fare";
   if (value === "in scadenza") return "In scadenza";
   return capitalizeFirst(value);
-}
-
-function toggleMultiSelect<T extends string>(list: T[], value: T) {
-  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
-}
-
-function MultiSelectDropdown<T extends string>({
-  selected,
-  options,
-  onChange,
-  placeholder,
-  searchable,
-  searchPlaceholder,
-}: {
-  selected: T[];
-  options: Array<{ value: T; label: string }>;
-  onChange: (next: T[]) => void;
-  placeholder: string;
-  searchable?: boolean;
-  searchPlaceholder?: string;
-}) {
-  const [query, setQuery] = useState("");
-  const filteredOptions = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
-  }, [options, query]);
-
-  const label = useMemo(() => {
-    if (selected.length === 0) return placeholder;
-    if (selected.length === 1) {
-      const found = options.find((o) => o.value === selected[0]);
-      return found?.label ?? selected[0];
-    }
-    return `${selected.length} selezionati`;
-  }, [options, placeholder, selected]);
-
-  return (
-    <details className="relative">
-      <summary className="w-full list-none rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case text-slate-700">
-        <span className="block truncate">{label}</span>
-      </summary>
-      <div className="absolute z-30 mt-1 w-[260px] rounded-xl border border-[var(--brand-line)] bg-white p-2 shadow-lg">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => onChange([])}
-            className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-[11px] font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
-            disabled={selected.length === 0}
-          >
-            Pulisci
-          </button>
-          {searchable ? (
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={searchPlaceholder ?? "Cerca"}
-              className="w-full rounded-lg border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px]"
-            />
-          ) : null}
-        </div>
-        <div className="max-h-56 overflow-auto rounded-lg border border-[var(--brand-line)] bg-white">
-          {filteredOptions.map((opt) => (
-            <label key={opt.value} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-[11px]">
-              <input
-                type="checkbox"
-                checked={selected.includes(opt.value)}
-                onChange={() => onChange(toggleMultiSelect(selected, opt.value))}
-                className="h-4 w-4"
-              />
-              <span className="min-w-0 flex-1 truncate">{opt.label}</span>
-            </label>
-          ))}
-          {filteredOptions.length === 0 ? (
-            <div className="px-2 py-2 text-[11px] text-slate-500">Nessun valore</div>
-          ) : null}
-        </div>
-      </div>
-    </details>
-  );
-}
-
-function formatDateIt(value: string | null) {
-  if (!value) return "-";
-  return isoToItDate(value);
 }
 
 function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: number): DashboardSummary {
@@ -3607,7 +3411,114 @@ function buildDashboardSummary(rows: WorkerCourseRow[], totalActiveEmployees: nu
     "escluso": percentage(finalCounts.escluso, totalActiveEmployees),
   };
 
-  return { total: totalActiveEmployees, counts: finalCounts, percentages };
+  const workers = buildWorkerBuckets(rows, totalActiveEmployees);
+
+  return { total: totalActiveEmployees, counts: finalCounts, percentages, workers };
+}
+
+// Assegna ogni lavoratore a UN solo bucket = suo stato peggiore tra i corsi DOVUTI
+// (origine "obbligatorio") della categoria. Corsi aggiuntivi non incidono sulla conformità.
+// La somma dei bucket = totale lavoratori azienda (i mancanti nel dataset = senzaObbligo).
+function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: number): DashboardWorkerBuckets {
+  type BucketKey =
+    | "bloccato"
+    | "scaduto"
+    | "daFare"
+    | "upgrade"
+    | "inScadenza"
+    | "programmato"
+    | "conforme"
+    | "escluso"
+    | "sospeso";
+
+  // Priorità: numero più basso = peggiore = vince nel worst-wins.
+  const PRIORITY: Record<BucketKey, number> = {
+    bloccato: 1,
+    scaduto: 2,
+    daFare: 3,
+    upgrade: 4,
+    inScadenza: 5,
+    programmato: 6,
+    conforme: 7,
+    escluso: 8,
+    sospeso: 9,
+  };
+
+  const bucketOfRow = (row: WorkerCourseRow): BucketKey => {
+    if (row.blockedBy) return "bloccato";
+    switch (row.stato) {
+      case "scaduto":
+      case "perso":
+        return "scaduto";
+      case "da fare":
+        return "daFare";
+      case "upgrade":
+        return "upgrade";
+      case "in scadenza":
+        return "inScadenza";
+      case "programmato":
+        return "programmato";
+      case "escluso":
+        return "escluso";
+      case "sospeso":
+        return "sospeso";
+      case "idoneo":
+      default:
+        return "conforme";
+    }
+  };
+
+  const dueByWorker = new Map<number, WorkerCourseRow[]>();
+  rows.forEach((row) => {
+    if (row.origine !== "obbligatorio") return;
+    const list = dueByWorker.get(row.workerId);
+    if (!list) dueByWorker.set(row.workerId, [row]);
+    else list.push(row);
+  });
+
+  const tally: Record<BucketKey, number> = {
+    bloccato: 0,
+    scaduto: 0,
+    daFare: 0,
+    upgrade: 0,
+    inScadenza: 0,
+    programmato: 0,
+    conforme: 0,
+    escluso: 0,
+    sospeso: 0,
+  };
+
+  let workersWithObligation = 0;
+  dueByWorker.forEach((dueRows) => {
+    workersWithObligation += 1;
+    let worst: BucketKey = "conforme";
+    let worstPriority = PRIORITY.conforme;
+    for (const row of dueRows) {
+      const bucket = bucketOfRow(row);
+      const p = PRIORITY[bucket];
+      if (p < worstPriority) {
+        worstPriority = p;
+        worst = bucket;
+      }
+    }
+    tally[worst] += 1;
+  });
+
+  // Lavoratori senza alcun obbligo nella categoria: differenza sul totale azienda.
+  const senzaObbligo = Math.max(0, totalActiveEmployees - workersWithObligation);
+
+  return {
+    scaduto: tally.scaduto,
+    daFare: tally.daFare,
+    bloccato: tally.bloccato,
+    inScadenza: tally.inScadenza,
+    upgrade: tally.upgrade,
+    programmato: tally.programmato,
+    conforme: tally.conforme,
+    escluso: tally.escluso,
+    sospeso: tally.sospeso,
+    senzaObbligo,
+  };
 }
 
 function percentage(count: number, total: number) {
@@ -3715,59 +3626,3 @@ function buildMissingEmployeesCsv(rows: ImportPreviewMissingEmployee[]) {
   return [header.join(","), ...lines].join("\n");
 }
 
-function csvEscape(value: string | number) {
-  const text = String(value ?? "");
-  if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
-    return `"${text.replace(/"/g, "\"\"")}"`;
-  }
-  return text;
-}
-
-function downloadCsvFile(fileName: string, content: string) {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function todayLocalIso() {
-  const d = new Date();
-  const y = String(d.getFullYear());
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function formatIsoToItDate(iso: string) {
-  const match = String(iso ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return "";
-  return `${match[3]}/${match[2]}/${match[1]}`;
-}
-
-function normalizeItDateDraft(value: string) {
-  const digits = String(value ?? "").replace(/\D/g, "").slice(0, 8);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-}
-
-function parseStrictItDateToIso(value: string) {
-  const raw = String(value ?? "").trim();
-  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!match) return null;
-  const dd = match[1];
-  const mm = match[2];
-  const yyyy = match[3];
-  const iso = `${yyyy}-${mm}-${dd}`;
-  const dt = new Date(`${iso}T12:00:00`);
-  if (!Number.isFinite(dt.getTime())) return null;
-  const roundTrip = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-  return roundTrip === iso ? iso : null;
-}
-
-function getDefaultSimulationDate() {
-  return todayLocalIso();
-}

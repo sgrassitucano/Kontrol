@@ -164,6 +164,52 @@ export function resolveCourseState(
   return "idoneo";
 }
 
+/**
+ * Verifica ricorsivamente se i prerequisiti diretti/transitivi di un corso sono validi
+ * per un lavoratore. Usa dati già caricati in memoria (nessuna query DB aggiuntiva).
+ * Esempio: PONTEGGIO -> QUOTA_DPI -> FORM_SPEC_ALTO. Se FORM_SPEC_ALTO è scaduto,
+ * PONTEGGIO risulta bloccato anche se il proprio completamento non è scaduto.
+ * Ritorna il codice del primo prerequisito non valido trovato risalendo la catena, o null.
+ */
+export function findBrokenPrerequisiteChain(
+  courseId: number,
+  employeeStatusByCourseId: Map<number, CourseStatusRow>,
+  courseMap: Map<number, CourseRow>,
+  prerequisitesByFromCourseId: Map<number, Set<number>>,
+  todayIso: string,
+  visited: Set<number> = new Set(),
+): { courseCode: string; courseTitle: string } | null {
+  if (visited.has(courseId)) return null;
+  visited.add(courseId);
+
+  const prereqIds = prerequisitesByFromCourseId.get(courseId);
+  if (!prereqIds || prereqIds.size === 0) return null;
+
+  for (const prereqId of prereqIds) {
+    const prereqCourse = courseMap.get(prereqId);
+    if (!prereqCourse) continue;
+
+    const prereqStatus = employeeStatusByCourseId.get(prereqId);
+    const prereqValid = prereqStatus ? isValidCourseStatus(prereqStatus, prereqCourse, todayIso) : false;
+
+    if (!prereqValid) {
+      return { courseCode: prereqCourse.code, courseTitle: prereqCourse.title };
+    }
+
+    const deeper = findBrokenPrerequisiteChain(
+      prereqId,
+      employeeStatusByCourseId,
+      courseMap,
+      prerequisitesByFromCourseId,
+      todayIso,
+      visited,
+    );
+    if (deeper) return deeper;
+  }
+
+  return null;
+}
+
 export function isValidCourseStatus(row: CourseStatusRow, course: CourseRow, todayIso: string) {
   if (row.manual_state === "escluso") return false;
   if (!row.completion_date) return false;

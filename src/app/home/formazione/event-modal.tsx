@@ -40,6 +40,8 @@ export function EventModal(props: {
   } = props;
 
   const [eventWorkerSearch, setEventWorkerSearch] = useState("");
+  const [pasteMatricole, setPasteMatricole] = useState("");
+  const [pasteMatricoleResult, setPasteMatricoleResult] = useState("");
   const [eventCourseSearch, setEventCourseSearch] = useState("");
   const [eventSelectedCourseCode, setEventSelectedCourseCode] = useState("");
   const [eventType, setEventType] = useState<EventType>("PROGRAMMATO");
@@ -51,6 +53,8 @@ export function EventModal(props: {
   useEffect(() => {
     if (!isOpen) return;
     setEventWorkerSearch("");
+    setPasteMatricole("");
+    setPasteMatricoleResult("");
     setEventCourseSearch(initial.courseSearch);
     setEventSelectedCourseCode(initial.courseCode);
     setEventType(initial.type);
@@ -60,17 +64,43 @@ export function EventModal(props: {
     setEventSaving(false);
   }, [initial, isOpen]);
 
-  const filteredEventWorkers = useMemo(() => {
+  const matchingEventWorkers = useMemo(() => {
     const q = eventWorkerSearch.trim().toLowerCase();
-    const list = !q
-      ? workerOptions
-      : workerOptions.filter((worker) =>
-          `${worker.matricola} ${worker.fullName} ${worker.cantiere} ${worker.sottocantiere}`
-            .toLowerCase()
-            .includes(q),
-        );
-    return list.slice(0, 10);
+    if (!q) return [] as WorkerOption[];
+    return workerOptions.filter((worker) =>
+      `${worker.matricola} ${worker.fullName} ${worker.cantiere} ${worker.sottocantiere}`
+        .toLowerCase()
+        .includes(q),
+    );
   }, [eventWorkerSearch, workerOptions]);
+
+  const filteredEventWorkers = useMemo(() => matchingEventWorkers.slice(0, 50), [matchingEventWorkers]);
+
+  const addAllMatching = useCallback(() => {
+    matchingEventWorkers.forEach((worker) => {
+      if (!selectedWorkerIds.has(worker.workerId)) toggleWorkerSelection(worker.workerId);
+    });
+  }, [matchingEventWorkers, selectedWorkerIds, toggleWorkerSelection]);
+
+  const addByMatricole = useCallback(() => {
+    const tokens = pasteMatricole
+      .split(/[\s,;]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.length === 0) return;
+    const wanted = new Set(tokens.map((t) => t.toLowerCase()));
+    const matched = workerOptions.filter((w) => wanted.has(w.matricola.trim().toLowerCase()));
+    matched.forEach((worker) => {
+      if (!selectedWorkerIds.has(worker.workerId)) toggleWorkerSelection(worker.workerId);
+    });
+    const matchedMatricole = new Set(matched.map((w) => w.matricola.trim().toLowerCase()));
+    const notFound = tokens.filter((t) => !matchedMatricole.has(t.toLowerCase()));
+    setPasteMatricoleResult(
+      notFound.length === 0
+        ? `${matched.length} lavoratori aggiunti.`
+        : `${matched.length} aggiunti. Non trovate: ${notFound.join(", ")}`,
+    );
+  }, [pasteMatricole, workerOptions, selectedWorkerIds, toggleWorkerSelection]);
 
   const filteredEventCourses = useMemo(() => {
     const q = eventCourseSearch.trim().toLowerCase();
@@ -241,13 +271,30 @@ export function EventModal(props: {
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-600">Ricerca lavoratore</label>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-slate-600">Ricerca lavoratore</label>
+              {matchingEventWorkers.length > 0 ? (
+                <button
+                  type="button"
+                  data-unstyled="true"
+                  onClick={addAllMatching}
+                  className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-[11px] font-bold text-white shadow-sm transition hover:brightness-95"
+                >
+                  Aggiungi tutti i {matchingEventWorkers.length} risultati
+                </button>
+              ) : null}
+            </div>
             <input
               value={eventWorkerSearch}
               onChange={(event) => setEventWorkerSearch(event.target.value)}
               className="w-full rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm"
               placeholder="Matricola, cognome, nome, cantiere..."
             />
+            {matchingEventWorkers.length > filteredEventWorkers.length ? (
+              <p className="text-[11px] text-slate-500">
+                Mostrati {filteredEventWorkers.length} su {matchingEventWorkers.length}. Usa &quot;Aggiungi tutti&quot; per includerli tutti, o affina la ricerca.
+              </p>
+            ) : null}
             <div className="max-h-44 overflow-auto rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)]">
               {filteredEventWorkers.map((worker) => (
                 <label
@@ -303,6 +350,30 @@ export function EventModal(props: {
                 ) : null}
               </div>
             </div>
+
+            <label className="pt-2 text-xs font-semibold text-slate-600">Incolla matricole (bulk)</label>
+            <div className="flex gap-2">
+              <textarea
+                value={pasteMatricole}
+                onChange={(event) => {
+                  setPasteMatricole(event.target.value);
+                  setPasteMatricoleResult("");
+                }}
+                rows={2}
+                className="w-full rounded-xl border border-[var(--brand-line)] px-3 py-2 text-xs"
+                placeholder="Incolla matricole separate da spazio, virgola o a capo..."
+              />
+              <button
+                type="button"
+                data-unstyled="true"
+                onClick={addByMatricole}
+                disabled={!pasteMatricole.trim()}
+                className="shrink-0 self-start rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
+              >
+                Aggiungi
+              </button>
+            </div>
+            {pasteMatricoleResult ? <p className="text-[11px] text-slate-600">{pasteMatricoleResult}</p> : null}
           </div>
 
           <div className="space-y-2">

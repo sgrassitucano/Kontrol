@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { buildJobVariantKey, normalizeJobCode } from "@/lib/training/normalize";
 import { requireAnyModuleAccess } from "@/lib/api/access";
 import { cacheGet, cacheSet } from "@/lib/server-cache";
-import { resolveCourseState, isValidCourseStatus } from "@/lib/training/engine";
+import { resolveCourseState, isValidCourseStatus, findBrokenPrerequisiteChain } from "@/lib/training/engine";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type EmployeeRow = {
@@ -73,6 +73,7 @@ type WorkerCourseRow = {
     | "upgrade"
     | "escluso";
   upgradeInfo: string | null;
+  blockedBy?: { code: string; title: string } | null;
   responsabile: string;
   referente: string;
   note: string;
@@ -372,6 +373,7 @@ export async function GET(request: Request) {
       const excludedCourseCodes = excludedCourseIds ? buildExcludedCourseCodeSet(excludedCourseIds, courseMap) : null;
       const rawRequiredIds = resolveRequiredCourseIds(employee, rulesByScope);
       const employeeStatusRows = statusByEmployee.get(employee.id) ?? [];
+      const employeeStatusByCourseId = new Map(employeeStatusRows.map((row) => [row.course_id, row]));
       const validCompletedCourseIds = buildValidCompletedCourseIdSet(employeeStatusRows, courseMap, todayIso, excludedCourseIds);
       let requiredCourseIds = expandCombinedBaseRequirements(
         collapseLeveledCourseRequirements(rawRequiredIds, courseMap, excludedCourseCodes),
@@ -571,6 +573,11 @@ export async function GET(request: Request) {
                 ? resolveCourseState(undefined, undefined, freeze, todayIso, expiringDaysSafe, false)
                 : resolveCourseState(statusEntry, course, freeze, todayIso, expiringDaysSafe, false);
 
+          const brokenChain =
+            !employeeExcluded && !courseExcluded && !lost && state === "idoneo"
+              ? findBrokenPrerequisiteChain(courseId, employeeStatusByCourseId, courseMap, prerequisitesByFromCourseId, todayIso)
+              : null;
+
           const outputRow: WorkerCourseRow = {
             workerId: employee.id,
             matricola: employee.matricola,
@@ -587,6 +594,7 @@ export async function GET(request: Request) {
             dataPrevista: lost ? null : statusEntry?.planned_date ?? null,
             stato: state as WorkerCourseRow["stato"],
             upgradeInfo: null,
+            blockedBy: brokenChain ? { code: brokenChain.courseCode, title: brokenChain.courseTitle } : null,
             responsabile: employee.responsible_code,
             referente: employee.referral ?? "",
             note: lost ? "" : statusEntry?.note ?? "",
