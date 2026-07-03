@@ -70,6 +70,7 @@ export async function POST(request: Request) {
       mode: "preview",
       supabase,
       importedBy: null, // Cron run, no user
+      driveFileId: latestFile.id,
     });
 
     // 6. Log the cron run result

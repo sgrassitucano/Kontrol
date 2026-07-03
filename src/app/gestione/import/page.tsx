@@ -203,9 +203,9 @@ export default function GestioneImportPage() {
   // Auto-populate result when cron creates a preview
   useEffect(() => {
     if (lastRun?.status === "preview" && lastRun.previewData && !result) {
-      const { previewRows, dismissalPreviewRows, dismissalGuardrail, errors } = lastRun.previewData;
+      const { previewRows, dismissalPreviewRows, dismissalGuardrail, errors, driveFileId } = lastRun.previewData as any;
       setImportSource("drive");
-      setDriveFileId(lastRun.id);
+      setDriveFileId(driveFileId ?? "");
       setResult({
         mode: "preview",
         summary: {

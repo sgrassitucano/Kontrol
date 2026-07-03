@@ -14,6 +14,7 @@ type ImportParams = {
   confirmCriticalDismissals?: boolean;
   overrideBlockedDismissals?: boolean;
   confirmDismissalPhrase?: string | null;
+  driveFileId?: string | null;
 };
 
 type ImportRunChangeInsert = {
@@ -183,6 +184,7 @@ export async function processAnagraficaImport({
   confirmCriticalDismissals,
   overrideBlockedDismissals,
   confirmDismissalPhrase,
+  driveFileId,
 }: ImportParams): Promise<ImportResult> {
   const parsed = parseWorkbook(fileBuffer);
   const existingEmployees = await fetchExistingEmployees(supabase);
@@ -262,6 +264,7 @@ export async function processAnagraficaImport({
           dismissalPreviewRows,
           dismissalGuardrail,
           errors: allErrors,
+          driveFileId: driveFileId ?? null,
         },
       })
       .select("id")
