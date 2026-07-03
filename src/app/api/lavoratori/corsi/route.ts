@@ -371,6 +371,11 @@ export async function GET(request: Request) {
       "CORSO_ASPP",
     ]);
 
+    // Sottoinsieme di baseCodes con rendering combinato dedicato (buildTrainingBaseSectionRows).
+    // RLS/RSPP/DIR non hanno una riga speciale: se completati ma non richiesti da matrice
+    // devono comunque comparire come corso aggiuntivo, non sparire silenziosamente.
+    const formBaseFamilyCodes = new Set(["FORM_BASE", "FORM_SPEC_BASSO", "FORM_SPEC_MEDIO", "FORM_SPEC_ALTO"]);
+
     let frozenEmployees = 0;
     let eligibleEmployees = 0;
     let eligibleOperativiEmployees = 0;
@@ -745,7 +750,7 @@ export async function GET(request: Request) {
         if (requiredCourseIds.has(statusEntry.course_id)) continue;
         const course = courseMap.get(statusEntry.course_id);
         if (!course) continue;
-        if (baseCodes.has(course.code) || course.code.startsWith("FORM_BASE+")) continue;
+        if (formBaseFamilyCodes.has(course.code) || course.code.startsWith("FORM_BASE+")) continue;
 
         const freeze = activeFreeze.get(employee.id);
         const isUpgrade = upgradeCourseIds.has(statusEntry.course_id);
