@@ -459,7 +459,27 @@ export async function GET(request: Request) {
           if (baseSection) {
             skipRequiredCourseIds.add(formBaseCourseId);
             skipRequiredCourseIds.add(formSpecRequired.courseId);
-            pushRows(baseSection);
+            const filteredBaseSection = query
+              ? baseSection.filter((row) =>
+                  matchSearchQuery(
+                    [
+                      row.matricola,
+                      row.cantiere,
+                      row.sottocantiere,
+                      row.cognome,
+                      row.nome,
+                      row.mansione,
+                      row.responsabile,
+                      row.referente,
+                      row.corsoCode,
+                      row.corso,
+                      row.note,
+                    ],
+                    query,
+                  ),
+                )
+              : baseSection;
+            pushRows(filteredBaseSection);
           }
         }
       }
