@@ -107,22 +107,28 @@ export function AppShell({ children }: AppShellProps) {
       setHasPreviewImport(false);
       return;
     }
-    let cancelled = false;
-    (async () => {
+
+    const fetchBadgeStatus = async () => {
       try {
         const response = await fetch("/api/import-runs/last?source=anagrafica");
         if (!response.ok) return;
         const body = (await response.json()) as { run?: { status?: string } | null };
-        if (!cancelled) {
-          setHasBlockedImport(body.run?.status === "blocked");
-          setHasPreviewImport(body.run?.status === "preview");
-        }
+        setHasBlockedImport(body.run?.status === "blocked");
+        setHasPreviewImport(body.run?.status === "preview");
       } catch {
         // Badge is best-effort; a failed check just means no badge this load.
       }
-    })();
+    };
+
+    let cancelled = false;
+    void fetchBadgeStatus();
+    const pollInterval = window.setInterval(() => {
+      if (!cancelled) void fetchBadgeStatus();
+    }, 10000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(pollInterval);
     };
   }, [profile?.role]);
 
