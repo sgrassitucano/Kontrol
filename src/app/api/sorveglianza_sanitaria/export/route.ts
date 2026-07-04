@@ -476,6 +476,7 @@ export async function GET(request: Request) {
       provider: string;
       nextDueDate: string | null;
       limitations: string;
+      notes: string;
       state: RowState;
       requiresVisit: boolean;
     }> = [];
@@ -536,6 +537,7 @@ export async function GET(request: Request) {
       const provider = providerFromAssignment || providerFromRecord || "-";
 
       const limitations = String(record?.limitations ?? "").trim();
+      const notes = String(record?.notes ?? "").trim();
       const nextDueDate = record?.next_due_date ?? null;
 
       if (status) {
@@ -567,15 +569,18 @@ export async function GET(request: Request) {
         if (!searchable.includes(query)) continue;
       }
 
-      pushRow({ employee, provider, nextDueDate, limitations, state, requiresVisit });
+      pushRow({ employee, provider, nextDueDate, limitations, notes, state, requiresVisit });
     }
 
     rows.sort((a, b) => a.employee.last_name.localeCompare(b.employee.last_name, "it", { sensitivity: "base" }) || a.employee.first_name.localeCompare(b.employee.first_name, "it", { sensitivity: "base" }));
 
+    // "matricola", "visita si/no", "note" mantengono i nomi attesi da
+    // /api/sorveglianza_sanitaria/import: questo file è reimportabile round-trip
+    // (stesso pattern dell'export formazione), non solo il modello vuoto.
     const headers = [
       "cognome",
       "nome",
-      "codice",
+      "matricola",
       "codice fiscale",
       "mansione",
       "specifiche mansione",
@@ -584,15 +589,17 @@ export async function GET(request: Request) {
       "cantiere",
       "sottocantiere",
       "provider",
+      "visita si/no",
       "scadenza visita",
       "stato",
       "limitazioni",
+      "note",
     ] as const;
 
-    const sheet: Record<(typeof headers)[number], string>[] = rows.map(({ employee, provider, nextDueDate, limitations, state }) => ({
+    const sheet: Record<(typeof headers)[number], string>[] = rows.map(({ employee, provider, nextDueDate, limitations, notes, state, requiresVisit }) => ({
       "cognome": employee.last_name ?? "",
       "nome": employee.first_name ?? "",
-      "codice": employee.matricola ?? "",
+      "matricola": employee.matricola ?? "",
       "codice fiscale": (employee.tax_code ?? "").toUpperCase(),
       "mansione": employee.job_title ?? "",
       "specifiche mansione": employee.job_title_notes ?? "",
@@ -601,9 +608,11 @@ export async function GET(request: Request) {
       "cantiere": extractDisplayName(employee.sites),
       "sottocantiere": extractDisplayName(employee.sub_sites),
       "provider": provider,
+      "visita si/no": requiresVisit ? "SI" : "NO",
       "scadenza visita": nextDueDate ? isoToItDate(nextDueDate) : "",
       "stato": state,
       "limitazioni": limitations,
+      "note": notes,
     }));
 
     console.log(`[sorveglianza/export] employees=${employees.length} rows=${rows.length}`);
