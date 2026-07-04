@@ -54,48 +54,49 @@ export default function GuidaHomePage() {
       title: "Formazione",
       summary: "Gestione delle scadenze dei corsi di formazione obbligatori e aggiuntivi.",
       cosaTrovi: [
-        "Cruscotto indicatori (KPI) per monitorare lo stato di idoneità.",
-        "Filtri avanzati per corso, stato di scadenza, mansione e cantiere.",
-        "Matrice formazione per legare i corsi alle mansioni.",
-        "Funzione di importazione massiva da tracciati esterni (file Excel)."
+        "Cruscotto KPI diviso in Base e Operativi: scaduto, da fare, in scadenza, upgrade, programmato, conforme (Operativi include anche Bloccato).",
+        "Tabella lavoratori con filtri per corso, stato, mansione e cantiere.",
+        "Matrice formazione per legare i corsi obbligatori alle mansioni/cantieri.",
+        "Import massivo da tracciato Excel e import round-trip dei corsi da programmare."
       ],
       funzioniPrincipali: [
-        "Registrare corsi svolti o programmare sessioni per gruppi di lavoratori.",
-        "Impostare deroghe ed esclusioni per specifici dipendenti.",
-        "Scaricare report Excel completi delle scadenze correnti."
+        "Registrare corsi svolti o programmare sessioni per uno o più lavoratori insieme.",
+        "Impostare deroghe ed esclusioni per specifici dipendenti o corsi.",
+        "Scaricare ed esportare il report Excel completo delle scadenze correnti."
       ],
       pagineInterne: [
-        "Matrice: Configurazione requisiti minimi di formazione legati a mansioni o cantieri.",
-        "Gestione Eventi: Pianificazione collettiva di corsi svolti o da pianificare."
+        "Matrice: quali corsi sono obbligatori per ciascuna mansione/cantiere (gli aggiornamenti dei corsi sono impliciti, non vanno attivati a parte).",
+        "Pianificazione: raggruppa i fabbisogni formativi, gestisce le bozze e programma le visite/corsi in massa."
       ],
       istruzioniRapide: [
-        "Seleziona uno o più dipendenti tramite la checkbox a sinistra nella tabella.",
-        "Usa i comandi rapidi in testata per pianificare una data o registrare il corso svolto.",
-        "Apri il dettaglio di un lavoratore per escluderlo da uno specifico corso (es. deroga mansione)."
+        "Seleziona uno o più dipendenti tramite la checkbox a sinistra nella tabella (o \"Seleziona tutti i filtrati\").",
+        "Usa \"+ Evento\" per programmare una data o registrare il corso svolto sui selezionati; il pulsante \"Svolto\" in tabella lo fa in un click per singolo corso.",
+        "Un corso mostrato \"Bloccato\" è formalmente valido ma non utilizzabile perché un suo prerequisito è scaduto: passa il mouse sul badge per vedere quale."
       ]
     },
     sorveglianza: {
       title: "Sorveglianza sanitaria",
       summary: "Monitoraggio dell'idoneità al lavoro e delle visite mediche periodiche.",
       cosaTrovi: [
-        "KPI statistici sullo stato di idoneità complessivo della forza lavoro.",
+        "Cruscotto KPI: scaduto, da fare, in scadenza, programmato, sospeso, conforme (idoneità è on/off, con possibilità di override manuale).",
         "Tabella scadenze e note limitative imposte dal medico competente.",
-        "Filtri rapidi per medici, cantieri, stati critici o dipendenti esclusi.",
-        "Area di importazione massiva Excel e caricamento certificati medici PDF."
+        "Filtri rapidi per medico/provider, cantiere o mansione.",
+        "Import massivo da Excel e caricamento/parsing automatico dei certificati medici PDF (pagina separata)."
       ],
       funzioniPrincipali: [
-        "Programmare le prossime visite mediche per i dipendenti.",
-        "Inserire prescrizioni, limitazioni o esclusioni temporanee.",
-        "Sincronizzare i dati importando direttamente i verbali medici firmati in formato PDF."
+        "Programmare le prossime visite mediche per i dipendenti selezionati.",
+        "Inserire limitazioni, note o esclusioni temporanee.",
+        "Forzare manualmente l'idoneità (override) quando serve derogare al calcolo automatico, con nota motivazionale."
       ],
       pagineInterne: [
-        "Matrice: Associazione della frequenza delle visite in base ai rischi lavorativi.",
-        "Import Certificati: Caricamento massivo e parser automatico dei PDF delle visite."
+        "Matrice: frequenza delle visite richieste in base a mansione/cantiere.",
+        "Import: caricamento massivo da tracciato Excel con anteprima prima della conferma.",
+        "Import PDF: caricamento dei verbali medici firmati con estrazione automatica dei dati."
       ],
       istruzioniRapide: [
-        "Filtra la tabella per visualizzare i dipendenti con visite in scadenza o scadute.",
-        "Clicca su un lavoratore per aprire il pannello e registrare la data della prossima visita.",
-        "Se il dipendente è esente, spunta l'opzione 'Escludi da sorveglianza' motivando la scelta."
+        "Clicca una tile del cruscotto (es. Scaduto) per filtrare subito la tabella su quello stato.",
+        "Seleziona uno o più lavoratori e usa \"+ Evento\" per registrare la visita, programmarla o applicare un override di idoneità.",
+        "Il pannello \"Dettaglio\" raggruppa i conteggi per mansione, cantiere o provider medico."
       ]
     },
     dpi: {
@@ -285,7 +286,7 @@ export default function GuidaHomePage() {
                 <div className="mt-5 grid gap-5 md:grid-cols-2">
                   {/* Cosa contiene */}
                   <div className="rounded-xl border border-[var(--brand-line)] bg-slate-50/40 dark:bg-slate-900/40 p-4">
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-350 uppercase tracking-wide">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
                       <Layers className="h-4 w-4 text-slate-500" />
                       <span>Cosa contiene</span>
                     </div>
@@ -301,14 +302,14 @@ export default function GuidaHomePage() {
 
                   {/* Come funziona / Istruzioni */}
                   <div className="rounded-xl border border-[var(--brand-line)] bg-slate-50/40 dark:bg-slate-900/40 p-4">
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-350 uppercase tracking-wide">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
                       <FileText className="h-4 w-4 text-slate-500" />
                       <span>Istruzioni rapide</span>
                     </div>
                     <ol className="mt-3 space-y-3 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                       {section.istruzioniRapide.map((step, idx) => (
                         <li key={idx} className="flex items-start gap-2.5">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-600 dark:text-slate-400 ring-1 ring-slate-200 dark:ring-slate-750">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-600 dark:text-slate-400 ring-1 ring-slate-200 dark:ring-slate-700">
                             {idx + 1}
                           </span>
                           <span className="pt-0.5">{step}</span>
@@ -321,7 +322,7 @@ export default function GuidaHomePage() {
                 {/* Pagine Interne / Strumenti */}
                 {section.pagineInterne?.length ? (
                   <div className="mt-4 rounded-xl border border-[var(--brand-line)] bg-slate-50/40 dark:bg-slate-900/40 p-4">
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-350 uppercase tracking-wide">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
                       <FileSpreadsheet className="h-4 w-4 text-slate-500" />
                       <span>Sottosezioni e viste correlate</span>
                     </div>
@@ -359,7 +360,7 @@ export default function GuidaHomePage() {
               ADMIN
             </span>
             <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">Amministratore</h3>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-405">
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
               Possiede l'accesso completo in lettura e scrittura a tutti i moduli del gestionale. Gestisce l'abilitazione degli utenti e visualizza i log diagnostici nella console di Gestione.
             </p>
           </div>
@@ -369,7 +370,7 @@ export default function GuidaHomePage() {
               VIEWER
             </span>
             <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">Visualizzatore</h3>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-405">
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
               Ruolo di sola lettura. Può navigare in tutti i moduli abilitati dall'amministratore, scaricare report ed esportare dati senza possibilità di effettuare modifiche.
             </p>
           </div>
@@ -379,7 +380,7 @@ export default function GuidaHomePage() {
               MANAGER
             </span>
             <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">Manager Operativo</h3>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-405">
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
               Dispone di permessi di lettura/scrittura ristretti al proprio perimetro operativo (cantieri, responsabili o lavoratori a lui specificamente assegnati in anagrafica).
             </p>
           </div>
@@ -389,7 +390,7 @@ export default function GuidaHomePage() {
       {/* Note Pratiche */}
       <section className="rounded-[24px] border border-[var(--brand-line)] bg-[var(--brand-panel)] p-6">
         <h2 className="text-base font-bold text-[var(--brand-ink)]">Note Pratiche e Risoluzione Problemi</h2>
-        <div className="mt-4 grid gap-4 text-xs text-slate-650 sm:grid-cols-2 md:grid-cols-3">
+        <div className="mt-4 grid gap-4 text-xs text-slate-600 sm:grid-cols-2 md:grid-cols-3">
           <div className="space-y-1">
             <p className="font-semibold text-slate-800 dark:text-slate-200">Accesso Negato</p>
             <p className="leading-relaxed text-slate-500 dark:text-slate-400">

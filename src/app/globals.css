@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* App non ha un toggle dark mode reale: senza questo, Tailwind v4 lega "dark:"
+   a prefers-color-scheme di sistema, attivando a caso le classi dark: sparse
+   nell'app (mai testate) e rompendo i contrasti su qualunque utente con OS/
+   browser in dark mode. Forzato a legarsi solo alla classe .dark (mai applicata). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #0f172a;
