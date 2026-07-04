@@ -66,6 +66,15 @@ function normalizeTaxCode(value: string) {
   return cleanSpaces(value).toUpperCase().replace(/\s+/g, "");
 }
 
+// Valida solo il FORMATO (stesso pattern del server). Il match reale contro
+// l'anagrafica avviene al commit: qui serve solo a sbloccare la riga dopo
+// che l'utente ha corretto un CF letto male dal PDF, senza aspettare un
+// nuovo giro di preview.
+function isLikelyTaxCodeClient(value: string) {
+  const raw = normalizeTaxCode(value);
+  return Boolean(raw.match(/^[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]$/));
+}
+
 function parseItDateToIso(value: string) {
   const raw = cleanSpaces(value);
   const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
@@ -732,7 +741,7 @@ export default function SorveglianzaPdfImportPage() {
                         <input
                           type="checkbox"
                           checked={row.applyRow}
-                          disabled={isLoading || row.status === "errore" || !row.employeeId}
+                          disabled={isLoading || !isLikelyTaxCodeClient(row.taxCode)}
                           onChange={(e) => {
                             const checked = e.target.checked;
                             setRows((prev) =>
@@ -781,7 +790,7 @@ export default function SorveglianzaPdfImportPage() {
                         <input
                           type="checkbox"
                           checked={row.applyDueDate}
-                          disabled={isLoading || row.status === "errore" || !row.employeeId}
+                          disabled={isLoading || !isLikelyTaxCodeClient(row.taxCode)}
                           onChange={(e) => {
                             const checked = e.target.checked;
                             setRows((prev) =>
@@ -794,7 +803,7 @@ export default function SorveglianzaPdfImportPage() {
                         <input
                           type="checkbox"
                           checked={row.applyLimitations}
-                          disabled={isLoading || row.status === "errore" || !row.employeeId}
+                          disabled={isLoading || !isLikelyTaxCodeClient(row.taxCode)}
                           onChange={(e) => {
                             const checked = e.target.checked;
                             setRows((prev) =>
