@@ -945,11 +945,14 @@ function chunkArray<T>(items: T[], chunkSize: number) {
 async function fetchCourseRowsByEmployeeIds(supabase: SupabaseClient, employeeIds: number[]) {
   const ids = employeeIds.filter((id) => Number.isFinite(id) && id > 0);
   if (ids.length === 0) return [] as CourseStatusRow[];
-  const all: CourseStatusRow[] = [];
-  for (const chunk of chunkArray(ids, 500)) {
+
+  // Ogni chunk di 500 id gira in parallelo con gli altri (prima erano sequenziali:
+  // con ~900ms di latenza a round-trip, 5 chunk in sequenza = 4.5s, in parallelo ~900ms).
+  async function fetchChunk(chunk: number[]) {
     const pageSize = 1000;
     let from = 0;
     let hasMore = true;
+    const chunkRows: CourseStatusRow[] = [];
     while (hasMore) {
       const to = from + pageSize - 1;
       const { data, error } = await supabase
@@ -960,15 +963,19 @@ async function fetchCourseRowsByEmployeeIds(supabase: SupabaseClient, employeeId
         .range(from, to);
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as CourseStatusRow[];
-      all.push(...rows);
-      if (all.length > MAX_COURSE_ROWS) {
-        throw new TooManyRowsError(
-          `Troppi record corsi lavoratori (> ${MAX_COURSE_ROWS}). Restringi il dataset o applica filtri.`,
-        );
-      }
+      chunkRows.push(...rows);
       if (rows.length < pageSize) hasMore = false;
       else from += pageSize;
     }
+    return chunkRows;
+  }
+
+  const chunkResults = await Promise.all(chunkArray(ids, 500).map(fetchChunk));
+  const all = chunkResults.flat();
+  if (all.length > MAX_COURSE_ROWS) {
+    throw new TooManyRowsError(
+      `Troppi record corsi lavoratori (> ${MAX_COURSE_ROWS}). Restringi il dataset o applica filtri.`,
+    );
   }
   return all;
 }
@@ -1022,44 +1029,52 @@ async function fetchAllRuleLinks(supabase: SupabaseClient) {
   return allRows;
 }
 
+const EMPLOYEE_SELECT_COLUMNS =
+  "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,job_title_notes,sites(display_name),sub_sites(display_name)";
+
 async function fetchAllEmployees(
   supabase: SupabaseClient,
 ) {
   const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
+
+  // Round trip di sola COUNT (economica) per sapere quante pagine servono,
+  // poi le pagine si sparano tutte in parallelo invece che in sequenza:
+  // con ~1.7s di latenza a round-trip, 3 pagine sequenziali = 5s, in
+  // parallelo restano ~1.7s (un solo giro di rete).
+  const { count, error: countError } = await supabase
+    .from("employees")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "attivo");
+  if (countError) throw new Error(countError.message);
+
+  const total = count ?? 0;
+  if (total > MAX_EMPLOYEES) {
+    throw new TooManyRowsError(
+      `Troppi lavoratori per vista corsi (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+    );
+  }
+  if (total === 0) return [] as EmployeeRow[];
+
+  const pageCount = Math.ceil(total / pageSize);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, i) => {
+      const from = i * pageSize;
+      const to = from + pageSize - 1;
+      return supabase
+        .from("employees")
+        .select(EMPLOYEE_SELECT_COLUMNS)
+        .eq("status", "attivo")
+        .order("last_name")
+        .order("first_name")
+        .order("id")
+        .range(from, to);
+    }),
+  );
+
   const allRows: EmployeeRow[] = [];
-
-  while (hasMore) {
-    const to = from + pageSize - 1;
-    const { data, error } = await supabase
-      .from("employees")
-      .select(
-        "id,matricola,first_name,last_name,responsible_code,referral,site_id,sub_site_id,job_title,job_title_notes,sites(display_name),sub_sites(display_name)",
-      )
-      .eq("status", "attivo")
-      .order("last_name")
-      .order("first_name")
-      .order("id")
-      .range(from, to);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const rows = (data ?? []) as EmployeeRow[];
-    allRows.push(...rows);
-    if (allRows.length > MAX_EMPLOYEES) {
-      throw new TooManyRowsError(
-        `Troppi lavoratori per vista corsi (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
-      );
-    }
-
-    if (rows.length < pageSize) {
-      hasMore = false;
-    } else {
-      from += pageSize;
-    }
+  for (const { data, error } of pages) {
+    if (error) throw new Error(error.message);
+    allRows.push(...((data ?? []) as EmployeeRow[]));
   }
 
   return allRows;
