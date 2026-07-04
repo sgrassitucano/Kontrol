@@ -393,31 +393,44 @@ async function fetchEmployees(
   }
 
   const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const allRows: EmployeeRow[] = [];
 
-  while (hasMore) {
-    const to = from + pageSize - 1;
-    const { data, error } = await supabase
-      .from("employees")
-      .select(
-        "id,matricola,first_name,last_name,responsible_code,referral,job_title,sites(display_name),sub_sites(display_name)",
-      )
-      .eq("status", "attivo")
-      .order("last_name")
-      .range(from, to);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as EmployeeRow[];
-    allRows.push(...rows);
-    if (allRows.length > MAX_EMPLOYEES) {
-      throw new TooManyRowsError(
-        `Troppi lavoratori per vista DPI (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
-      );
-    }
-    if (rows.length < pageSize) hasMore = false;
-    else from += pageSize;
+  // Round trip di sola COUNT (economica) per sapere quante pagine servono,
+  // poi tutte le pagine partono in parallelo invece che in sequenza (vedi
+  // stesso fix in lavoratori/corsi, anagrafica e sorveglianza_sanitaria).
+  const { count, error: countError } = await supabase
+    .from("employees")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "attivo");
+  if (countError) throw new Error(countError.message);
+
+  const total = count ?? 0;
+  if (total > MAX_EMPLOYEES) {
+    throw new TooManyRowsError(
+      `Troppi lavoratori per vista DPI (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+    );
   }
+  if (total === 0) return [] as EmployeeRow[];
 
+  const pageCount = Math.ceil(total / pageSize);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, i) => {
+      const from = i * pageSize;
+      const to = from + pageSize - 1;
+      return supabase
+        .from("employees")
+        .select(
+          "id,matricola,first_name,last_name,responsible_code,referral,job_title,sites(display_name),sub_sites(display_name)",
+        )
+        .eq("status", "attivo")
+        .order("last_name")
+        .range(from, to);
+    }),
+  );
+
+  const allRows: EmployeeRow[] = [];
+  for (const { data, error } of pages) {
+    if (error) throw new Error(error.message);
+    allRows.push(...((data ?? []) as EmployeeRow[]));
+  }
   return allRows;
 }

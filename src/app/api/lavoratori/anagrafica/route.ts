@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAnyModuleAccess } from "@/lib/api/access";
+import { cacheGet, cacheSet } from "@/lib/server-cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type EmployeeListRow = {
@@ -113,42 +114,54 @@ export async function GET(request: Request) {
   }
 }
 
+const ANAGRAFICA_EMPLOYEE_SELECT_COLUMNS =
+  "id,matricola,first_name,last_name,responsible_code,referral,job_title,sites(display_name),sub_sites(display_name)";
+
+const EMPLOYEES_CACHE_KEY = "anagrafica_all_employees_v1";
+
 async function fetchAllEmployees(supabase: SupabaseClient) {
+  const cached = cacheGet<EmployeeRow[]>(EMPLOYEES_CACHE_KEY);
+  if (cached) return cached;
+
   const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const allRows: EmployeeRow[] = [];
 
-  while (hasMore) {
-    const to = from + pageSize - 1;
-    const { data, error } = await supabase
-      .from("employees")
-      .select(
-        "id,matricola,first_name,last_name,responsible_code,referral,job_title,sites(display_name),sub_sites(display_name)",
-      )
-      .eq("status", "attivo")
-      .order("last_name")
-      .range(from, to);
+  // Round trip di sola COUNT (economica) per sapere quante pagine servono,
+  // poi tutte le pagine partono in parallelo invece che in sequenza (vedi
+  // stesso fix in lavoratori/corsi e sorveglianza_sanitaria/lavoratori).
+  const { count, error: countError } = await supabase
+    .from("employees")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "attivo");
+  if (countError) throw new Error(countError.message);
 
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const rows = (data ?? []) as EmployeeRow[];
-    allRows.push(...rows);
-    if (allRows.length > MAX_EMPLOYEES) {
-      throw new TooManyRowsError(
-        `Troppi lavoratori per anagrafica (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
-      );
-    }
-
-    if (rows.length < pageSize) {
-      hasMore = false;
-    } else {
-      from += pageSize;
-    }
+  const total = count ?? 0;
+  if (total > MAX_EMPLOYEES) {
+    throw new TooManyRowsError(
+      `Troppi lavoratori per anagrafica (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+    );
   }
+  if (total === 0) return [] as EmployeeRow[];
 
+  const pageCount = Math.ceil(total / pageSize);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, i) => {
+      const from = i * pageSize;
+      const to = from + pageSize - 1;
+      return supabase
+        .from("employees")
+        .select(ANAGRAFICA_EMPLOYEE_SELECT_COLUMNS)
+        .eq("status", "attivo")
+        .order("last_name")
+        .range(from, to);
+    }),
+  );
+
+  const allRows: EmployeeRow[] = [];
+  for (const { data, error } of pages) {
+    if (error) throw new Error(error.message);
+    allRows.push(...((data ?? []) as EmployeeRow[]));
+  }
+  cacheSet(EMPLOYEES_CACHE_KEY, allRows, 5 * 60 * 1000);
   return allRows;
 }
 

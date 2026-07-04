@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx-js-style";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStrictIsoDateToIso } from "@/lib/it-date";
+import { cacheDelete } from "@/lib/server-cache";
 
 type ImportMode = "preview" | "commit";
 
@@ -380,6 +381,7 @@ export async function processAnagraficaImport({
     existingEmployees,
     summary: summaryBase,
   });
+  cacheDelete("anagrafica_all_employees_v1");
 
   return {
     mode,
