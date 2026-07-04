@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx-js-style";
+import JSZip from "jszip";
 import { requireModuleAccess } from "@/lib/api/access";
 import { normalizeJobCode } from "@/lib/training/normalize";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -24,6 +25,14 @@ type EmployeeRow = {
   sites: unknown;
   sub_sites: unknown;
 };
+
+function sanitizeFileNamePart(value: string) {
+  const cleaned = String(value ?? "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "_");
+  return cleaned || "senza_provider";
+}
 
 function normalizeProvider(value: string | null | undefined) {
   const v = String(value ?? "").trim();
@@ -408,6 +417,7 @@ export async function GET(request: Request) {
     const dateParam = url.searchParams.get("date");
     const includeExcluded = url.searchParams.get("includeExcluded") === "1";
     const status = (url.searchParams.get("status") ?? "").trim().toLowerCase();
+    const byProvider = url.searchParams.get("byProvider") === "1";
 
     const expiringDaysSafeRaw = Number.isFinite(expiringDays) ? expiringDays : 30;
     const expiringDaysSafe = Math.min(Math.max(expiringDaysSafeRaw, 0), 365);
@@ -617,6 +627,47 @@ export async function GET(request: Request) {
 
     console.log(`[sorveglianza/export] employees=${employees.length} rows=${rows.length}`);
 
+    const dateSuffix = new Date().toISOString().slice(0, 10);
+
+    if (byProvider) {
+      // Raggruppa case-insensitive: in anagrafica "Synlab" e "synlab" sono lo
+      // stesso provider, non vanno spaccati in due file. La label del file usa
+      // la prima grafia incontrata (ordine alfabetico per cognome/nome).
+      const sheetsByProviderKey = new Map<string, { label: string; rows: typeof sheet }>();
+      sheet.forEach((sheetRow, idx) => {
+        const rawProvider = (rows[idx]?.provider ?? "").trim();
+        const providerLabel = rawProvider && rawProvider !== "-" ? rawProvider : "Senza provider";
+        const key = providerLabel.toLowerCase();
+        const existing = sheetsByProviderKey.get(key);
+        if (!existing) sheetsByProviderKey.set(key, { label: providerLabel, rows: [sheetRow] });
+        else existing.rows.push(sheetRow);
+      });
+      const sheetsByProvider = new Map(
+        Array.from(sheetsByProviderKey.values()).map((v) => [v.label, v.rows] as const),
+      );
+
+      const zip = new JSZip();
+      sheetsByProvider.forEach((providerSheet, providerLabel) => {
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(providerSheet, { header: [...headers] });
+        applyCalibri10WithBoldHeader(ws);
+        XLSX.utils.book_append_sheet(wb, ws, "Sorveglianza");
+        const buf = XLSX.write(wb, { type: "array", bookType: "xlsx", cellStyles: true } as XlsxWriteOptionsWithStyles) as ArrayBuffer;
+        const safeName = sanitizeFileNamePart(providerLabel);
+        zip.file(`export_sorveglianza_${safeName}_${dateSuffix}.xlsx`, buf);
+      });
+
+      const zipOut = await zip.generateAsync({ type: "arraybuffer" });
+      return new NextResponse(zipOut, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename=\"export_sorveglianza_per_provider_${dateSuffix}.zip\"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
     const workbook = XLSX.utils.book_new();
     const ws =
       sheet.length > 0
@@ -626,7 +677,7 @@ export async function GET(request: Request) {
     XLSX.utils.book_append_sheet(workbook, ws, "Sorveglianza");
 
     const out = XLSX.write(workbook, { type: "array", bookType: "xlsx", cellStyles: true } as XlsxWriteOptionsWithStyles) as ArrayBuffer;
-    const filename = `export_sorveglianza_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const filename = `export_sorveglianza_${dateSuffix}.xlsx`;
 
     return new NextResponse(out, {
       status: 200,

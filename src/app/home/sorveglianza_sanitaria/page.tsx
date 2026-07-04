@@ -679,6 +679,22 @@ export default function HomeSorveglianzaPage() {
             >
               {exporting ? "Export..." : "Export tutto"}
             </button>
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => {
+                const params = new URLSearchParams();
+                params.set("includeExcluded", "1");
+                params.set("byProvider", "1");
+                void downloadFrom(`/api/sorveglianza_sanitaria/export?${params.toString()}`);
+              }}
+              data-soft="true"
+              data-tone="warning"
+              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Genera un file Excel separato per ciascun provider medico (zip)."
+            >
+              {exporting ? "Export..." : "Export per provider"}
+            </button>
             <Link
               href="/sorveglianza_sanitaria/matrice"
               data-soft="true"
