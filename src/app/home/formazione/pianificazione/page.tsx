@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { ModuleHeader, PanelCard } from "@/components/module-ui";
 import { Download, Plus, Trash2, FileText, X } from "lucide-react";
 
@@ -35,10 +35,21 @@ type WorkerCourseRow = {
   dataScadenza: string | null;
   dataPrevista: string | null;
   stato: string;
+  blockedBy?: { code: string; title: string } | null;
   responsabile: string;
   referente: string;
   note: string;
 };
+
+// Stati che rappresentano un fabbisogno da pianificare. "bloccato" non è uno
+// stato server-side (deriva da blockedBy sul corso "idoneo"), va aggiunto qui.
+const PIANIFICABILE_STATI = new Set(["scaduto", "in scadenza", "da fare", "perso", "upgrade"]);
+
+function isPianificabile(row: WorkerCourseRow) {
+  if (row.dataPrevista) return false;
+  if (row.blockedBy) return true;
+  return PIANIFICABILE_STATI.has(row.stato);
+}
 
 export default function PianificazionePage() {
   const [courses, setCourses] = useState<WorkerCourseRow[]>([]);
@@ -48,6 +59,11 @@ export default function PianificazionePage() {
   const [exportError, setExportError] = useState("");
 
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [corsoFilter, setCorsoFilter] = useState("");
+  const [cantiereFilter, setCantiereFilter] = useState("");
+  const [mansioneFilter, setMansioneFilter] = useState("");
+  const [statoFilter, setStatoFilter] = useState("");
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -71,10 +87,7 @@ export default function PianificazionePage() {
       if (!coursesRes.ok) throw new Error(coursesData.error || "Errore caricamento fabbisogni");
 
       setDrafts(draftsData);
-      const filtered = (coursesData.rows || []).filter(
-        (r: WorkerCourseRow) =>
-          ["scaduto", "in scadenza", "da fare", "perso"].includes(r.stato) && !r.dataPrevista,
-      );
+      const filtered = (coursesData.rows || []).filter(isPianificabile);
       setCourses(filtered);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore sconosciuto.");
@@ -87,6 +100,41 @@ export default function PianificazionePage() {
     void loadData();
   }, [loadData]);
 
+  const corsoOptions = useMemo(
+    () => Array.from(new Set(courses.map((r) => r.corsoCode))).sort(),
+    [courses],
+  );
+  const cantiereOptions = useMemo(
+    () => Array.from(new Set(courses.map((r) => r.cantiere).filter(Boolean))).sort(),
+    [courses],
+  );
+  const mansioneOptions = useMemo(
+    () => Array.from(new Set(courses.map((r) => r.mansione).filter(Boolean))).sort(),
+    [courses],
+  );
+  const statoOptions = useMemo(
+    () => Array.from(new Set(courses.map((r) => (r.blockedBy ? "bloccato" : r.stato)))).sort(),
+    [courses],
+  );
+
+  const filteredCourses = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return courses.filter((r) => {
+      if (corsoFilter && r.corsoCode !== corsoFilter) return false;
+      if (cantiereFilter && r.cantiere !== cantiereFilter) return false;
+      if (mansioneFilter && r.mansione !== mansioneFilter) return false;
+      if (statoFilter) {
+        const effectiveStato = r.blockedBy ? "bloccato" : r.stato;
+        if (effectiveStato !== statoFilter) return false;
+      }
+      if (q) {
+        const haystack = `${r.cognome} ${r.nome} ${r.matricola} ${r.corso} ${r.corsoCode}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [courses, search, corsoFilter, cantiereFilter, mansioneFilter, statoFilter]);
+
   const toggleSelection = (key: string) => {
     const next = new Set(selectedKeys);
     if (next.has(key)) next.delete(key);
@@ -94,11 +142,18 @@ export default function PianificazionePage() {
     setSelectedKeys(next);
   };
 
+  const filteredKeys = useMemo(() => filteredCourses.map((r) => `${r.workerId}-${r.courseId}`), [filteredCourses]);
+  const allFilteredSelected = filteredKeys.length > 0 && filteredKeys.every((k) => selectedKeys.has(k));
+
   const toggleAll = () => {
-    if (selectedKeys.size === courses.length) {
-      setSelectedKeys(new Set());
+    if (allFilteredSelected) {
+      const next = new Set(selectedKeys);
+      filteredKeys.forEach((k) => next.delete(k));
+      setSelectedKeys(next);
     } else {
-      setSelectedKeys(new Set(courses.map((r) => `${r.workerId}-${r.courseId}`)));
+      const next = new Set(selectedKeys);
+      filteredKeys.forEach((k) => next.add(k));
+      setSelectedKeys(next);
     }
   };
 
@@ -231,7 +286,9 @@ export default function PianificazionePage() {
             <div className="p-4 border-b border-[var(--brand-line)] flex flex-wrap justify-between items-center gap-3">
               <h2 className="text-base font-bold text-[var(--brand-ink)]">
                 Fabbisogni Formativi{" "}
-                <span className="text-sm font-normal text-[var(--brand-soft)]">({courses.length})</span>
+                <span className="text-sm font-normal text-[var(--brand-soft)]">
+                  ({filteredCourses.length}/{courses.length})
+                </span>
               </h2>
               <button
                 disabled={selectedKeys.size === 0}
@@ -240,6 +297,71 @@ export default function PianificazionePage() {
               >
                 <Plus size={14} /> Aggiungi a Pianificazione ({selectedKeys.size})
               </button>
+            </div>
+
+            <div className="p-4 border-b border-[var(--brand-line)] grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cerca nome, matricola, corso..."
+                className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+              />
+              <select
+                value={corsoFilter}
+                onChange={(e) => setCorsoFilter(e.target.value)}
+                className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+              >
+                <option value="">Tutti i corsi</option>
+                {corsoOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select
+                value={cantiereFilter}
+                onChange={(e) => setCantiereFilter(e.target.value)}
+                className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+              >
+                <option value="">Tutti i cantieri</option>
+                {cantiereOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select
+                value={mansioneFilter}
+                onChange={(e) => setMansioneFilter(e.target.value)}
+                className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+              >
+                <option value="">Tutte le mansioni</option>
+                {mansioneOptions.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <select
+                value={statoFilter}
+                onChange={(e) => setStatoFilter(e.target.value)}
+                className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+              >
+                <option value="">Tutti gli stati</option>
+                {statoOptions.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              {search || corsoFilter || cantiereFilter || mansioneFilter || statoFilter ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setCorsoFilter("");
+                    setCantiereFilter("");
+                    setMansioneFilter("");
+                    setStatoFilter("");
+                  }}
+                  data-soft="true"
+                  className="rounded-xl px-3 py-2 text-sm"
+                >
+                  Reset filtri
+                </button>
+              ) : null}
             </div>
 
             {error ? (
@@ -258,13 +380,19 @@ export default function PianificazionePage() {
                       <th className="px-4 py-3 w-10">
                         <input
                           type="checkbox"
-                          checked={selectedKeys.size > 0 && selectedKeys.size === courses.length}
+                          checked={allFilteredSelected}
                           onChange={toggleAll}
-                          aria-label="Seleziona tutti"
+                          aria-label="Seleziona tutti i filtrati"
                         />
                       </th>
                       <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide text-[var(--brand-soft)]">
                         Nominativo
+                      </th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide text-[var(--brand-soft)]">
+                        Mansione
+                      </th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide text-[var(--brand-soft)]">
+                        Cantiere
                       </th>
                       <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide text-[var(--brand-soft)]">
                         Corso
@@ -275,7 +403,7 @@ export default function PianificazionePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {courses.map((r) => {
+                    {filteredCourses.map((r) => {
                       const key = `${r.workerId}-${r.courseId}`;
                       return (
                         <tr
@@ -296,21 +424,32 @@ export default function PianificazionePage() {
                             {r.cognome} {r.nome}
                             <span className="ml-2 text-xs text-[var(--brand-soft)]">{r.matricola}</span>
                           </td>
+                          <td className="px-4 py-2.5 text-[var(--brand-soft)]">{r.mansione || "-"}</td>
+                          <td className="px-4 py-2.5 text-[var(--brand-soft)]">{r.cantiere || "-"}</td>
                           <td className="px-4 py-2.5 text-[var(--brand-soft)]">
                             [{r.corsoCode}] {r.corso}
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className="inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-bold leading-none border-slate-300/60 bg-slate-100/70 text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-300">
-                              {r.stato}
-                            </span>
+                            {r.blockedBy ? (
+                              <span
+                                className="inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-bold leading-none border-red-300/60 bg-red-100/70 text-red-700"
+                                title={`Bloccato da: ${r.blockedBy.title} (${r.blockedBy.code})`}
+                              >
+                                bloccato
+                              </span>
+                            ) : (
+                              <span className="inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-bold leading-none border-slate-300/60 bg-slate-100/70 text-slate-700 dark:border-slate-600/60 dark:bg-slate-800/70 dark:text-slate-300">
+                                {r.stato}
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
                     })}
-                    {courses.length === 0 && !isLoading && (
+                    {filteredCourses.length === 0 && !isLoading && (
                       <tr>
-                        <td colSpan={4} className="p-8 text-center text-sm text-[var(--brand-soft)]">
-                          Nessun fabbisogno rilevato.
+                        <td colSpan={6} className="p-8 text-center text-sm text-[var(--brand-soft)]">
+                          {courses.length === 0 ? "Nessun fabbisogno rilevato." : "Nessun risultato con i filtri attuali."}
                         </td>
                       </tr>
                     )}
