@@ -471,92 +471,119 @@ export async function GET(request: Request) {
   }
 }
 
+const SORVEGLIANZA_EMPLOYEE_SELECT_COLUMNS =
+  "id,matricola,first_name,last_name,responsible_code,referral,job_title,theoretical_weekly_minutes,site_id,sub_site_id,sites(display_name),sub_sites(display_name)";
+
 async function fetchAllEmployees(supabase: SupabaseClient) {
   const pageSize = 1000;
-  let from = 0;
-  let hasMore = true;
-  const allRows: EmployeeRow[] = [];
 
-  while (hasMore) {
-    const to = from + pageSize - 1;
-    const { data, error } = await supabase
-      .from("employees")
-      .select(
-        "id,matricola,first_name,last_name,responsible_code,referral,job_title,theoretical_weekly_minutes,site_id,sub_site_id,sites(display_name),sub_sites(display_name)",
-      )
-      .eq("status", "attivo")
-      .order("last_name")
-      .range(from, to);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as EmployeeRow[];
-    allRows.push(...rows);
-    if (allRows.length > MAX_EMPLOYEES) {
-      throw new TooManyRowsError(
-        `Troppi lavoratori per sorveglianza sanitaria (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
-      );
-    }
-    if (rows.length < pageSize) hasMore = false;
-    else from += pageSize;
+  // Round trip di sola COUNT (economica) per sapere quante pagine servono,
+  // poi tutte le pagine partono in parallelo invece che in sequenza: con
+  // latenza alta per round-trip, pagine sequenziali si sommano inutilmente.
+  const { count, error: countError } = await supabase
+    .from("employees")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "attivo");
+  if (countError) throw new Error(countError.message);
+
+  const total = count ?? 0;
+  if (total > MAX_EMPLOYEES) {
+    throw new TooManyRowsError(
+      `Troppi lavoratori per sorveglianza sanitaria (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+    );
   }
+  if (total === 0) return [] as EmployeeRow[];
 
+  const pageCount = Math.ceil(total / pageSize);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, i) => {
+      const from = i * pageSize;
+      const to = from + pageSize - 1;
+      return supabase
+        .from("employees")
+        .select(SORVEGLIANZA_EMPLOYEE_SELECT_COLUMNS)
+        .eq("status", "attivo")
+        .order("last_name")
+        .range(from, to);
+    }),
+  );
+
+  const allRows: EmployeeRow[] = [];
+  for (const { data, error } of pages) {
+    if (error) throw new Error(error.message);
+    allRows.push(...((data ?? []) as EmployeeRow[]));
+  }
   return allRows;
 }
 
+function chunkIds(ids: number[], size: number) {
+  const chunks: number[][] = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
+}
+
 async function fetchEmployeesByIds(supabase: SupabaseClient, employeeIds: number[]) {
+  const chunkResults = await Promise.all(
+    chunkIds(employeeIds, 500).map((part) =>
+      supabase
+        .from("employees")
+        .select(SORVEGLIANZA_EMPLOYEE_SELECT_COLUMNS)
+        .eq("status", "attivo")
+        .in("id", part),
+    ),
+  );
   const rows: EmployeeRow[] = [];
-  for (let i = 0; i < employeeIds.length; i += 500) {
-    const part = employeeIds.slice(i, i + 500);
-    const { data, error } = await supabase
-      .from("employees")
-      .select(
-        "id,matricola,first_name,last_name,responsible_code,referral,job_title,theoretical_weekly_minutes,site_id,sub_site_id,sites(display_name),sub_sites(display_name)",
-      )
-      .eq("status", "attivo")
-      .in("id", part);
+  for (const { data, error } of chunkResults) {
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as EmployeeRow[]));
-    if (rows.length > MAX_EMPLOYEES) {
-      throw new TooManyRowsError(
-        `Troppi lavoratori per sorveglianza sanitaria (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
-      );
-    }
+  }
+  if (rows.length > MAX_EMPLOYEES) {
+    throw new TooManyRowsError(
+      `Troppi lavoratori per sorveglianza sanitaria (> ${MAX_EMPLOYEES}). Restringi il dataset o applica filtri.`,
+    );
   }
   rows.sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
   return rows;
 }
 
 async function fetchSurveillanceRowsForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const chunkResults = await Promise.all(
+    chunkIds(employeeIds, 500).map((part) =>
+      supabase
+        .from("medical_surveillance_records")
+        .select("employee_id,provider,requires_visit,is_planned,next_due_date,limitations,notes")
+        .in("employee_id", part),
+    ),
+  );
   const rows: SurveillanceRow[] = [];
-  for (let i = 0; i < employeeIds.length; i += 500) {
-    const part = employeeIds.slice(i, i + 500);
-    const { data, error } = await supabase
-      .from("medical_surveillance_records")
-      .select("employee_id,provider,requires_visit,is_planned,next_due_date,limitations,notes")
-      .in("employee_id", part);
+  for (const { data, error } of chunkResults) {
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as SurveillanceRow[]));
-    if (rows.length > MAX_SURVEILLANCE_ROWS) {
-      throw new TooManyRowsError(
-        `Troppi record sorveglianza (> ${MAX_SURVEILLANCE_ROWS}). Restringi il dataset o applica filtri.`,
-      );
-    }
+  }
+  if (rows.length > MAX_SURVEILLANCE_ROWS) {
+    throw new TooManyRowsError(
+      `Troppi record sorveglianza (> ${MAX_SURVEILLANCE_ROWS}). Restringi il dataset o applica filtri.`,
+    );
   }
   return rows;
 }
 
 async function fetchFreezesForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const chunkResults = await Promise.all(
+    chunkIds(employeeIds, 500).map((part) =>
+      supabase
+        .from("employee_freeze_periods")
+        .select("employee_id,freeze_status,start_date,end_date")
+        .in("employee_id", part),
+    ),
+  );
   const rows: FreezeRow[] = [];
-  for (let i = 0; i < employeeIds.length; i += 500) {
-    const part = employeeIds.slice(i, i + 500);
-    const { data, error } = await supabase
-      .from("employee_freeze_periods")
-      .select("employee_id,freeze_status,start_date,end_date")
-      .in("employee_id", part);
+  for (const { data, error } of chunkResults) {
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as FreezeRow[]));
-    if (rows.length > MAX_FREEZES) {
-      throw new TooManyRowsError(`Troppi periodi freeze (> ${MAX_FREEZES}). Restringi il dataset o applica paginazione.`);
-    }
+  }
+  if (rows.length > MAX_FREEZES) {
+    throw new TooManyRowsError(`Troppi periodi freeze (> ${MAX_FREEZES}). Restringi il dataset o applica paginazione.`);
   }
   return rows;
 }
@@ -605,41 +632,47 @@ async function fetchAllProviderAssignments(supabase: SupabaseClient) {
 }
 
 async function fetchEmployeeExclusionsForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const chunkResults = await Promise.all(
+    chunkIds(employeeIds, 500).map((part) =>
+      supabase
+        .from("medical_surveillance_employee_exclusions")
+        .select("employee_id,is_active")
+        .eq("is_active", true)
+        .in("employee_id", part),
+    ),
+  );
   const rows: EmployeeExclusionRow[] = [];
-  for (let i = 0; i < employeeIds.length; i += 500) {
-    const part = employeeIds.slice(i, i + 500);
-    const { data, error } = await supabase
-      .from("medical_surveillance_employee_exclusions")
-      .select("employee_id,is_active")
-      .eq("is_active", true)
-      .in("employee_id", part);
+  for (const { data, error } of chunkResults) {
     if (error) return [] as EmployeeExclusionRow[];
     rows.push(...((data ?? []) as EmployeeExclusionRow[]));
-    if (rows.length > MAX_EMPLOYEE_EXCLUSIONS) {
-      throw new TooManyRowsError(
-        `Troppe esclusioni lavoratori (> ${MAX_EMPLOYEE_EXCLUSIONS}). Restringi il dataset o applica paginazione.`,
-      );
-    }
+  }
+  if (rows.length > MAX_EMPLOYEE_EXCLUSIONS) {
+    throw new TooManyRowsError(
+      `Troppe esclusioni lavoratori (> ${MAX_EMPLOYEE_EXCLUSIONS}). Restringi il dataset o applica paginazione.`,
+    );
   }
   return rows;
 }
 
 async function fetchEmployeeOverridesForEmployees(supabase: SupabaseClient, employeeIds: number[]) {
+  const chunkResults = await Promise.all(
+    chunkIds(employeeIds, 500).map((part) =>
+      supabase
+        .from("medical_surveillance_employee_overrides")
+        .select("employee_id,requires_visit,is_active")
+        .eq("is_active", true)
+        .in("employee_id", part),
+    ),
+  );
   const rows: EmployeeOverrideRow[] = [];
-  for (let i = 0; i < employeeIds.length; i += 500) {
-    const part = employeeIds.slice(i, i + 500);
-    const { data, error } = await supabase
-      .from("medical_surveillance_employee_overrides")
-      .select("employee_id,requires_visit,is_active")
-      .eq("is_active", true)
-      .in("employee_id", part);
+  for (const { data, error } of chunkResults) {
     if (error) return [] as EmployeeOverrideRow[];
     rows.push(...((data ?? []) as EmployeeOverrideRow[]));
-    if (rows.length > MAX_EMPLOYEE_OVERRIDES) {
-      throw new TooManyRowsError(
-        `Troppe override lavoratori (> ${MAX_EMPLOYEE_OVERRIDES}). Restringi il dataset o applica paginazione.`,
-      );
-    }
+  }
+  if (rows.length > MAX_EMPLOYEE_OVERRIDES) {
+    throw new TooManyRowsError(
+      `Troppe override lavoratori (> ${MAX_EMPLOYEE_OVERRIDES}). Restringi il dataset o applica paginazione.`,
+    );
   }
   return rows;
 }
