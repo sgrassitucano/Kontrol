@@ -103,7 +103,7 @@ export function ColumnMapper({ fileHeaders, onMappingComplete, onCancel }: Colum
                   <li key={field}>{field}</li>
                 ))}
               </ul>
-            </p>
+            </div>
           )}
 
           {unmappedHeaders.length > 0 && (
