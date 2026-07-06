@@ -12,8 +12,13 @@ type DraftRow = {
   id: string;
   employee_id: number;
   course_id: number;
-  provider: string | null;
-  mode: string | null;
+  course_type: string | null;
+  fornitore: string | null;
+  location: string | null;
+  date1: string | null;
+  time1_start: string | null;
+  date2: string | null;
+  time2_start: string | null;
   notes: string | null;
   created_at: string;
   employees: { matricola: string; first_name: string; last_name: string; job_title: string; sites: { display_name: string } | null };
@@ -67,12 +72,17 @@ export default function PianificazionePage() {
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [provider, setProvider] = useState("");
-  const [mode, setMode] = useState("E-learning");
-  const [plannedDate, setPlannedDate] = useState("");
+  const [courseType, setCourseType] = useState("e-learning");
+  const [fornitore, setFornitore] = useState("");
+  const [location, setLocation] = useState("");
+  const [date1, setDate1] = useState("");
+  const [time1Start, setTime1Start] = useState("09:00");
+  const [date2, setDate2] = useState("");
+  const [time2Start, setTime2Start] = useState("");
   const [notes, setNotes] = useState("");
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [courseHours, setCourseHours] = useState<Record<number, { hours_elearning: number; hours_aula: number }>>({});
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -157,6 +167,102 @@ export default function PianificazionePage() {
     }
   };
 
+  // Calculate auto date2/time2 based on course hours
+  const calculateDate2AndTime2 = useCallback((
+    d1: string,
+    t1: string,
+    hours: number,
+  ): { date2: string; time2: string } => {
+    if (!d1 || !t1 || hours === 0) return { date2: "", time2: "" };
+
+    const [h, m] = t1.split(":").map(Number);
+    const workStartMinutes = h * 60 + m; // Minutes since midnight
+    const WORK_START = 9 * 60; // 09:00
+    const WORK_END = 18 * 60; // 18:00
+    const DAY_WORK_HOURS = 8; // 8 hours work per day (09-18 with 1h lunch)
+
+    const date1Obj = new Date(d1);
+    let remainingHours = hours;
+    let currentDate = new Date(date1Obj);
+    let currentTimeMinutes = workStartMinutes;
+
+    // Day 1: calculate how many hours we can fit
+    const minutesAvailableDay1 = WORK_END - currentTimeMinutes;
+    const hoursDay1 = minutesAvailableDay1 / 60;
+
+    if (hours <= hoursDay1) {
+      // Fits in one day
+      return { date2: "", time2: "" };
+    }
+
+    remainingHours -= hoursDay1;
+    currentDate.setDate(currentDate.getDate() + 1);
+
+    // Subsequent days: 8 hours per day starting at 09:00
+    while (remainingHours > DAY_WORK_HOURS) {
+      remainingHours -= DAY_WORK_HOURS;
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    // Last day: calculate end time
+    const finalHours = remainingHours;
+    const finalMinutes = WORK_START + finalHours * 60;
+    const finalHour = Math.floor(finalMinutes / 60);
+    const finalMin = finalMinutes % 60;
+
+    const date2Str = currentDate.toISOString().split("T")[0];
+    const time2Str = `${finalHour.toString().padStart(2, "0")}:${finalMin.toString().padStart(2, "0")}`;
+
+    return { date2: date2Str, time2: time2Str };
+  }, []);
+
+  // Load course hours when modal opens
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const firstKey = Array.from(selectedKeys)[0];
+    if (!firstKey) return;
+
+    const courseId = parseInt(firstKey.split("-")[1], 10);
+    if (!courseId || courseHours[courseId]) return;
+
+    fetch(`/api/formazione/pianificazione/course-hours?course_id=${courseId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.id) {
+          setCourseHours((prev) => ({
+            ...prev,
+            [courseId]: { hours_elearning: data.hours_elearning || 0, hours_aula: data.hours_aula || 0 },
+          }));
+        }
+      })
+      .catch(() => {
+        // No hours data yet
+      });
+  }, [isModalOpen, selectedKeys, courseHours]);
+
+  // Auto-calculate date2/time2 when date1, time1, or courseType changes
+  useEffect(() => {
+    if (!date1 || !time1Start) {
+      setDate2("");
+      setTime2Start("");
+      return;
+    }
+
+    const firstKey = Array.from(selectedKeys)[0];
+    if (!firstKey) return;
+
+    const courseId = parseInt(firstKey.split("-")[1], 10);
+    const hoursData = courseHours[courseId];
+    if (!hoursData) return;
+
+    const hours = courseType === "e-learning" ? hoursData.hours_elearning : hoursData.hours_aula;
+    const { date2: d2, time2: t2 } = calculateDate2AndTime2(date1, time1Start, hours);
+
+    setDate2(d2);
+    setTime2Start(t2);
+  }, [date1, time1Start, courseType, selectedKeys, courseHours, calculateDate2AndTime2]);
+
   const openModal = () => {
     setSaveError("");
     setIsModalOpen(true);
@@ -178,10 +284,14 @@ export default function PianificazionePage() {
       return {
         employee_id: workerId,
         course_id: courseId,
-        provider,
-        mode,
+        course_type: courseType,
+        fornitore,
+        location,
+        date1: date1 || null,
+        time1_start: time1Start || null,
+        date2: date2 || null,
+        time2_start: time2Start || null,
         notes,
-        planned_date: plannedDate ? new Date(plannedDate).toISOString() : null,
       };
     });
 
@@ -196,8 +306,13 @@ export default function PianificazionePage() {
 
       closeModal();
       setSelectedKeys(new Set());
-      setProvider("");
-      setPlannedDate("");
+      setCourseType("e-learning");
+      setFornitore("");
+      setLocation("");
+      setDate1("");
+      setTime1Start("09:00");
+      setDate2("");
+      setTime2Start("");
       setNotes("");
       await loadData();
     } catch (err) {
@@ -490,14 +605,28 @@ export default function PianificazionePage() {
                     [{d.training_courses.code}] {d.training_courses.title}
                   </div>
                   <div className="flex flex-col gap-1 text-xs text-[var(--brand-soft)]">
-                    {d.provider ? (
+                    {d.course_type ? (
                       <div>
-                        <span className="font-medium text-[var(--brand-ink)]">Fornitore:</span> {d.provider}
+                        <span className="font-medium text-[var(--brand-ink)]">Tipo:</span> {d.course_type}
                       </div>
                     ) : null}
-                    {d.mode ? (
+                    {d.fornitore ? (
                       <div>
-                        <span className="font-medium text-[var(--brand-ink)]">Modalità:</span> {d.mode}
+                        <span className="font-medium text-[var(--brand-ink)]">Fornitore:</span> {d.fornitore}
+                      </div>
+                    ) : null}
+                    {d.location ? (
+                      <div>
+                        <span className="font-medium text-[var(--brand-ink)]">Luogo:</span> {d.location}
+                      </div>
+                    ) : null}
+                    {d.date1 ? (
+                      <div>
+                        <span className="font-medium text-[var(--brand-ink)]">Data:</span>{" "}
+                        {new Date(d.date1).toLocaleDateString("it-IT")}
+                        {d.time1_start ? ` ${d.time1_start}` : null}
+                        {d.date2 ? ` - ${new Date(d.date2).toLocaleDateString("it-IT")}` : null}
+                        {d.time2_start ? ` ${d.time2_start}` : null}
                       </div>
                     ) : null}
                     {d.notes ? (
@@ -542,11 +671,22 @@ export default function PianificazionePage() {
               <form onSubmit={(e) => void handlePlan(e)} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-[var(--brand-soft)] mb-1">
-                    Fornitore / Luogo
+                    Tipo Corso
+                  </label>
+                  <select value={courseType} onChange={(e) => setCourseType(e.target.value)}>
+                    <option value="e-learning">E-learning</option>
+                    <option value="fad_sincrona">FAD Sincrona</option>
+                    <option value="presenza">Presenza</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--brand-soft)] mb-1">
+                    Fornitore
                   </label>
                   <input
-                    value={provider}
-                    onChange={(e) => setProvider(e.target.value)}
+                    value={fornitore}
+                    onChange={(e) => setFornitore(e.target.value)}
                     type="text"
                     placeholder="Es. Tucano"
                   />
@@ -554,27 +694,62 @@ export default function PianificazionePage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-[var(--brand-soft)] mb-1">
-                    Modalità
-                  </label>
-                  <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                    <option value="E-learning">E-learning</option>
-                    <option value="Aula">Aula</option>
-                    <option value="Videoconferenza">Videoconferenza</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--brand-soft)] mb-1">
-                    Data Prevista (Opzionale)
+                    Luogo
                   </label>
                   <input
-                    value={plannedDate}
-                    onChange={(e) => setPlannedDate(e.target.value)}
-                    type="date"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    type="text"
+                    placeholder="Es. Cantiere XX / Via XX"
                   />
-                  <p className="text-[11px] text-[var(--brand-soft)] mt-1">
-                    Con data → &ldquo;Programmato&rdquo; sulla riga. Senza data → bozza.
-                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--brand-soft)] mb-1">
+                      Data 1
+                    </label>
+                    <input
+                      value={date1}
+                      onChange={(e) => setDate1(e.target.value)}
+                      type="date"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--brand-soft)] mb-1">
+                      Orario Inizio
+                    </label>
+                    <input
+                      value={time1Start}
+                      onChange={(e) => setTime1Start(e.target.value)}
+                      type="time"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--brand-soft)] mb-1">
+                      Data 2 (se multi-giorno)
+                    </label>
+                    <input
+                      value={date2}
+                      onChange={(e) => setDate2(e.target.value)}
+                      type="date"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--brand-soft)] mb-1">
+                      Orario Inizio Giorno 2
+                    </label>
+                    <input
+                      value={time2Start}
+                      onChange={(e) => setTime2Start(e.target.value)}
+                      type="time"
+                      disabled
+                    />
+                    <p className="text-[10px] text-[var(--brand-soft)] mt-0.5">Auto-calcolato</p>
+                  </div>
                 </div>
 
                 <div>
@@ -591,7 +766,7 @@ export default function PianificazionePage() {
                   <button type="button" data-soft="true" onClick={closeModal} disabled={isSaving}>
                     Annulla
                   </button>
-                  <button type="submit" disabled={isSaving}>
+                  <button type="submit" disabled={isSaving || !date1 || !fornitore}>
                     {isSaving ? "Salvataggio..." : "Conferma"}
                   </button>
                 </div>

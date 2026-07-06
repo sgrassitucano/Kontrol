@@ -10,7 +10,7 @@ export async function GET() {
   try {
     const { data, error } = await auth.supabase
       .from("training_plan_drafts")
-      .select("id, employee_id, course_id, provider, mode, notes, created_at, employees(matricola, first_name, last_name, sites(display_name), job_title), training_courses(code, title)");
+      .select("id, employee_id, course_id, course_type, fornitore, location, date1, time1_start, date2, time2_start, notes, created_at, employees(matricola, first_name, last_name, sites(display_name), job_title), training_courses(code, title)");
     if (error) throw new Error(error.message);
     return NextResponse.json(data ?? []);
   } catch (error) {
@@ -33,22 +33,31 @@ export async function POST(request: Request) {
     const coursesToSchedule = [];
 
     for (const row of rows) {
-      if (row.planned_date) {
+      const draftData = {
+        employee_id: row.employee_id,
+        course_id: row.course_id,
+        course_type: row.course_type || null,
+        fornitore: row.fornitore || null,
+        location: row.location || null,
+        date1: row.date1 || null,
+        time1_start: row.time1_start || null,
+        date2: row.date2 || null,
+        time2_start: row.time2_start || null,
+        notes: row.notes || null,
+        created_by: auth.userId,
+      };
+
+      // If date1 provided, auto-schedule to "programmato" state
+      if (row.date1) {
         coursesToSchedule.push({
           employee_id: row.employee_id,
           course_id: row.course_id,
-          planned_date: row.planned_date,
+          planned_date: row.date1,
           manual_state: "programmato",
+          ...draftData,
         });
       } else {
-        draftsToUpsert.push({
-          employee_id: row.employee_id,
-          course_id: row.course_id,
-          provider: row.provider || null,
-          mode: row.mode || null,
-          notes: row.notes || null,
-          created_by: auth.userId,
-        });
+        draftsToUpsert.push(draftData);
       }
     }
 
