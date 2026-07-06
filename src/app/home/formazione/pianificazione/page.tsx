@@ -353,9 +353,13 @@ export default function PianificazionePage() {
         dataPrevista: "",
         note: d.notes ?? "",
         stato: "Programmato",
-        mode: d.mode ?? "",
-        provider: d.provider ?? "",
-        planned_date: null,
+        course_type: d.course_type ?? "",
+        fornitore: d.fornitore ?? "",
+        location: d.location ?? "",
+        date1: d.date1 ?? null,
+        time1_start: d.time1_start ?? null,
+        date2: d.date2 ?? null,
+        time2_start: d.time2_start ?? null,
       }));
 
       const res = await fetch("/api/formazione/pianificazione/export", {
