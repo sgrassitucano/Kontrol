@@ -150,7 +150,7 @@ export async function POST(request: Request) {
 
     // Validate all rows
     const validatedRows = data.map((row, idx) => {
-      const { normalized, errors } = validateRow(row, mapping, employeeSet);
+      const { normalized, errors } = validateRow(row as Record<string, any>, mapping, employeeSet);
       return {
         row_number: idx + 2, // +2 because Excel has header + 1-based indexing
         source_data: row,
