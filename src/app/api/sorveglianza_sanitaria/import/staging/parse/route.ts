@@ -5,7 +5,7 @@ import * as XLSX from "xlsx-js-style";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const auth = await requireModuleAccess("sorveglianza_sanitaria", true);
+  const auth = await requireModuleAccess("sorveglianza", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {

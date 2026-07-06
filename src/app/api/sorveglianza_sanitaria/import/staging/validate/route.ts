@@ -118,7 +118,7 @@ function validateRow(row: Record<string, any>, mapping: ColumnMapping, employees
 }
 
 export async function POST(request: Request) {
-  const auth = await requireModuleAccess("sorveglianza_sanitaria", true);
+  const auth = await requireModuleAccess("sorveglianza", true);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
