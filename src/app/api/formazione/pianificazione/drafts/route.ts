@@ -54,7 +54,6 @@ export async function POST(request: Request) {
           course_id: row.course_id,
           planned_date: row.date1,
           manual_state: "programmato",
-          ...draftData,
         });
       } else {
         draftsToUpsert.push(draftData);
