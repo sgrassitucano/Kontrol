@@ -65,6 +65,7 @@ export default function PianificazionePage() {
 
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [corsoFilter, setCorsoFilter] = useState("");
   const [cantiereFilter, setCantiereFilter] = useState("");
   const [mansioneFilter, setMansioneFilter] = useState("");
@@ -110,6 +111,12 @@ export default function PianificazionePage() {
     void loadData();
   }, [loadData]);
 
+  // Debounce search input: 300ms delay
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchDebounced(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const corsoOptions = useMemo(
     () => Array.from(new Set(courses.map((r) => r.corsoCode))).sort(),
     [courses],
@@ -128,7 +135,7 @@ export default function PianificazionePage() {
   );
 
   const filteredCourses = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = searchDebounced.trim().toLowerCase();
     return courses.filter((r) => {
       if (corsoFilter && r.corsoCode !== corsoFilter) return false;
       if (cantiereFilter && r.cantiere !== cantiereFilter) return false;
@@ -143,7 +150,7 @@ export default function PianificazionePage() {
       }
       return true;
     });
-  }, [courses, search, corsoFilter, cantiereFilter, mansioneFilter, statoFilter]);
+  }, [courses, searchDebounced, corsoFilter, cantiereFilter, mansioneFilter, statoFilter]);
 
   const toggleSelection = (key: string) => {
     const next = new Set(selectedKeys);
@@ -470,6 +477,7 @@ export default function PianificazionePage() {
                   type="button"
                   onClick={() => {
                     setSearch("");
+                    setSearchDebounced("");
                     setCorsoFilter("");
                     setCantiereFilter("");
                     setMansioneFilter("");
