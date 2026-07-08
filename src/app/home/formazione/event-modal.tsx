@@ -400,7 +400,7 @@ export function EventModal(props: {
               <option value="">Seleziona corso</option>
               {filteredEventCourses.map((course) => (
                 <option key={course.code} value={course.code}>
-                  {course.title} ({course.code})
+                  {course.title.replace(/^\s*(corso|formazione)\s+/i, "").trim()} ({course.code})
                 </option>
               ))}
             </select>

@@ -28,7 +28,8 @@ import {
 import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 import { Eye, Calendar, Award, FileText } from "lucide-react";
 
-const FORMAZIONE_NOTE_COL_WIDTH = 720;
+const FORMAZIONE_NOTE_COL_WIDTH = 280;
+const FORMAZIONE_STATO_COL_WIDTH = 260;
 const FORMAZIONE_TABLE_WIDTH =
   56 +
   120 +
@@ -43,7 +44,7 @@ const FORMAZIONE_TABLE_WIDTH =
   90 +
   90 +
   120 +
-  140 +
+  FORMAZIONE_STATO_COL_WIDTH +
   170 +
   FORMAZIONE_NOTE_COL_WIDTH;
 
@@ -1320,7 +1321,32 @@ export default function HomeFormazionePage() {
       if (map.has(row.corsoCode)) return;
       map.set(row.corsoCode, { id: row.courseId, code: row.corsoCode, title: row.corso });
     });
-    return Array.from(map.values()).sort((a, b) => a.code.localeCompare(b.code));
+
+    // Ordina alfabeticamente per titolo "pulito" (senza il prefisso corso/formazione)
+    // e mette l'aggiornamento di ogni corso subito sotto il corso base, per codice
+    // (i titoli di base e aggiornamento non sempre coincidono testualmente, es.
+    // "corso uso muletto" vs "Aggiornamento carrello elevatore").
+    const cleanTitle = (title: string) => title.replace(/^\s*(corso|formazione)\s+/i, "").trim();
+    const all = Array.from(map.values());
+    const aggiornamentoCodes = new Set(all.filter((c) => c.code.endsWith("_AGGIORNAMENTO")).map((c) => c.code));
+    const baseCourses = all.filter((c) => !aggiornamentoCodes.has(c.code));
+    baseCourses.sort((a, b) => cleanTitle(a.title).localeCompare(cleanTitle(b.title), "it"));
+
+    const ordered: CourseOption[] = [];
+    baseCourses.forEach((base) => {
+      ordered.push(base);
+      const agg = map.get(`${base.code}_AGGIORNAMENTO`);
+      if (agg) ordered.push(agg);
+    });
+    // Aggiornamenti "orfani" (nessun corso base con quel codice esatto, es. FORM_SPEC_AGGIORNAMENTO
+    // che copre più livelli) vanno comunque in lista, in coda.
+    aggiornamentoCodes.forEach((code) => {
+      if (!ordered.some((c) => c.code === code)) {
+        const agg = map.get(code);
+        if (agg) ordered.push(agg);
+      }
+    });
+    return ordered;
   }, [catalogCourses, rows]);
 
   const workerOptions = useMemo(() => {
@@ -1908,7 +1934,7 @@ export default function HomeFormazionePage() {
               <col style={{ width: 90 }} />
               <col style={{ width: 90 }} />
               <col style={{ width: 120 }} />
-              <col style={{ width: 140 }} />
+              <col style={{ width: FORMAZIONE_STATO_COL_WIDTH }} />
               <col style={{ width: 170 }} />
               <col style={{ width: FORMAZIONE_NOTE_COL_WIDTH }} />
             </colgroup>
