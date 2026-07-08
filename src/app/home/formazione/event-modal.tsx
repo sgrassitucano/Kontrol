@@ -40,6 +40,7 @@ export function EventModal(props: {
   } = props;
 
   const [eventWorkerSearch, setEventWorkerSearch] = useState("");
+  const [eventWorkerSearchDebounced, setEventWorkerSearchDebounced] = useState("");
   const [pasteMatricole, setPasteMatricole] = useState("");
   const [pasteMatricoleResult, setPasteMatricoleResult] = useState("");
   const [eventCourseSearch, setEventCourseSearch] = useState("");
@@ -53,6 +54,7 @@ export function EventModal(props: {
   useEffect(() => {
     if (!isOpen) return;
     setEventWorkerSearch("");
+    setEventWorkerSearchDebounced("");
     setPasteMatricole("");
     setPasteMatricoleResult("");
     setEventCourseSearch(initial.courseSearch);
@@ -64,15 +66,21 @@ export function EventModal(props: {
     setEventSaving(false);
   }, [initial, isOpen]);
 
+  // Debounce worker search: filtering ~2000 employees on every keystroke caused visible input lag
+  useEffect(() => {
+    const timer = setTimeout(() => setEventWorkerSearchDebounced(eventWorkerSearch), 200);
+    return () => clearTimeout(timer);
+  }, [eventWorkerSearch]);
+
   const matchingEventWorkers = useMemo(() => {
-    const q = eventWorkerSearch.trim().toLowerCase();
+    const q = eventWorkerSearchDebounced.trim().toLowerCase();
     if (!q) return [] as WorkerOption[];
     return workerOptions.filter((worker) =>
       `${worker.matricola} ${worker.fullName} ${worker.cantiere} ${worker.sottocantiere}`
         .toLowerCase()
         .includes(q),
     );
-  }, [eventWorkerSearch, workerOptions]);
+  }, [eventWorkerSearchDebounced, workerOptions]);
 
   const filteredEventWorkers = useMemo(() => matchingEventWorkers.slice(0, 50), [matchingEventWorkers]);
 
