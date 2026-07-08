@@ -462,6 +462,13 @@ tbody tr:hover {
   background: var(--brand-soft);
 }
 
+/* Nasconde solo la scrollbar orizzontale nativa: usata dove esiste già
+   una scrollbar orizzontale "mirror" dedicata (es. tabelle con scroll
+   sincronizzato top/bottom), per evitare due barre visibili. */
+.hide-native-hscrollbar::-webkit-scrollbar:horizontal {
+  display: none;
+}
+
 /* ─────────────────────────────────────────────────────────
    Temi per modulo (Color-coding) - Light Mode
    ───────────────────────────────────────────────────────── */

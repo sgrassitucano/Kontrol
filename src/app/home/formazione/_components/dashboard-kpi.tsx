@@ -226,7 +226,7 @@ export function DashboardKpi({
   onSelect: (category: DashboardCategory, bucket: DashboardBucketKey | null) => void;
 }) {
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
+    <div className="grid gap-3 2xl:grid-cols-2">
       <Panel
         title="Base"
         tiles={BASE_TILES}

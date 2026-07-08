@@ -1886,7 +1886,7 @@ export default function HomeFormazionePage() {
         <div
           ref={tableScrollRef}
           onScroll={() => syncHorizontalScroll("middle")}
-          className="max-h-[62vh] overflow-auto"
+          className="max-h-[62vh] overflow-auto hide-native-hscrollbar"
         >
           <table
             ref={tableRef}
