@@ -164,6 +164,15 @@ export function resolveCourseState(
   return "idoneo";
 }
 
+// Gerarchia rischio FORM_SPEC: chi possiede un livello superiore soddisfa
+// automaticamente il requisito di un livello inferiore (ALTO copre MEDIO/BASSO).
+function formSpecRank(code: string): number {
+  if (code === "FORM_SPEC_ALTO") return 3;
+  if (code === "FORM_SPEC_MEDIO") return 2;
+  if (code === "FORM_SPEC_BASSO") return 1;
+  return 0;
+}
+
 /**
  * Verifica ricorsivamente se i prerequisiti diretti/transitivi di un corso sono validi
  * per un lavoratore. Usa dati già caricati in memoria (nessuna query DB aggiuntiva).
@@ -189,8 +198,23 @@ export function findBrokenPrerequisiteChain(
     const prereqCourse = courseMap.get(prereqId);
     if (!prereqCourse) continue;
 
-    const prereqStatus = employeeStatusByCourseId.get(prereqId);
-    const prereqValid = prereqStatus ? isValidCourseStatus(prereqStatus, prereqCourse, todayIso) : false;
+    const requiredRank = formSpecRank(prereqCourse.code);
+    let prereqValid: boolean;
+    if (requiredRank > 0) {
+      // Prerequisito di livello FORM_SPEC: basta possedere QUALSIASI livello
+      // pari o superiore (es. ALTO soddisfa un prerequisito MEDIO), non solo
+      // esattamente quel corso — altrimenti un mulettista con FORM_SPEC_ALTO
+      // risultava "bloccato" per mancanza di FORM_SPEC_MEDIO pur essendo più
+      // che coperto nella realtà.
+      prereqValid = Array.from(courseMap.entries()).some(([otherId, otherCourse]) => {
+        if (formSpecRank(otherCourse.code) < requiredRank) return false;
+        const status = employeeStatusByCourseId.get(otherId);
+        return status ? isValidCourseStatus(status, otherCourse, todayIso) : false;
+      });
+    } else {
+      const prereqStatus = employeeStatusByCourseId.get(prereqId);
+      prereqValid = prereqStatus ? isValidCourseStatus(prereqStatus, prereqCourse, todayIso) : false;
+    }
 
     if (!prereqValid) {
       return { courseCode: prereqCourse.code, courseTitle: prereqCourse.title };
