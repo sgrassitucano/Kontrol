@@ -43,7 +43,8 @@ const FORMAZIONE_TABLE_WIDTH =
   90 +
   90 +
   120 +
-  80 +
+  140 +
+  170 +
   FORMAZIONE_NOTE_COL_WIDTH;
 
 type WorkerCourseRow = {
@@ -1907,7 +1908,8 @@ export default function HomeFormazionePage() {
               <col style={{ width: 90 }} />
               <col style={{ width: 90 }} />
               <col style={{ width: 120 }} />
-              <col style={{ width: 80 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 170 }} />
               <col style={{ width: FORMAZIONE_NOTE_COL_WIDTH }} />
             </colgroup>
             <thead className="text-xs uppercase tracking-wide text-slate-500">
