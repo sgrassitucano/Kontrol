@@ -1633,7 +1633,7 @@ function Modal({
   onClose: () => void;
 }) {
   return (
-    <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+    <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
       <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-white px-5 py-4">
           <h2 className="text-lg font-bold text-[var(--brand-ink)]">{title}</h2>

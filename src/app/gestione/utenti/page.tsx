@@ -354,7 +354,7 @@ export default function GestioneUtentiPage() {
       </section>
 
       {isEditOpen && editingUser ? (
-        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
           <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-[var(--brand-panel)] shadow-xl">
             <div className="border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-[var(--brand-page)] px-5 py-4">
               <h2 className="text-lg font-bold text-[var(--brand-ink)]">Modifica utente</h2>

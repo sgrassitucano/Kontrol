@@ -58,7 +58,7 @@ export function ColumnMapper({ fileHeaders, onMappingComplete, onCancel }: Colum
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
       <div className="bg-[var(--brand-panel)] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-[var(--brand-line)] max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <h2 className="text-lg font-bold text-[var(--brand-ink)] mb-4">
