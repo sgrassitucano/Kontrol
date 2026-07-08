@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { normalizeJobCode } from "@/lib/training/normalize";
 import { DashboardCard, ModuleHeader, PanelCard, ActionMenu } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
@@ -1105,6 +1106,19 @@ export default function HomeFormazionePage() {
     return list;
   }, [filteredRows, sort.dir, sort.key]);
 
+  // Virtualize the table body: rendering all ~3000+ rows unconditionally produced
+  // 100k+ DOM nodes, making every interaction (typing, opening modals) sluggish.
+  const rowVirtualizer = useVirtualizer({
+    count: sortedRows.length,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => 44,
+    overscan: 12,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const virtualPaddingBottom =
+    virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
+
   const toggleSort = useCallback((key: SortKey) => {
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
   }, []);
@@ -2074,7 +2088,13 @@ export default function HomeFormazionePage() {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((row) => {
+              {virtualPaddingTop > 0 ? (
+                <tr aria-hidden="true">
+                  <td colSpan={15} style={{ height: virtualPaddingTop, padding: 0, border: 0 }} />
+                </tr>
+              ) : null}
+              {virtualRows.map((virtualRow) => {
+                const row = sortedRows[virtualRow.index];
                 const isLost = row.stato === "perso";
                 const textClass = isLost ? "text-slate-400" : "text-slate-600";
                 const rowClass = isLost
@@ -2089,6 +2109,8 @@ export default function HomeFormazionePage() {
                 return (
                 <tr
                   key={`${row.workerId}-${row.corsoCode}`}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
                   className={`${rowClass} group`}
                 >
                   <td className={`sticky left-0 z-20 px-4 py-2.5 ${stickyBg}`}>
@@ -2222,6 +2244,11 @@ export default function HomeFormazionePage() {
                 </tr>
                 );
               })}
+              {virtualPaddingBottom > 0 ? (
+                <tr aria-hidden="true">
+                  <td colSpan={15} style={{ height: virtualPaddingBottom, padding: 0, border: 0 }} />
+                </tr>
+              ) : null}
               {!isLoading && sortedRows.length === 0 ? (
                 <tr>
                   <td colSpan={15} className="px-4 py-8 text-center text-sm text-slate-500">
