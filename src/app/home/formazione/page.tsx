@@ -2242,7 +2242,7 @@ export default function HomeFormazionePage() {
       </section>
 
       {isDashboardDetailOpen ? (
-        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
           <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-white px-5 py-4">
               <div className="space-y-0.5">
@@ -2907,7 +2907,7 @@ export default function HomeFormazionePage() {
           </section>
 
           {isExclusionNoteModalOpen ? (
-            <section className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+            <section className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4">
               <div className="w-full max-w-lg rounded-2xl border border-[var(--brand-line)] bg-white p-5 shadow-xl">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-bold text-[var(--brand-ink)]">Motivazione esclusione</h3>
@@ -2987,7 +2987,7 @@ export default function HomeFormazionePage() {
       />
 
       {isImportModalOpen ? (
-        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+        <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
           <div className="w-full max-w-5xl rounded-2xl border border-[var(--brand-line)] bg-white p-5 shadow-xl">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-[var(--brand-ink)]">Import Massivo Scadenzario</h2>
