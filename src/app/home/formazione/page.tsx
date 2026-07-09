@@ -3394,8 +3394,12 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
     return 8;
   };
 
+  // Mappa i corsi scaduti ai loro aggiornamenti
   const byWorkerAndCategory = new Map<string, WorkerCourseRow[]>();
+  const allCoursesByWorkerAndCode = new Map<string, WorkerCourseRow>();
+
   rows.forEach((row) => {
+    allCoursesByWorkerAndCode.set(`${row.workerId}-${row.corsoCode}`, row);
     const isBase = isDashboardBaseCode(row.corsoCode);
     const key = `${row.workerId}-${isBase ? "base" : "operativi"}`;
     const list = byWorkerAndCategory.get(key);
@@ -3403,9 +3407,41 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
     else list.push(row);
   });
 
-  const consolidated: WorkerCourseRow[] = [];
+  // Trasforma i corsi scaduti in aggiornamenti
+  const processedRows = rows.map((row) => {
+    if (row.stato !== "scaduto") return row;
 
-  byWorkerAndCategory.forEach((rowsInGroup, key) => {
+    const aggCode = aggiornamentoCodeFor(row.corsoCode);
+    if (!aggCode) return row;
+
+    // Controlla se l'aggiornamento è già programmato
+    const aggRow = allCoursesByWorkerAndCode.get(`${row.workerId}-${aggCode}`);
+    if (aggRow && (aggRow.stato === "programmato" || aggRow.dataPrevista)) return row;
+
+    // Trasforma il corso scaduto in aggiornamento
+    return {
+      ...row,
+      corsoCode: aggCode,
+      corso: `Aggiornamento ${row.corso}`,
+      stato: "da fare" as WorkerCourseRow["stato"],
+      dataConclusione: null,
+      dataScadenza: null,
+      dataPrevista: null,
+    };
+  });
+
+  const consolidated: WorkerCourseRow[] = [];
+  const byWorkerAndCategoryNew = new Map<string, WorkerCourseRow[]>();
+
+  processedRows.forEach((row) => {
+    const isBase = isDashboardBaseCode(row.corsoCode);
+    const key = `${row.workerId}-${isBase ? "base" : "operativi"}`;
+    const list = byWorkerAndCategoryNew.get(key);
+    if (!list) byWorkerAndCategoryNew.set(key, [row]);
+    else list.push(row);
+  });
+
+  byWorkerAndCategoryNew.forEach((rowsInGroup, key) => {
     const [workerId, category] = key.split("-");
     const isBaseGroup = category === "base";
 
