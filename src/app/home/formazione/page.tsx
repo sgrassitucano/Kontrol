@@ -3445,17 +3445,29 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
     const [workerId, category] = key.split("-");
     const isBaseGroup = category === "base";
 
+    // Applica worst-wins: se c'è uno stato peggiore, nasconde i conformi
+    const worstState = rowsInGroup.reduce((worst, curr) => {
+      const worstRank = stateRank(worst.stato);
+      const currRank = stateRank(curr.stato);
+      return currRank < worstRank ? curr : worst;
+    });
+
+    let rowsToShow = rowsInGroup;
+    if (worstState.stato !== "idoneo") {
+      rowsToShow = rowsInGroup.filter((r) => r.stato !== "idoneo");
+    }
+
     if (!isBaseGroup) {
-      consolidated.push(...rowsInGroup);
+      consolidated.push(...rowsToShow);
       return;
     }
 
     const isFormBase = (code: string) => code === "FORM_BASE" || code.startsWith("FORM_BASE+");
     const isFormSpec = (code: string) => code.startsWith("FORM_SPEC_");
 
-    const formBaseRows = rowsInGroup.filter((r) => isFormBase(r.corsoCode));
-    const formSpecRows = rowsInGroup.filter((r) => isFormSpec(r.corsoCode));
-    const otherBaseRows = rowsInGroup.filter((r) => !isFormBase(r.corsoCode) && !isFormSpec(r.corsoCode));
+    const formBaseRows = rowsToShow.filter((r) => isFormBase(r.corsoCode));
+    const formSpecRows = rowsToShow.filter((r) => isFormSpec(r.corsoCode));
+    const otherBaseRows = rowsToShow.filter((r) => !isFormBase(r.corsoCode) && !isFormSpec(r.corsoCode));
 
     if (formBaseRows.length > 0 && formSpecRows.length > 0) {
       const baseRow = formBaseRows[0];
