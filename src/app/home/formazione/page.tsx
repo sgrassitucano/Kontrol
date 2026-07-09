@@ -2121,12 +2121,14 @@ export default function HomeFormazionePage() {
                   <td colSpan={15} style={{ height: virtualPaddingTop, padding: 0, border: 0 }} />
                 </tr>
               ) : null}
-              {virtualRows.map((virtualRow, idx) => {
+              {virtualRows.map((virtualRow) => {
                 const row = sortedRows[virtualRow.index];
                 const prevRow = virtualRow.index > 0 ? sortedRows[virtualRow.index - 1] : null;
-                const currentCategory = isDashboardBaseCode(row.corsoCode) ? "base" : "operativi";
-                const prevCategory = prevRow ? (isDashboardBaseCode(prevRow.corsoCode) ? "base" : "operativi") : null;
-                const showCategoryHeader = currentCategory !== prevCategory;
+                const currentIsBase = isDashboardBaseCode(row.corsoCode);
+                const prevIsBase = prevRow ? isDashboardBaseCode(prevRow.corsoCode) : null;
+                const workerChanged = !prevRow || prevRow.workerId !== row.workerId;
+                const categoryChanged = currentIsBase !== prevIsBase;
+                const showCategoryHeader = (workerChanged || categoryChanged) && prevRow?.workerId === row.workerId;
 
                 const isLost = row.stato === "perso";
                 const textClass = isLost ? "text-slate-400" : "text-slate-600";
@@ -2142,9 +2144,9 @@ export default function HomeFormazionePage() {
                 return (
                 <>
                   {showCategoryHeader ? (
-                    <tr key={`category-${currentCategory}`} className="bg-gradient-to-r from-[var(--brand-primary)]/5 to-transparent">
+                    <tr key={`category-${row.workerId}-${currentIsBase}`} className="bg-gradient-to-r from-[var(--brand-primary)]/5 to-transparent">
                       <td colSpan={15} className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-[var(--brand-primary)]">
-                        {currentCategory === "base" ? "📚 Formazione Base" : "⚙️ Corsi Operativi"}
+                        {currentIsBase ? "📚 Formazione Base" : "⚙️ Corsi Operativi"}
                       </td>
                     </tr>
                   ) : null}
