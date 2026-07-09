@@ -547,7 +547,7 @@ export default function HomeFormazionePage() {
         if ((body.rows ?? []).length === 0) break;
       }
 
-      setRows(nextRows);
+      setRows(consolidateFormationRows(nextRows));
       const nextWorkerIds = new Set(nextRows.map((r) => r.workerId));
       setSelectedWorkerIds((prev) => {
         if (prev.size === 0) return prev;
@@ -580,7 +580,7 @@ export default function HomeFormazionePage() {
     setRows((prev) => {
       const next = prev.filter((row) => row.workerId !== employeeId);
       next.push(...employeeRows);
-      return next;
+      return consolidateFormationRows(next);
     });
   }, []);
 
@@ -2123,13 +2123,6 @@ export default function HomeFormazionePage() {
               ) : null}
               {virtualRows.map((virtualRow) => {
                 const row = sortedRows[virtualRow.index];
-                const prevRow = virtualRow.index > 0 ? sortedRows[virtualRow.index - 1] : null;
-                const currentIsBase = isDashboardBaseCode(row.corsoCode);
-                const prevIsBase = prevRow ? isDashboardBaseCode(prevRow.corsoCode) : null;
-                const workerChanged = !prevRow || prevRow.workerId !== row.workerId;
-                const categoryChanged = currentIsBase !== prevIsBase;
-                const showCategoryHeader = (workerChanged || categoryChanged) && prevRow?.workerId === row.workerId;
-
                 const isLost = row.stato === "perso";
                 const textClass = isLost ? "text-slate-400" : "text-slate-600";
                 const rowClass = isLost
@@ -2142,14 +2135,6 @@ export default function HomeFormazionePage() {
                 const isInlineSaving = inlineSavingKeys.has(inlineKey);
 
                 return (
-                <>
-                  {showCategoryHeader ? (
-                    <tr key={`category-${row.workerId}-${currentIsBase}`} className="bg-gradient-to-r from-[var(--brand-primary)]/5 to-transparent">
-                      <td colSpan={15} className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-[var(--brand-primary)]">
-                        {currentIsBase ? "📚 Formazione Base" : "⚙️ Corsi Operativi"}
-                      </td>
-                    </tr>
-                  ) : null}
                 <tr
                   key={`${row.workerId}-${row.corsoCode}`}
                   data-index={virtualRow.index}
@@ -2285,7 +2270,6 @@ export default function HomeFormazionePage() {
                     />
                   </td>
                 </tr>
-                </>
                 );
               })}
               {virtualPaddingBottom > 0 ? (
@@ -3396,6 +3380,74 @@ function statusClassName(status: WorkerCourseRow["stato"]) {
 
 function isDashboardBaseCode(code: string) {
   return DASHBOARD_BASE_CODES.has(code) || code.startsWith("FORM_BASE+");
+}
+
+function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
+  const stateRank = (s: WorkerCourseRow["stato"]) => {
+    if (s === "scaduto") return 1;
+    if (s === "da fare") return 2;
+    if (s === "upgrade") return 3;
+    if (s === "in scadenza") return 4;
+    if (s === "programmato") return 5;
+    if (s === "escluso") return 6;
+    if (s === "sospeso") return 7;
+    return 8;
+  };
+
+  const byWorkerAndCategory = new Map<string, WorkerCourseRow[]>();
+  rows.forEach((row) => {
+    const isBase = isDashboardBaseCode(row.corsoCode);
+    const key = `${row.workerId}-${isBase ? "base" : "operativi"}`;
+    const list = byWorkerAndCategory.get(key);
+    if (!list) byWorkerAndCategory.set(key, [row]);
+    else list.push(row);
+  });
+
+  const consolidated: WorkerCourseRow[] = [];
+
+  byWorkerAndCategory.forEach((rowsInGroup, key) => {
+    const [workerId, category] = key.split("-");
+    const isBaseGroup = category === "base";
+
+    if (!isBaseGroup) {
+      consolidated.push(...rowsInGroup);
+      return;
+    }
+
+    const isFormBase = (code: string) => code === "FORM_BASE" || code.startsWith("FORM_BASE+");
+    const isFormSpec = (code: string) => code.startsWith("FORM_SPEC_");
+
+    const formBaseRows = rowsInGroup.filter((r) => isFormBase(r.corsoCode));
+    const formSpecRows = rowsInGroup.filter((r) => isFormSpec(r.corsoCode));
+    const otherBaseRows = rowsInGroup.filter((r) => !isFormBase(r.corsoCode) && !isFormSpec(r.corsoCode));
+
+    if (formBaseRows.length > 0 && formSpecRows.length > 0) {
+      const baseRow = formBaseRows[0];
+      const specRow = formSpecRows.reduce((best, curr) => (stateRank(curr.stato) < stateRank(best.stato) ? curr : best));
+      const worstState = stateRank(baseRow.stato) < stateRank(specRow.stato) ? baseRow.stato : specRow.stato;
+
+      const riskLabel = specRow.corsoCode === "FORM_SPEC_ALTO" ? "alto" : specRow.corsoCode === "FORM_SPEC_MEDIO" ? "medio" : "basso";
+
+      const merged: WorkerCourseRow = {
+        ...baseRow,
+        corsoCode: "FORM_BASE+FORM_SPEC",
+        corso: `Formazione generale e specifica [rischio ${riskLabel}]`,
+        stato: worstState as WorkerCourseRow["stato"],
+        dataConclusione: worstState === baseRow.stato ? baseRow.dataConclusione : specRow.dataConclusione,
+        dataScadenza: worstState === baseRow.stato ? baseRow.dataScadenza : specRow.dataScadenza,
+        dataPrevista: worstState === baseRow.stato ? baseRow.dataPrevista : specRow.dataPrevista,
+      };
+      consolidated.push(merged);
+    } else if (formBaseRows.length > 0) {
+      consolidated.push(...formBaseRows);
+    } else if (formSpecRows.length > 0) {
+      consolidated.push(...formSpecRows);
+    }
+
+    consolidated.push(...otherBaseRows);
+  });
+
+  return consolidated;
 }
 
 function buildMonthYearFilterOptions(
