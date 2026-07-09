@@ -2121,8 +2121,13 @@ export default function HomeFormazionePage() {
                   <td colSpan={15} style={{ height: virtualPaddingTop, padding: 0, border: 0 }} />
                 </tr>
               ) : null}
-              {virtualRows.map((virtualRow) => {
+              {virtualRows.map((virtualRow, idx) => {
                 const row = sortedRows[virtualRow.index];
+                const prevRow = virtualRow.index > 0 ? sortedRows[virtualRow.index - 1] : null;
+                const currentCategory = isDashboardBaseCode(row.corsoCode) ? "base" : "operativi";
+                const prevCategory = prevRow ? (isDashboardBaseCode(prevRow.corsoCode) ? "base" : "operativi") : null;
+                const showCategoryHeader = currentCategory !== prevCategory;
+
                 const isLost = row.stato === "perso";
                 const textClass = isLost ? "text-slate-400" : "text-slate-600";
                 const rowClass = isLost
@@ -2135,6 +2140,14 @@ export default function HomeFormazionePage() {
                 const isInlineSaving = inlineSavingKeys.has(inlineKey);
 
                 return (
+                <>
+                  {showCategoryHeader ? (
+                    <tr key={`category-${currentCategory}`} className="bg-gradient-to-r from-[var(--brand-primary)]/5 to-transparent">
+                      <td colSpan={15} className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-[var(--brand-primary)]">
+                        {currentCategory === "base" ? "📚 Formazione Base" : "⚙️ Corsi Operativi"}
+                      </td>
+                    </tr>
+                  ) : null}
                 <tr
                   key={`${row.workerId}-${row.corsoCode}`}
                   data-index={virtualRow.index}
@@ -2270,6 +2283,7 @@ export default function HomeFormazionePage() {
                     />
                   </td>
                 </tr>
+                </>
                 );
               })}
               {virtualPaddingBottom > 0 ? (
