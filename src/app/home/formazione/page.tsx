@@ -3568,7 +3568,7 @@ function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: numbe
 
   const dueByWorker = new Map<number, WorkerCourseRow[]>();
   rows.forEach((row) => {
-    if (row.origine !== "obbligatorio") return;
+    if (row.origine !== "obbligatorio" && row.stato !== "programmato") return;
     const list = dueByWorker.get(row.workerId);
     if (!list) dueByWorker.set(row.workerId, [row]);
     else list.push(row);
