@@ -969,7 +969,15 @@ export default function HomeFormazionePage() {
         if (dashboardCategoryFilter === "operativi" && isBase) return false;
       }
       if (dashboardBlockedFilter && !row.blockedBy) return false;
-      if (dashboardStateFilter && dashboardStateFilter.length > 0) {
+      // Scaduto e Da fare non si possono filtrare con un semplice match su `stato`:
+      // consolidateFormationRows riscrive uno scaduto in "da fare" (wasScaduto=true)
+      // e un aggiornamento mai fatto non conta come Da fare (bucketOfRow in
+      // buildWorkerBuckets usa la stessa regola, va tenuta allineata qui).
+      if (dashboardActiveBucket === "scaduto") {
+        if (!(row.wasScaduto || row.stato === "scaduto" || row.stato === "perso")) return false;
+      } else if (dashboardActiveBucket === "daFare") {
+        if (!(row.stato === "da fare" && !isAggiornamentoCode(row.corsoCode))) return false;
+      } else if (dashboardStateFilter && dashboardStateFilter.length > 0) {
         if (!dashboardStateFilter.includes(row.stato)) return false;
       }
       if (
@@ -1024,6 +1032,7 @@ export default function HomeFormazionePage() {
     dashboardCategoryFilter,
     dashboardStateFilter,
     dashboardBlockedFilter,
+    dashboardActiveBucket,
     rows,
     deferredSearch,
   ]);
