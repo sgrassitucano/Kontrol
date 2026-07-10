@@ -78,11 +78,20 @@ type WorkerCourseRow = {
   referente: string;
   note: string;
   origine: "obbligatorio" | "aggiuntivo";
+  // true se questa riga era in origine "scaduto" e consolidateFormationRows l'ha
+  // riscritta come aggiornamento "da fare": il bucket KPI deve contarla come scaduto,
+  // non come da fare (altrimenti il KPI "Scaduto" si svuota).
+  wasScaduto?: boolean;
+  // corsoCode originale pre-consolidamento: FORM_SPEC_AGGIORNAMENTO (il codice usato
+  // dopo la trasformazione) non è in DASHBOARD_BASE_CODES, quindi senza questo campo
+  // un corso BASE scaduto finirebbe classificato come OPERATIVI dopo il rename.
+  originalCorsoCode?: string;
 };
 
 type DashboardStateKey = "scaduto" | "da fare" | "in scadenza" | "programmato" | "upgrade" | "escluso";
 
-// Partizione worst-wins a livello lavoratore: mutuamente esclusiva, somma = totale.
+// Flag indipendenti per lavoratore (NON worst-wins): un lavoratore può comparire in
+// più bucket. conforme = obbligati - unione(bloccato|scaduto|daFare|upgrade).
 type DashboardWorkerBuckets = {
   scaduto: number;
   daFare: number;
@@ -94,6 +103,7 @@ type DashboardWorkerBuckets = {
   escluso: number;
   sospeso: number;
   senzaObbligo: number;
+  obbligati: number;
   // Di ciascun bucket critico, quanti hanno già l'aggiornamento specifico programmato.
   withProgrammatoSubcount: Record<"bloccato" | "scaduto" | "daFare" | "upgrade" | "inScadenza", number>;
 };
@@ -954,7 +964,7 @@ export default function HomeFormazionePage() {
     const q = deferredSearch.trim();
     return rows.filter((row) => {
       if (dashboardCategoryFilter) {
-        const isBase = isDashboardBaseCode(row.corsoCode);
+        const isBase = isDashboardBaseRow(row);
         if (dashboardCategoryFilter === "base" && !isBase) return false;
         if (dashboardCategoryFilter === "operativi" && isBase) return false;
       }
@@ -1164,6 +1174,7 @@ export default function HomeFormazionePage() {
         escluso: ["escluso"],
         sospeso: ["sospeso"],
         senzaObbligo: null,
+        obbligati: null,
       };
 
       const states = bucket ? statesByBucket[bucket] : null;
@@ -1632,8 +1643,8 @@ export default function HomeFormazionePage() {
   }
 
   const pageDashboardData = useMemo(() => {
-    const baseRows = rows.filter((row) => isDashboardBaseCode(row.corsoCode));
-    const operativiRows = rows.filter((row) => !isDashboardBaseCode(row.corsoCode));
+    const baseRows = rows.filter((row) => isDashboardBaseRow(row));
+    const operativiRows = rows.filter((row) => !isDashboardBaseRow(row));
     return {
       base: { rows: baseRows, summary: buildDashboardSummary(baseRows, totalActiveEmployees) },
       operativi: { rows: operativiRows, summary: buildDashboardSummary(operativiRows, totalActiveEmployees) },
@@ -1656,7 +1667,7 @@ export default function HomeFormazionePage() {
       workerSet.add(row.workerId);
       workersByJob.set(key, workerSet);
 
-      const targetMap = isDashboardBaseCode(row.corsoCode) ? baseRowsByJob : operativiRowsByJob;
+      const targetMap = isDashboardBaseRow(row) ? baseRowsByJob : operativiRowsByJob;
       const list = targetMap.get(key);
       if (!list) {
         targetMap.set(key, [row]);
@@ -1687,7 +1698,11 @@ export default function HomeFormazionePage() {
         operativi: operativiBuckets,
         baseCritico: baseBuckets.scaduto + baseBuckets.daFare + baseBuckets.upgrade + baseBuckets.inScadenza,
         operativiCritico:
-          operativiBuckets.bloccato + operativiBuckets.scaduto + operativiBuckets.upgrade + operativiBuckets.inScadenza,
+          operativiBuckets.bloccato +
+          operativiBuckets.scaduto +
+          operativiBuckets.daFare +
+          operativiBuckets.upgrade +
+          operativiBuckets.inScadenza,
       };
     });
   }, [dashboardRows, jobEntities]);
@@ -2165,7 +2180,7 @@ export default function HomeFormazionePage() {
                   <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.sottocantiere}>{row.sottocantiere}</td>
                   <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.responsabile || "-"}>{row.responsabile || "-"}</td>
                   <td className={`max-w-[170px] truncate px-4 py-2.5 ${textClass}`} title={row.referente || "-"}>{row.referente || "-"}</td>
-                  <td className={`max-w-[220px] truncate px-4 py-2.5 ${textClass}`} title={row.corso}>{row.corso}</td>
+                  <td className={`w-[260px] px-4 py-2.5 leading-snug ${textClass}`} style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={row.corso}>{row.corso}</td>
                   <td className={`px-4 py-2.5 font-medium tabular-nums ${textClass}`}>
                     {formatDateIt(row.dataConclusione)}
                   </td>
@@ -3382,6 +3397,12 @@ function isDashboardBaseCode(code: string) {
   return DASHBOARD_BASE_CODES.has(code) || code.startsWith("FORM_BASE+");
 }
 
+// Usa il corsoCode originale (pre-consolidamento) quando presente: dopo il rename in
+// FORM_SPEC_AGGIORNAMENTO il codice non basta più a distinguere BASE da OPERATIVI.
+function isDashboardBaseRow(row: WorkerCourseRow) {
+  return isDashboardBaseCode(row.originalCorsoCode ?? row.corsoCode);
+}
+
 function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
   const stateRank = (s: WorkerCourseRow["stato"]) => {
     if (s === "scaduto") return 1;
@@ -3427,6 +3448,8 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
       dataConclusione: null,
       dataScadenza: null,
       dataPrevista: null,
+      wasScaduto: true,
+      originalCorsoCode: row.corsoCode,
     };
   });
 
@@ -3434,7 +3457,7 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
   const byWorkerAndCategoryNew = new Map<string, WorkerCourseRow[]>();
 
   processedRows.forEach((row) => {
-    const isBase = isDashboardBaseCode(row.corsoCode);
+    const isBase = isDashboardBaseRow(row);
     const key = `${row.workerId}-${isBase ? "base" : "operativi"}`;
     const list = byWorkerAndCategoryNew.get(key);
     if (!list) byWorkerAndCategoryNew.set(key, [row]);
@@ -3633,6 +3656,10 @@ function aggiornamentoCodeFor(courseCode: string): string | null {
   return `${courseCode}_AGGIORNAMENTO`;
 }
 
+function isAggiornamentoCode(courseCode: string): boolean {
+  return courseCode.endsWith("_AGGIORNAMENTO");
+}
+
 function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: number): DashboardWorkerBuckets {
   type BucketKey =
     | "bloccato"
@@ -3645,46 +3672,11 @@ function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: numbe
     | "escluso"
     | "sospeso";
 
-  // Priorità: numero più basso = peggiore = vince nel worst-wins.
-  const PRIORITY: Record<BucketKey, number> = {
-    bloccato: 1,
-    scaduto: 2,
-    daFare: 3,
-    upgrade: 4,
-    inScadenza: 5,
-    programmato: 6,
-    conforme: 7,
-    escluso: 8,
-    sospeso: 9,
-  };
-
-  const bucketOfRow = (row: WorkerCourseRow): BucketKey => {
-    if (row.blockedBy) return "bloccato";
-    switch (row.stato) {
-      case "scaduto":
-      case "perso":
-        return "scaduto";
-      case "da fare":
-        return "daFare";
-      case "upgrade":
-        return "upgrade";
-      case "in scadenza":
-        return "inScadenza";
-      case "programmato":
-        return "programmato";
-      case "escluso":
-        return "escluso";
-      case "sospeso":
-        return "sospeso";
-      case "idoneo":
-      default:
-        return "conforme";
-    }
-  };
-
+  // origine (obbligatorio/aggiuntivo) resta un campo distintivo del dato, visibile e
+  // filtrabile in tabella, ma NON esclude un corso dal bucket: ogni corso mappato per
+  // il lavoratore va monitorato, obbligatorio o aggiuntivo che sia.
   const dueByWorker = new Map<number, WorkerCourseRow[]>();
   rows.forEach((row) => {
-    if (row.origine !== "obbligatorio" && row.stato !== "programmato") return;
     const list = dueByWorker.get(row.workerId);
     if (!list) dueByWorker.set(row.workerId, [row]);
     else list.push(row);
@@ -3718,38 +3710,73 @@ function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: numbe
     sospeso: 0,
   };
 
+  const isScadutoRow = (row: WorkerCourseRow) => row.wasScaduto || row.stato === "scaduto" || row.stato === "perso";
+  const isDaFareRow = (row: WorkerCourseRow) => row.stato === "da fare" && !isAggiornamentoCode(row.corsoCode);
+
+  const hasRescheduledAggiornamento = (rowsByCode: Map<string, WorkerCourseRow>, matched: WorkerCourseRow[]) =>
+    matched.some((row) => {
+      const aggCode = aggiornamentoCodeFor(row.corsoCode);
+      if (!aggCode) return false;
+      return rowsByCode.get(aggCode)?.stato === "programmato";
+    });
+
   let workersWithObligation = 0;
   dueByWorker.forEach((dueRows) => {
     workersWithObligation += 1;
-    let worst: BucketKey = "conforme";
-    let worstPriority = PRIORITY.conforme;
-    let worstRows: WorkerCourseRow[] = [];
-    for (const row of dueRows) {
-      const bucket = bucketOfRow(row);
-      const p = PRIORITY[bucket];
-      if (p < worstPriority) {
-        worstPriority = p;
-        worst = bucket;
-        worstRows = [row];
-      } else if (p === worstPriority && bucket === worst) {
-        worstRows.push(row);
-      }
-    }
-    tally[worst] += 1;
 
-    if (worst !== "programmato" && worst !== "conforme") {
-      const rowsByCode = new Map(dueRows.map((r) => [r.corsoCode, r]));
-      const alreadyRescheduled = worstRows.some((row) => {
-        const aggCode = aggiornamentoCodeFor(row.corsoCode);
-        if (!aggCode) return false;
-        return rowsByCode.get(aggCode)?.stato === "programmato";
-      });
-      if (alreadyRescheduled) withProgrammatoSubcount[worst] += 1;
+    // freeze marca TUTTE le righe di un lavoratore come "sospeso" (engine.ts), basta
+    // una riga per saperlo. escluso è per-corso: conta come residuo solo se non c'è
+    // nessun altro segnale reale (tutte le righe dovute sono escluse).
+    if (dueRows.some((r) => r.stato === "sospeso")) {
+      tally.sospeso += 1;
+      return;
     }
+    if (dueRows.every((r) => r.stato === "escluso")) {
+      tally.escluso += 1;
+      return;
+    }
+
+    const activeRows = dueRows.filter((r) => r.stato !== "escluso");
+    const rowsByCode = new Map(dueRows.map((r) => [r.corsoCode, r]));
+
+    const bloccatoRows = activeRows.filter((r) => r.blockedBy);
+    const scadutoRows = activeRows.filter(isScadutoRow);
+    const daFareRows = activeRows.filter(isDaFareRow);
+    const upgradeRows = activeRows.filter((r) => r.stato === "upgrade");
+    const inScadenzaRows = activeRows.filter((r) => r.stato === "in scadenza");
+    const programmatoRows = activeRows.filter((r) => r.stato === "programmato");
+
+    if (bloccatoRows.length) {
+      tally.bloccato += 1;
+      if (hasRescheduledAggiornamento(rowsByCode, bloccatoRows)) withProgrammatoSubcount.bloccato += 1;
+    }
+    if (scadutoRows.length) {
+      tally.scaduto += 1;
+      if (hasRescheduledAggiornamento(rowsByCode, scadutoRows)) withProgrammatoSubcount.scaduto += 1;
+    }
+    if (daFareRows.length) {
+      tally.daFare += 1;
+      if (hasRescheduledAggiornamento(rowsByCode, daFareRows)) withProgrammatoSubcount.daFare += 1;
+    }
+    if (upgradeRows.length) {
+      tally.upgrade += 1;
+      if (hasRescheduledAggiornamento(rowsByCode, upgradeRows)) withProgrammatoSubcount.upgrade += 1;
+    }
+    if (inScadenzaRows.length) {
+      tally.inScadenza += 1;
+      if (hasRescheduledAggiornamento(rowsByCode, inScadenzaRows)) withProgrammatoSubcount.inScadenza += 1;
+    }
+    if (programmatoRows.length) tally.programmato += 1;
+
+    const isBad = bloccatoRows.length > 0 || scadutoRows.length > 0 || daFareRows.length > 0 || upgradeRows.length > 0;
+    if (!isBad) tally.conforme += 1;
   });
 
   // Lavoratori senza alcun obbligo nella categoria: differenza sul totale azienda.
   const senzaObbligo = Math.max(0, totalActiveEmployees - workersWithObligation);
+  // Obbligati = chi ha almeno un corso tracciato in categoria, esclusi i residui
+  // "tutto escluso" / "tutto sospeso" (mostrati a parte, non fanno parte del giudizio).
+  const obbligati = workersWithObligation - tally.escluso - tally.sospeso;
 
   return {
     scaduto: tally.scaduto,
@@ -3763,6 +3790,7 @@ function buildWorkerBuckets(rows: WorkerCourseRow[], totalActiveEmployees: numbe
     sospeso: tally.sospeso,
     withProgrammatoSubcount,
     senzaObbligo,
+    obbligati,
   };
 }
 

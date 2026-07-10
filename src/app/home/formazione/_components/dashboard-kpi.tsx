@@ -1,8 +1,9 @@
 "use client";
 
 // Cruscotto KPI formazione — due pannelli affiancati BASE | OPERATIVI.
-// Ogni tile = un bucket worst-wins a livello lavoratore (mutuamente esclusivo).
-// Conteggio = lavoratori distinti; % = su totale azienda (tutti i lavoratori attivi).
+// Ogni tile = un flag indipendente a livello lavoratore, NON un bucket worst-wins:
+// un lavoratore può comparire in più tile insieme (es. scaduto E upgrade contemporaneamente).
+// Conteggio = lavoratori distinti; % = su totale campione (obbligati - esclusi/sospesi).
 // Click tile → filtra la tabella sottostante.
 
 export type DashboardWorkerBuckets = {
@@ -16,6 +17,7 @@ export type DashboardWorkerBuckets = {
   escluso: number;
   sospeso: number;
   senzaObbligo: number;
+  obbligati: number;
   withProgrammatoSubcount: Record<"bloccato" | "scaduto" | "daFare" | "upgrade" | "inScadenza", number>;
 };
 
@@ -28,26 +30,31 @@ type TileDef = {
   key: DashboardBucketKey;
   label: string;
   hint: string;
+  caption: string;
   tone: Tone;
 };
 
-// Tile "primo rosso" diverso per categoria: BASE usa "Da fare", OPERATIVI usa "Bloccato".
+// Stesse 7 tile in entrambi i pannelli, stesso ordine: bloccato/scaduto/da fare/
+// in scadenza/upgrade/programmato/conforme. In BASE "bloccato" resta a 0 (nessuna
+// catena prerequisiti sui corsi base) ma la tile è identica per coerenza visiva.
 const BASE_TILES: TileDef[] = [
-  { key: "scaduto", label: "Scaduto", hint: "Formazione base scaduta (o persa).", tone: "danger" },
-  { key: "daFare", label: "Da fare", hint: "Formazione base mai svolta.", tone: "danger" },
-  { key: "inScadenza", label: "In scadenza", hint: "Base valida ma in scadenza entro la soglia.", tone: "amber" },
-  { key: "upgrade", label: "Upgrade", hint: "Livello specifica inferiore a quello richiesto dalla matrice.", tone: "yellow" },
-  { key: "programmato", label: "Programmato", hint: "Corso base pianificato.", tone: "blue" },
-  { key: "conforme", label: "Conforme", hint: "Tutti i corsi base dovuti sono validi.", tone: "green" },
+  { key: "bloccato", label: "Bloccato", hint: "Corso valido ma un prerequisito è scaduto/mancante: il lavoratore non può operare.", caption: "Prerequisito scaduto: non può operare", tone: "danger" },
+  { key: "scaduto", label: "Scaduto", hint: "Formazione base scaduta (o persa).", caption: "Corso scaduto, da rinnovare", tone: "danger" },
+  { key: "daFare", label: "Da fare", hint: "Formazione base mai svolta.", caption: "Corso mai svolto, non ancora pianificato", tone: "danger" },
+  { key: "inScadenza", label: "In scadenza", hint: "Base valida ma in scadenza entro la soglia.", caption: "Valido ora, scade entro la soglia", tone: "amber" },
+  { key: "upgrade", label: "Upgrade", hint: "Livello specifica inferiore a quello richiesto dalla matrice.", caption: "Livello posseduto inferiore al richiesto", tone: "yellow" },
+  { key: "programmato", label: "Programmato", hint: "Corso base pianificato.", caption: "Corso o aggiornamento già calendarizzato", tone: "blue" },
+  { key: "conforme", label: "Conforme", hint: "Tutti i corsi base dovuti sono validi.", caption: "Tutti i corsi dovuti sono in regola", tone: "green" },
 ];
 
 const OPERATIVI_TILES: TileDef[] = [
-  { key: "bloccato", label: "Bloccato", hint: "Corso valido ma un prerequisito è scaduto/mancante: il lavoratore non può operare.", tone: "danger" },
-  { key: "scaduto", label: "Scaduto", hint: "Corso operativo scaduto (o perso).", tone: "danger" },
-  { key: "inScadenza", label: "In scadenza", hint: "Operativo valido ma in scadenza entro la soglia.", tone: "amber" },
-  { key: "upgrade", label: "Upgrade", hint: "Livello inferiore a quello richiesto (es. antincendio).", tone: "yellow" },
-  { key: "programmato", label: "Programmato", hint: "Corso operativo pianificato.", tone: "blue" },
-  { key: "conforme", label: "Conforme", hint: "Tutti i corsi operativi dovuti sono validi.", tone: "green" },
+  { key: "bloccato", label: "Bloccato", hint: "Corso valido ma un prerequisito è scaduto/mancante: il lavoratore non può operare.", caption: "Prerequisito scaduto: non può operare", tone: "danger" },
+  { key: "scaduto", label: "Scaduto", hint: "Corso operativo scaduto (o perso).", caption: "Corso scaduto, da rinnovare", tone: "danger" },
+  { key: "daFare", label: "Da fare", hint: "Corso operativo mai svolto.", caption: "Corso mai svolto, non ancora pianificato", tone: "danger" },
+  { key: "inScadenza", label: "In scadenza", hint: "Operativo valido ma in scadenza entro la soglia.", caption: "Valido ora, scade entro la soglia", tone: "amber" },
+  { key: "upgrade", label: "Upgrade", hint: "Livello inferiore a quello richiesto (es. antincendio).", caption: "Livello posseduto inferiore al richiesto", tone: "yellow" },
+  { key: "programmato", label: "Programmato", hint: "Corso operativo pianificato.", caption: "Corso o aggiornamento già calendarizzato", tone: "blue" },
+  { key: "conforme", label: "Conforme", hint: "Tutti i corsi operativi dovuti sono validi.", caption: "Tutti i corsi dovuti sono in regola", tone: "green" },
 ];
 
 const TONE_CLASS: Record<Tone, { base: string; active: string }> = {
@@ -94,9 +101,9 @@ function Tile({
       ].join(" ")}
     >
       <span className="text-[11px] font-semibold uppercase tracking-wide">{def.label}</span>
-      <span className="mt-1 flex items-baseline gap-1.5">
-        <span className="text-2xl font-bold tabular-nums">{count}</span>
-        <span className="text-xs font-medium opacity-70 tabular-nums">{pct(count, total)}%</span>
+      <span className="mt-1 flex items-baseline gap-2">
+        <span className="text-3xl font-bold tabular-nums">{count}</span>
+        <span className="text-sm font-medium opacity-70 tabular-nums">{pct(count, total)}%</span>
       </span>
       {programmatoSubcount ? (
         <span
@@ -106,6 +113,7 @@ function Tile({
           di cui {programmatoSubcount} programmati
         </span>
       ) : null}
+      <span className="mt-1 text-[10px] font-medium leading-tight opacity-60">{def.caption}</span>
     </button>
   );
 }
@@ -130,16 +138,10 @@ function Panel({
   onSelect: (category: DashboardCategory, bucket: DashboardBucketKey | null) => void;
 }) {
   const conformi = buckets.conforme;
-  const obbligati =
-    buckets.scaduto +
-    buckets.daFare +
-    buckets.bloccato +
-    buckets.inScadenza +
-    buckets.upgrade +
-    buckets.programmato +
-    buckets.conforme +
-    buckets.escluso +
-    buckets.sospeso;
+  const obbligati = buckets.obbligati;
+  // % calcolate sul campione (obbligati = totale categoria meno esclusi/sospesi),
+  // non sul totale lavoratori attivi grezzo.
+  const pctBase = obbligati;
 
   return (
     <div className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
@@ -159,17 +161,17 @@ function Panel({
         <span className="text-xs text-slate-500">
           Obbligati: <span className="font-semibold text-slate-700 tabular-nums">{obbligati}</span> · Conformi:{" "}
           <span className="font-semibold text-emerald-600 tabular-nums">{conformi}</span>{" "}
-          ({pct(conformi, total)}%)
+          ({pct(conformi, pctBase)}%)
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
         {tiles.map((def) => (
           <Tile
             key={def.key}
             def={def}
             count={buckets[def.key]}
-            total={total}
+            total={pctBase}
             programmatoSubcount={
               def.key === "bloccato" || def.key === "scaduto" || def.key === "daFare" || def.key === "upgrade" || def.key === "inScadenza"
                 ? buckets.withProgrammatoSubcount[def.key]
