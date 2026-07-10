@@ -161,7 +161,7 @@ export const POST = withModuleAccess("gestione", true, async (request, context, 
 
     cacheDelete(`training_matrix_v1:${body.scopeType}`);
     cacheDelete("training_static_v1");
-    cacheDeleteByPrefix("training_rows_v1:");
+    cacheDeleteByPrefix("training_rows_v2:");
     return NextResponse.json({ ok: true });
   } catch (error) {
     return handleError(error, "POST /api/formazione/matrice");

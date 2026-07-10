@@ -125,7 +125,7 @@ export async function POST(request: Request) {
           { onConflict: "employee_id" },
         );
       if (error) throw new Error(error.message);
-      cacheDeleteByPrefix("training_rows_v1:");
+      cacheDeleteByPrefix("training_rows_v2:");
       return NextResponse.json({ ok: true });
     }
 
@@ -163,7 +163,7 @@ export async function POST(request: Request) {
           { onConflict: "employee_id,course_id" },
         );
       if (error) throw new Error(error.message);
-      cacheDeleteByPrefix("training_rows_v1:");
+      cacheDeleteByPrefix("training_rows_v2:");
       return NextResponse.json({ ok: true });
     }
 
@@ -210,7 +210,7 @@ export async function DELETE(request: Request) {
       .eq("course_id", courseId);
     if (error) throw new Error(error.message);
 
-    cacheDeleteByPrefix("training_rows_v1:");
+    cacheDeleteByPrefix("training_rows_v2:");
     return NextResponse.json({ ok: true, deletedCourse: true });
   } catch (err) {
     return NextResponse.json(

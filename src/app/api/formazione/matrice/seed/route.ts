@@ -148,7 +148,7 @@ export async function POST() {
     });
 
     cacheDelete("training_static_v1");
-    cacheDeleteByPrefix("training_rows_v1:");
+    cacheDeleteByPrefix("training_rows_v2:");
     return NextResponse.json({
       ok: true,
       seededCourses: courseSeeds.length,

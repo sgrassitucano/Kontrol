@@ -58,7 +58,7 @@ async function clearCourseExclusions(args: {
 }
 
 function successJson(payload: Record<string, unknown>) {
-  cacheDeleteByPrefix("training_rows_v1:");
+  cacheDeleteByPrefix("training_rows_v2:");
   return NextResponse.json(payload);
 }
 

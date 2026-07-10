@@ -135,7 +135,7 @@ export async function POST(request: Request) {
     }
 
     cacheDelete("training_scope_exclusions_v1");
-    cacheDeleteByPrefix("training_rows_v1:");
+    cacheDeleteByPrefix("training_rows_v2:");
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

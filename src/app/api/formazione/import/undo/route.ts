@@ -31,7 +31,7 @@ export async function POST() {
       | null;
 
     cacheDelete("training_scope_exclusions_v1");
-    cacheDeleteByPrefix("training_rows_v1:");
+    cacheDeleteByPrefix("training_rows_v2:");
     return NextResponse.json({
       ok: true,
       importRunId: run.id,
