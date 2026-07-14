@@ -881,6 +881,7 @@ export async function GET(request: Request) {
     if (error instanceof TooManyRowsError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
+    console.error("[api/lavoratori/corsi] GET failed", error);
     return NextResponse.json(
       {
         error:
