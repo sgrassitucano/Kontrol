@@ -809,6 +809,23 @@ export async function GET(request: Request) {
       XLSX.utils.book_append_sheet(workbook, ws, sanitizeSheetName(sheetCfg.name));
     });
 
+    // Foglio "Completo": tutte le formazioni unite, senza distinzione di tipo corso.
+    const completoEntries = reportSheets
+      .flatMap((sheetCfg) => sheetCfg.rows.map((row) => ({ row, kind: sheetCfg.kind })))
+      .sort((a, b) => byPerson(a.row, b.row));
+    const completoSheet: Record<(typeof headers)[number], string>[] = [];
+    completoEntries.forEach(({ row, kind }) => {
+      const employee = employeeById.get(row.workerId);
+      if (!employee) return;
+      completoSheet.push(buildExportRow(employee, row, kind));
+    });
+    const completoWs =
+      completoSheet.length > 0
+        ? XLSX.utils.json_to_sheet(completoSheet, { header: [...headers] })
+        : XLSX.utils.aoa_to_sheet([[...headers]]);
+    applyCalibri10WithBoldHeader(completoWs);
+    XLSX.utils.book_append_sheet(workbook, completoWs, sanitizeSheetName("Completo"));
+
     const out = XLSX.write(
       workbook,
       { type: "array", bookType: "xlsx", cellStyles: true } as XlsxWriteOptionsWithStyles,
