@@ -1,4 +1,4 @@
-create or replace function public.undo_training_legacy_import(import_run_id uuid)
+create or replace function public.undo_training_legacy_import(p_import_run_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -31,7 +31,7 @@ begin
 
   select source into run_source
   from public.import_runs
-  where id = import_run_id
+  where id = p_import_run_id
   for update;
   if run_source is null then
     raise exception 'Import run non trovato.' using errcode = '22023';
@@ -40,7 +40,7 @@ begin
     raise exception 'Sorgente import non valida.' using errcode = '22023';
   end if;
 
-  if exists (select 1 from public.import_run_undos u where u.import_run_id = import_run_id) then
+  if exists (select 1 from public.import_run_undos u where u.import_run_id = p_import_run_id) then
     raise exception 'Import già annullato.' using errcode = '22023';
   end if;
 
@@ -51,7 +51,7 @@ begin
     )
       id, action, row_key, before_row, after_row
     from public.import_run_changes
-    where import_run_id = undo_training_legacy_import.import_run_id
+    where import_run_id = p_import_run_id
       and table_name = 'training_employee_courses'
     order by
       (row_key->>'employee_id')::bigint,
@@ -75,7 +75,7 @@ begin
       )
         id, action, row_key, before_row, after_row
       from public.import_run_changes
-      where import_run_id = undo_training_legacy_import.import_run_id
+      where import_run_id = p_import_run_id
         and table_name = 'training_employee_courses'
       order by
         (row_key->>'employee_id')::bigint,
@@ -106,7 +106,7 @@ begin
       then
         insert into public.import_undo_deleted_rows(import_run_id, table_name, row_key, row_data, archived_by)
         values (
-          undo_training_legacy_import.import_run_id,
+          p_import_run_id,
           'training_employee_courses',
           jsonb_build_object('employee_id', employee_id_val, 'course_id', course_id_val),
           to_jsonb(curr),
@@ -145,7 +145,7 @@ begin
   end loop;
 
   insert into public.import_run_undos(import_run_id, undone_by)
-  values (undo_training_legacy_import.import_run_id, auth.uid());
+  values (p_import_run_id, auth.uid());
 
   return jsonb_build_object(
     'ok', true,
@@ -156,7 +156,7 @@ begin
 end;
 $$;
 
-create or replace function public.undo_sorveglianza_import(import_run_id uuid)
+create or replace function public.undo_sorveglianza_import(p_import_run_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -196,7 +196,7 @@ begin
 
   select source into run_source
   from public.import_runs
-  where id = import_run_id
+  where id = p_import_run_id
   for update;
   if run_source is null then
     raise exception 'Import run non trovato.' using errcode = '22023';
@@ -205,7 +205,7 @@ begin
     raise exception 'Sorgente import non valida.' using errcode = '22023';
   end if;
 
-  if exists (select 1 from public.import_run_undos u where u.import_run_id = import_run_id) then
+  if exists (select 1 from public.import_run_undos u where u.import_run_id = p_import_run_id) then
     raise exception 'Import già annullato.' using errcode = '22023';
   end if;
 
@@ -213,7 +213,7 @@ begin
     select distinct on ((row_key->>'employee_id')::bigint)
       id, action, row_key, before_row, after_row
     from public.import_run_changes
-    where import_run_id = undo_sorveglianza_import.import_run_id
+    where import_run_id = p_import_run_id
       and table_name = 'medical_surveillance_records'
     order by (row_key->>'employee_id')::bigint, id desc
   )
@@ -231,7 +231,7 @@ begin
       select distinct on ((row_key->>'employee_id')::bigint)
         id, action, row_key, before_row, after_row
       from public.import_run_changes
-      where import_run_id = undo_sorveglianza_import.import_run_id
+      where import_run_id = p_import_run_id
         and table_name = 'medical_surveillance_records'
       order by (row_key->>'employee_id')::bigint, id desc
     )
@@ -266,7 +266,7 @@ begin
       then
         insert into public.import_undo_deleted_rows(import_run_id, table_name, row_key, row_data, archived_by)
         values (
-          undo_sorveglianza_import.import_run_id,
+          p_import_run_id,
           'medical_surveillance_records',
           jsonb_build_object('employee_id', employee_id_val),
           to_jsonb(curr),
@@ -320,7 +320,7 @@ begin
   end loop;
 
   insert into public.import_run_undos(import_run_id, undone_by)
-  values (undo_sorveglianza_import.import_run_id, auth.uid());
+  values (p_import_run_id, auth.uid());
 
   return jsonb_build_object(
     'ok', true,

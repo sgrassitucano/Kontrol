@@ -23,7 +23,7 @@ export async function POST() {
     }
 
     const { data, error } = await auth.supabase.rpc("undo_sorveglianza_import", {
-      import_run_id: run.id,
+      p_import_run_id: run.id,
     });
     if (error) throw new Error(error.message);
     const payload = (data ?? null) as
