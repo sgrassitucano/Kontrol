@@ -26,6 +26,8 @@ type EmployeeLookupRow = {
   id: number;
   tax_code: string;
   matricola: string;
+  last_name: string;
+  first_name: string;
 };
 
 type RawRow = {
@@ -205,6 +207,20 @@ export async function processMedicalSurveillanceImport({
         firstName: row.firstName,
         errorType: "employee_not_found",
         errorMessage: "Dipendente non trovato in anagrafica (match su CF o matricola).",
+      });
+      return;
+    }
+
+    if (!namesPlausiblyMatch(row.lastName, employee.last_name) || !namesPlausiblyMatch(row.firstName, employee.first_name)) {
+      missingEmployees += 1;
+      errors.push({
+        rowNumber: row.rowNumber,
+        matricola: row.matricola,
+        taxCode: row.taxCode,
+        lastName: row.lastName,
+        firstName: row.firstName,
+        errorType: "identity_mismatch",
+        errorMessage: `Riga scartata: matricola/CF corrispondono a "${employee.last_name} ${employee.first_name}" in anagrafica, non a "${row.lastName} ${row.firstName}" indicato nel file. Controllare disallineamento colonne nel file.`,
       });
       return;
     }
@@ -666,6 +682,21 @@ function parseWorkbook(
   return { validRows, errors, totalRows: dataRows.length };
 }
 
+function normalizeNamePart(value: string) {
+  return String(value ?? "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^A-Z]/g, "");
+}
+
+function namesPlausiblyMatch(fileValue: string, dbValue: string) {
+  const a = normalizeNamePart(fileValue);
+  const b = normalizeNamePart(dbValue);
+  if (!a || !b) return true;
+  return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
 async function buildEmployeeLookup(supabase: SupabaseClient, rows: RawRow[]) {
   const taxCodes = Array.from(new Set(rows.map((r) => r.taxCode).filter(Boolean)));
   const matricole = Array.from(new Set(rows.map((r) => r.matricola).filter(Boolean)));
@@ -677,7 +708,7 @@ async function buildEmployeeLookup(supabase: SupabaseClient, rows: RawRow[]) {
   for (const part of taxChunks) {
     const { data, error } = await supabase
       .from("employees")
-      .select("id,tax_code,matricola")
+      .select("id,tax_code,matricola,last_name,first_name")
       .in("tax_code", part);
     if (error) throw new Error(error.message);
     ((data ?? []) as EmployeeLookupRow[]).forEach((row) => {
@@ -691,7 +722,7 @@ async function buildEmployeeLookup(supabase: SupabaseClient, rows: RawRow[]) {
   for (const part of matricolaChunks) {
     const { data, error } = await supabase
       .from("employees")
-      .select("id,tax_code,matricola")
+      .select("id,tax_code,matricola,last_name,first_name")
       .in("matricola", part);
     if (error) throw new Error(error.message);
     ((data ?? []) as EmployeeLookupRow[]).forEach((row) => {
