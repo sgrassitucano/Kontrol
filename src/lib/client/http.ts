@@ -14,9 +14,8 @@ export async function readJsonSafely<T>(response: Response): Promise<T | null> {
 export function extractResponseError(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
 
-  const { error, message } = body as ErrorPayload;
+  const { error } = body as ErrorPayload;
   if (typeof error === "string" && error.trim()) return error.trim();
-  if (typeof message === "string" && message.trim()) return message.trim();
   return null;
 }
 
