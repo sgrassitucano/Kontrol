@@ -49,7 +49,9 @@ export function EventModal(props: {
   const [eventDate, setEventDate] = useState("");
   const [eventNote, setEventNote] = useState("");
   const [eventSaveError, setEventSaveError] = useState("");
+  const [eventSaveSuccess, setEventSaveSuccess] = useState("");
   const [eventSaving, setEventSaving] = useState(false);
+  const [eventDateInvalid, setEventDateInvalid] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -63,7 +65,9 @@ export function EventModal(props: {
     setEventDate(initial.date);
     setEventNote(initial.note);
     setEventSaveError("");
+    setEventSaveSuccess("");
     setEventSaving(false);
+    setEventDateInvalid(false);
   }, [initial, isOpen]);
 
   // Debounce worker search: filtering ~2000 employees on every keystroke caused visible input lag
@@ -133,6 +137,7 @@ export function EventModal(props: {
   const canSaveEvent = Boolean(
     selectedEventWorkers.length > 0 &&
       selectedEventCourse &&
+      !eventDateInvalid &&
       (!(eventType === "SVOLTO" || eventType === "MODIFICA_DATA") || Boolean(eventDate)),
   );
 
@@ -142,6 +147,7 @@ export function EventModal(props: {
 
     setEventSaving(true);
     setEventSaveError("");
+    setEventSaveSuccess("");
     try {
       const employeeIds = selectedEventWorkers.map((w) => w.workerId);
       const typeToSend: EventType = eventType;
@@ -238,6 +244,7 @@ export function EventModal(props: {
       );
 
       await onSaved(employeeIds);
+      setEventSaveSuccess(`Evento salvato per ${employeeIds.length} dipendenti.`);
     } catch (err) {
       setEventSaveError(err instanceof Error ? err.message : "Errore salvataggio evento.");
     } finally {
@@ -434,6 +441,7 @@ export function EventModal(props: {
               <ItDateInput
                 valueIso={eventDate}
                 onChangeIso={setEventDate}
+                onValidityChange={setEventDateInvalid}
                 disabled={!(eventType === "SVOLTO" || eventType === "MODIFICA_DATA" || eventType === "PROGRAMMATO")}
                 className="rounded-xl border border-[var(--brand-line)] px-3 py-2 text-sm disabled:bg-slate-100"
               />
@@ -466,7 +474,11 @@ export function EventModal(props: {
           </button>
         </div>
 
+        {eventDateInvalid ? (
+          <p className="mt-3 text-xs font-medium text-red-600">Data non valida: correggila prima di salvare, altrimenti verrà ignorata.</p>
+        ) : null}
         {eventSaveError ? <p className="mt-3 text-xs font-medium text-red-600">{eventSaveError}</p> : null}
+        {eventSaveSuccess ? <p className="mt-3 text-xs font-medium text-emerald-600">{eventSaveSuccess}</p> : null}
       </div>
     </section>
   );

@@ -6,6 +6,7 @@ import { isoToItDate, normalizeItDateDraft, parseStrictItDateToIso } from "@/lib
 export function ItDateInput(props: {
   valueIso: string;
   onChangeIso: (valueIso: string) => void;
+  onValidityChange?: (isInvalid: boolean) => void;
   disabled?: boolean;
   className?: string;
   placeholder?: string;
@@ -20,6 +21,11 @@ export function ItDateInput(props: {
 
   const parsedIso = useMemo(() => parseStrictItDateToIso(draft), [draft]);
   const isInvalid = !!draft.trim() && !parsedIso;
+
+  useEffect(() => {
+    props.onValidityChange?.(isInvalid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInvalid]);
 
   return (
     <input
