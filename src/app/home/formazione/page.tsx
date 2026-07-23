@@ -3,7 +3,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { normalizeJobCode } from "@/lib/training/normalize";
-import { DashboardCard, ModuleHeader, PanelCard, ActionMenu } from "@/components/module-ui";
+import { DashboardCard, ModuleHeader, PanelCard, ActionMenu, courseStatusClassName } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
 import { DashboardKpi, type DashboardBucketKey, type DashboardCategory as KpiCategory } from "./_components/dashboard-kpi";
 import { MultiSelectDropdown } from "./_components/multi-select-dropdown";
@@ -3378,29 +3378,7 @@ export default function HomeFormazionePage() {
   );
 }
 
-function statusClassName(status: WorkerCourseRow["stato"]) {
-  const base =
-    "inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold leading-none";
-  if (status === "escluso")
-    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
-  if (status === "perso")
-    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
-  if (status === "da fare")
-    return `${base} border-rose-900/40 bg-rose-700/55 text-white`;
-  if (status === "scaduto")
-    return `${base} border-red-900/40 bg-red-700/55 text-white`;
-  if (status === "in scadenza")
-    return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
-  if (status === "idoneo")
-    return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
-  if (status === "sospeso")
-    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
-  if (status === "programmato")
-    return `${base} border-sky-900/40 bg-sky-700/55 text-white`;
-  if (status === "upgrade")
-    return `${base} border-violet-900/40 bg-violet-700/55 text-white`;
-  return `${base} border-slate-300 bg-slate-100 text-slate-700`;
-}
+const statusClassName = courseStatusClassName;
 
 function isDashboardBaseCode(code: string) {
   return DASHBOARD_BASE_CODES.has(code) || code.startsWith("FORM_BASE+");

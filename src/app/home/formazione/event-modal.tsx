@@ -256,20 +256,24 @@ export function EventModal(props: {
 
   return (
     <section className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
-      <div className="w-full max-w-2xl rounded-2xl border border-[var(--brand-line)] bg-white p-5 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-[var(--brand-ink)]">Nuovo Evento Corso</h2>
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[var(--brand-line)] bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-[var(--brand-line)] bg-gradient-to-r from-[var(--brand-panel)] to-white px-5 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-[var(--brand-ink)]">Nuovo Evento Corso</h2>
+            <p className="mt-1 text-xs text-slate-500">Selezione guidata con ricerca su anagrafica e catalogo corsi.</p>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-white shadow-sm transition hover:brightness-95"
+            title="Chiudi"
           >
             ✕
           </button>
         </div>
-        <p className="mt-1 text-xs text-slate-500">Selezione guidata con ricerca su anagrafica e catalogo corsi.</p>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-xs text-slate-700">
             <span className="font-semibold text-[var(--brand-ink)]">{selectedEventWorkers.length}</span>
             <span>selezionati</span>
@@ -455,17 +459,25 @@ export function EventModal(props: {
           </div>
         </div>
 
-        <div className="mt-4 flex justify-end gap-2">
+        {eventDateInvalid ? (
+          <p className="mt-3 text-xs font-medium text-red-600">Data non valida: correggila prima di salvare, altrimenti verrà ignorata.</p>
+        ) : null}
+        {eventSaveError ? <p className="mt-3 text-xs font-medium text-red-600">{eventSaveError}</p> : null}
+        {eventSaveSuccess ? <p className="mt-3 text-xs font-medium text-emerald-600">{eventSaveSuccess}</p> : null}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--brand-line)] bg-[var(--brand-panel)] px-5 py-4">
           <button
             type="button"
+            data-unstyled="true"
             onClick={onClose}
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+            className="rounded-xl border border-[var(--brand-line)] bg-white px-4 py-2 text-sm font-bold text-[var(--brand-ink)] shadow-sm transition hover:bg-slate-50"
           >
             Chiudi
           </button>
           <button
             type="button"
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!canSaveEvent || eventSaving}
             title="Salva evento"
             onClick={() => void saveEvent()}
@@ -473,12 +485,6 @@ export function EventModal(props: {
             {eventSaving ? "Salvo..." : "Salva evento"}
           </button>
         </div>
-
-        {eventDateInvalid ? (
-          <p className="mt-3 text-xs font-medium text-red-600">Data non valida: correggila prima di salvare, altrimenti verrà ignorata.</p>
-        ) : null}
-        {eventSaveError ? <p className="mt-3 text-xs font-medium text-red-600">{eventSaveError}</p> : null}
-        {eventSaveSuccess ? <p className="mt-3 text-xs font-medium text-emerald-600">{eventSaveSuccess}</p> : null}
       </div>
     </section>
   );

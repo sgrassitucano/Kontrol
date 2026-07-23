@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
+import { ItDateInput } from "@/components/it-date-input";
 
 type WorkerOption = {
   workerId: number;
@@ -45,6 +46,7 @@ export function SurveillanceEventModal(props: {
 
   const [dueDateAction, setDueDateAction] = useState<FieldAction>("no_change");
   const [dueDateValue, setDueDateValue] = useState("");
+  const [dueDateInvalid, setDueDateInvalid] = useState(false);
 
   const [limitationsAction, setLimitationsAction] = useState<FieldAction>("no_change");
   const [limitationsValue, setLimitationsValue] = useState("");
@@ -59,6 +61,7 @@ export function SurveillanceEventModal(props: {
   const [overrideNote, setOverrideNote] = useState("");
 
   const [saveError, setSaveError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -69,6 +72,7 @@ export function SurveillanceEventModal(props: {
     setProviderValue("");
     setDueDateAction("no_change");
     setDueDateValue("");
+    setDueDateInvalid(false);
     setLimitationsAction("no_change");
     setLimitationsValue("");
     setNotesAction("no_change");
@@ -78,6 +82,7 @@ export function SurveillanceEventModal(props: {
     setOverrideAction("no_change");
     setOverrideNote("");
     setSaveError("");
+    setSaveSuccess("");
     setSaving(false);
   }, [isOpen, token]);
 
@@ -109,6 +114,7 @@ export function SurveillanceEventModal(props: {
   const canSave = Boolean(
     selectedWorkers.length > 0 &&
       hasAnyChange &&
+      !dueDateInvalid &&
       (dueDateAction !== "set" || Boolean(dueDateValue)),
   );
 
@@ -116,6 +122,7 @@ export function SurveillanceEventModal(props: {
     if (selectedWorkers.length === 0) return;
     setSaving(true);
     setSaveError("");
+    setSaveSuccess("");
     try {
       const employeeIds = selectedWorkers.map((w) => w.workerId);
       const response = await fetch("/api/sorveglianza_sanitaria/eventi", {
@@ -139,6 +146,7 @@ export function SurveillanceEventModal(props: {
         throw new Error(buildHttpErrorMessage(response, body, "Errore salvataggio evento"));
       }
       await onSaved(employeeIds);
+      setSaveSuccess(`Evento salvato per ${employeeIds.length} dipendenti.`);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Errore salvataggio evento.");
     } finally {
@@ -296,13 +304,12 @@ export function SurveillanceEventModal(props: {
                   placeholder="Es. Medico competente / Ente"
                 />
 
-                <FieldEditor
-                  label="Scadenza visita"
+                <DueDateFieldEditor
                   action={dueDateAction}
                   value={dueDateValue}
                   setAction={setDueDateAction}
                   setValue={setDueDateValue}
-                  placeholder="YYYY-MM-DD"
+                  onValidityChange={setDueDateInvalid}
                 />
 
                 <FieldEditor
@@ -362,7 +369,11 @@ export function SurveillanceEventModal(props: {
             </div>
           </div>
 
+          {dueDateInvalid ? (
+            <p className="mt-3 text-xs font-medium text-red-600">Data scadenza non valida: correggila prima di salvare, altrimenti verrà ignorata.</p>
+          ) : null}
           {saveError ? <p className="mt-3 text-xs font-medium text-red-600">{saveError}</p> : null}
+          {saveSuccess ? <p className="mt-3 text-xs font-medium text-emerald-600">{saveSuccess}</p> : null}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-[var(--brand-line)] bg-[var(--brand-panel)] px-5 py-4">
@@ -423,6 +434,42 @@ function LabeledSelect(props: {
         ))}
       </select>
     </label>
+  );
+}
+
+function DueDateFieldEditor(props: {
+  action: FieldAction;
+  value: string;
+  setAction: (v: FieldAction) => void;
+  setValue: (v: string) => void;
+  onValidityChange: (isInvalid: boolean) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--brand-line)] bg-white p-3">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-slate-600">Scadenza visita</p>
+        </div>
+        <select
+          value={props.action}
+          onChange={(e) => props.setAction(e.target.value as FieldAction)}
+          className="rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+        >
+          <option value="no_change">Non modificare</option>
+          <option value="set">Sovrascrivi</option>
+          <option value="clear_value">Svuota</option>
+        </select>
+      </div>
+
+      {props.action === "set" ? (
+        <ItDateInput
+          valueIso={props.value}
+          onChangeIso={props.setValue}
+          onValidityChange={props.onValidityChange}
+          className="mt-2 w-full rounded-xl border border-[var(--brand-line)] bg-[var(--brand-panel)] px-3 py-2 text-sm"
+        />
+      ) : null}
+    </div>
   );
 }
 

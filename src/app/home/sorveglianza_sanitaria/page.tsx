@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { DashboardCard, ModuleHeader, ActionMenu } from "@/components/module-ui";
+import { DashboardCard, ModuleHeader, ActionMenu, courseStatusClassName } from "@/components/module-ui";
 import { KpiTile } from "@/components/kpi-tile";
 import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
 import { isoToItDate } from "@/lib/it-date";
@@ -486,15 +486,7 @@ export default function HomeSorveglianzaPage() {
     return <span className="text-[10px] text-slate-700">{sort.dir === "asc" ? "↑" : "↓"}</span>;
   };
 
-  function statusPillClassName(state: WorkerSurveillanceRow["stato"]) {
-    const base = "inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-bold leading-none";
-    if (state === "idoneo") return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
-    if (state === "in scadenza") return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
-    if (state === "programmato") return `${base} border-sky-900/40 bg-sky-700/55 text-white`;
-    if (state === "scaduto" || state === "da fare") return `${base} border-red-900/40 bg-red-700/55 text-white`;
-    if (state === "sospeso" || state === "escluso") return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
-    return `${base} border-slate-900/35 bg-slate-700/55 text-white`;
-  }
+  const statusPillClassName = courseStatusClassName;
 
   const excludedCount = meta.excludedByRule;
   const totalWorkers = meta.totalActiveEmployees;
@@ -625,9 +617,8 @@ export default function HomeSorveglianzaPage() {
                 setEventModalToken((v) => v + 1);
                 setEventModalOpen(true);
               }}
-              data-soft="true"
-              data-tone="success"
-              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
+              title="Nuovo evento sorveglianza"
             >
               + Evento
             </button>
@@ -638,9 +629,7 @@ export default function HomeSorveglianzaPage() {
                 setDashboardOnlyCritical(true);
                 setIsDashboardDetailOpen(true);
               }}
-              data-soft="true"
-              data-tone="purple"
-              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
               title="Dettaglio aggregato per mansione/cantiere/provider."
             >
               Dettaglio
@@ -656,9 +645,7 @@ export default function HomeSorveglianzaPage() {
                 if (statusFilter) params.set("status", statusFilter);
                 void downloadFrom(`/api/sorveglianza_sanitaria/export?${params.toString()}`);
               }}
-              data-soft="true"
-              data-tone="info"
-              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               title="Esporta la vista corrente (filtri inclusi)."
             >
               {exporting ? "Export..." : "Export vista"}
@@ -672,9 +659,7 @@ export default function HomeSorveglianzaPage() {
                 params.set("includeExcluded", "1");
                 void downloadFrom(`/api/sorveglianza_sanitaria/export?${params.toString()}`);
               }}
-              data-soft="true"
-              data-tone="success"
-              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               title="Esporta tutti i lavoratori attivi (ignora ricerca/stato; include anche gli esclusi)."
             >
               {exporting ? "Export..." : "Export tutto"}
@@ -688,34 +673,26 @@ export default function HomeSorveglianzaPage() {
                 params.set("byProvider", "1");
                 void downloadFrom(`/api/sorveglianza_sanitaria/export?${params.toString()}`);
               }}
-              data-soft="true"
-              data-tone="warning"
-              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
               title="Genera un file Excel separato per ciascun provider medico (zip)."
             >
               {exporting ? "Export..." : "Export per provider"}
             </button>
             <Link
               href="/sorveglianza_sanitaria/matrice"
-              data-soft="true"
-              data-tone="purple"
-              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Matrice
             </Link>
             <Link
               href="/sorveglianza_sanitaria/import"
-              data-soft="true"
-              data-tone="warning"
-              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Import
             </Link>
             <Link
               href="/sorveglianza_sanitaria/import_pdf"
-              data-soft="true"
-              data-tone="warning"
-              className="rounded-xl px-3 py-2 text-sm shadow-sm transition hover:brightness-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
             >
               Import PDF
             </Link>
@@ -816,24 +793,23 @@ export default function HomeSorveglianzaPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm">
-                <span className="text-slate-600">Selezionati:</span>
-                <span className="font-bold text-[var(--brand-ink)]">{selectedWorkerIds.size}</span>
+              <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-line)] bg-white px-3 py-2 text-sm text-slate-700">
+                <span className="font-semibold text-[var(--brand-ink)]">{selectedWorkerIds.size}</span>
+                <span>selezionati</span>
                 <button
                   type="button"
                   onClick={selectVisible}
-                  data-soft="true"
-                  className="ml-2 rounded-lg px-2 py-1 text-xs"
+                  className="ml-1 rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-xs font-bold text-white shadow-sm transition hover:brightness-95"
                 >
                   Seleziona filtrati
                 </button>
                 <button
                   type="button"
                   onClick={clearSelection}
-                  data-soft="true"
-                  className="rounded-lg px-2 py-1 text-xs"
+                  className="rounded-lg bg-[var(--brand-primary)] px-2 py-1 text-xs font-bold text-white shadow-sm transition hover:brightness-95 disabled:opacity-60"
+                  disabled={selectedWorkerIds.size === 0}
                 >
-                  Svuota
+                  Pulisci
                 </button>
               </div>
               <input
@@ -964,7 +940,7 @@ export default function HomeSorveglianzaPage() {
               {sorted.map((row) => (
                 <tr
                   key={row.workerId}
-                  className="border-t border-[var(--brand-line)] bg-white transition hover:bg-[var(--brand-panel)]/60"
+                  className="border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60"
                 >
                   <td className="w-[44px] px-3 py-2.5">
                     <input
@@ -999,7 +975,7 @@ export default function HomeSorveglianzaPage() {
                     </span>
                   </td>
                   <td className="w-[8%] px-4 py-2.5 text-slate-700">{row.visitaRichiesta}</td>
-                  <td className="w-[10%] px-4 py-2.5 text-slate-700">
+                  <td className="w-[10%] px-4 py-2.5 font-medium tabular-nums text-slate-700">
                     {row.scadenzaVisita ? isoToItDate(row.scadenzaVisita) : "-"}
                   </td>
                   <td className="w-[10%] px-4 py-2.5">

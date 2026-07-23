@@ -30,6 +30,32 @@ function pillToneClassName(tone: Tone) {
   return "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300";
 }
 
+// Fonte unica dei colori di stato (idoneo/scaduto/da fare/...) condivisa tra formazione
+// e sorveglianza sanitaria. "da fare" (mai svolto) resta distinto da "scaduto" (svolto ma
+// non più valido): sono concettualmente diversi anche se entrambi richiedono azione.
+export type CourseStatusTone =
+  | "idoneo"
+  | "in scadenza"
+  | "scaduto"
+  | "da fare"
+  | "programmato"
+  | "upgrade"
+  | "bloccato"
+  | "sospeso"
+  | "escluso"
+  | "perso";
+
+export function courseStatusClassName(status: CourseStatusTone) {
+  const base = "inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold leading-none";
+  if (status === "idoneo") return `${base} border-emerald-900/35 bg-emerald-400/45 text-slate-950`;
+  if (status === "in scadenza") return `${base} border-amber-800/45 bg-amber-300/45 text-slate-950`;
+  if (status === "programmato") return `${base} border-sky-900/40 bg-sky-700/55 text-white`;
+  if (status === "upgrade") return `${base} border-violet-900/40 bg-violet-700/55 text-white`;
+  if (status === "bloccato" || status === "scaduto") return `${base} border-red-900/40 bg-red-700/55 text-white`;
+  if (status === "da fare") return `${base} border-rose-900/40 bg-rose-700/55 text-white`;
+  return `${base} border-slate-900/35 bg-slate-700/55 text-white`; // sospeso, escluso, perso
+}
+
 export function ModuleHeader(props: {
   title: string;
   description?: string;
