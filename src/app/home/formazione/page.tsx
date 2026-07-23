@@ -3444,9 +3444,11 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
     const aggCode = aggiornamentoCodeFor(row.corsoCode);
     if (!aggCode) return row;
 
-    // Controlla se l'aggiornamento è già programmato
+    // Controlla se l'aggiornamento è già programmato o già stato svolto: in entrambi i
+    // casi la riga reale (con le sue date vere) deve prevalere sul placeholder fittizio,
+    // altrimenti un aggiornamento già completato viene nascosto da un "da fare" fasullo.
     const aggRow = allCoursesByWorkerAndCode.get(`${row.workerId}-${aggCode}`);
-    if (aggRow && (aggRow.stato === "programmato" || aggRow.dataPrevista)) return row;
+    if (aggRow && (aggRow.stato === "programmato" || aggRow.dataPrevista || aggRow.dataConclusione)) return row;
 
     // Trasforma il corso scaduto in aggiornamento
     return {
@@ -3467,7 +3469,14 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
 
   processedRows.forEach((row) => {
     const isBase = isDashboardBaseRow(row);
-    const key = `${row.workerId}-${isBase ? "base" : "operativi"}`;
+    // Per gli "operativi" il worst-wins va applicato solo entro la stessa famiglia di
+    // corso (es. QUOTA_DPI + QUOTA_DPI_AGGIORNAMENTO), non su tutti i corsi extra del
+    // lavoratore: altrimenti un corso non conforme nascondeva anche gli altri corsi
+    // idonei senza nessuna relazione con esso.
+    const familyCode = isAggiornamentoCode(row.corsoCode)
+      ? row.corsoCode.slice(0, -"_AGGIORNAMENTO".length)
+      : row.corsoCode;
+    const key = isBase ? `${row.workerId}-base` : `${row.workerId}-operativi-${familyCode}`;
     const list = byWorkerAndCategoryNew.get(key);
     if (!list) byWorkerAndCategoryNew.set(key, [row]);
     else list.push(row);
