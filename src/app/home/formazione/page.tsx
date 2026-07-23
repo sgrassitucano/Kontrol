@@ -3486,6 +3486,26 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
     const [workerId, category] = key.split("-");
     const isBaseGroup = category === "base";
 
+    if (!isBaseGroup) {
+      // Se l'aggiornamento della famiglia è già stato svolto, è il dato vero e più
+      // recente: va mostrato da solo, non nascosto dietro il worst-wins del corso
+      // base ormai superato (altrimenti un aggiornamento completato spariva dietro
+      // il corso base scaduto che ha appena rinnovato).
+      const completedAgg = rowsInGroup.find((r) => isAggiornamentoCode(r.corsoCode) && r.dataConclusione);
+      if (completedAgg) {
+        consolidated.push(completedAgg);
+        return;
+      }
+
+      const worstOperativi = rowsInGroup.reduce((worst, curr) =>
+        stateRank(curr.stato) < stateRank(worst.stato) ? curr : worst,
+      );
+      const rowsToShowOperativi =
+        worstOperativi.stato !== "idoneo" ? rowsInGroup.filter((r) => r.stato !== "idoneo") : rowsInGroup;
+      consolidated.push(...rowsToShowOperativi);
+      return;
+    }
+
     // Applica worst-wins: se c'è uno stato peggiore, nasconde i conformi
     const worstState = rowsInGroup.reduce((worst, curr) => {
       const worstRank = stateRank(worst.stato);
@@ -3496,11 +3516,6 @@ function consolidateFormationRows(rows: WorkerCourseRow[]): WorkerCourseRow[] {
     let rowsToShow = rowsInGroup;
     if (worstState.stato !== "idoneo") {
       rowsToShow = rowsInGroup.filter((r) => r.stato !== "idoneo");
-    }
-
-    if (!isBaseGroup) {
-      consolidated.push(...rowsToShow);
-      return;
     }
 
     const isFormBase = (code: string) => code === "FORM_BASE" || code.startsWith("FORM_BASE+");
