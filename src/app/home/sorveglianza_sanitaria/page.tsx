@@ -4,10 +4,27 @@ import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardCard, ModuleHeader, ActionMenu, courseStatusClassName } from "@/components/module-ui";
 import { KpiTile } from "@/components/kpi-tile";
+import { MultiSelectDropdown } from "@/components/multi-select-dropdown";
 import { SurveillanceEventModal } from "@/app/home/sorveglianza_sanitaria/event-modal";
 import { isoToItDate } from "@/lib/it-date";
 import { buildHttpErrorMessage, extractResponseError, readJsonSafely } from "@/lib/client/http";
 import { Eye, Calendar, Award, FileText } from "lucide-react";
+
+function isoToMonthYear(value: string | null) {
+  if (!value) return "(vuoto)";
+  const match = value.match(/^(\d{4})-(\d{2})/);
+  if (!match) return "(vuoto)";
+  return `${match[2]}/${match[1]}`;
+}
+
+function monthYearSortKey(value: string) {
+  const match = value.match(/^(\d{2})\/(\d{4})$/);
+  if (!match) return -1;
+  const month = Number(match[1]);
+  const year = Number(match[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(year)) return -1;
+  return year * 12 + month;
+}
 
 type WorkerSurveillanceRow = {
   workerId: number;
@@ -88,6 +105,17 @@ export default function HomeSorveglianzaPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [includeExcluded, setIncludeExcluded] = useState(false);
   const [expiringDays, setExpiringDays] = useState(30);
+
+  const [columnFilters, setColumnFilters] = useState({
+    cognome: "",
+    nome: "",
+    mansione: "",
+    cantiere: "",
+    sottocantiere: "",
+    visita: [] as string[],
+    scadenza: [] as string[],
+    medico: "",
+  });
 
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<Set<number>>(() => new Set());
   const [eventModalOpen, setEventModalOpen] = useState(false);
@@ -386,12 +414,23 @@ export default function HomeSorveglianzaPage() {
 
   const filtered = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase();
+    const matchCol = (value: string, filterValue: string) =>
+      !filterValue.trim() || value.toLowerCase().includes(filterValue.trim().toLowerCase());
     return rows.filter((row) => {
       if (statusFilter === "critico") {
         if (!(row.stato === "scaduto" || row.stato === "da fare")) return false;
       } else if (statusFilter && row.stato !== statusFilter) {
         return false;
       }
+      if (!matchCol(row.cognome, columnFilters.cognome)) return false;
+      if (!matchCol(row.nome, columnFilters.nome)) return false;
+      if (!matchCol(row.mansione, columnFilters.mansione)) return false;
+      if (!matchCol(row.cantiere, columnFilters.cantiere)) return false;
+      if (!matchCol(row.sottocantiere, columnFilters.sottocantiere)) return false;
+      if (!matchCol(row.medico, columnFilters.medico)) return false;
+      if (columnFilters.visita.length > 0 && !columnFilters.visita.includes(row.visitaRichiesta)) return false;
+      if (columnFilters.scadenza.length > 0 && !columnFilters.scadenza.includes(isoToMonthYear(row.scadenzaVisita)))
+        return false;
       if (!q) return true;
       const searchable = extendedSearch
         ? [
@@ -412,7 +451,23 @@ export default function HomeSorveglianzaPage() {
         : [row.matricola, row.cognome, row.nome].join(" ").toLowerCase();
       return searchable.includes(q);
     });
-  }, [rows, deferredSearch, statusFilter, extendedSearch]);
+  }, [rows, deferredSearch, statusFilter, extendedSearch, columnFilters]);
+
+  const visitaFilterOptions = useMemo(
+    () => [
+      { value: "SI", label: "SI" },
+      { value: "NO", label: "NO" },
+    ],
+    [],
+  );
+
+  const scadenzaFilterOptions = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((row) => set.add(isoToMonthYear(row.scadenzaVisita)));
+    return Array.from(set.values())
+      .map((value) => ({ value, label: value }))
+      .sort((a, b) => monthYearSortKey(b.value) - monthYearSortKey(a.value) || a.label.localeCompare(b.label));
+  }, [rows]);
 
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "cognome", dir: "asc" });
 
@@ -857,11 +912,24 @@ export default function HomeSorveglianzaPage() {
       </ModuleHeader>
 
       <section className="overflow-hidden rounded-[16px] border border-[var(--brand-line)] bg-[var(--brand-panel)]">
-        <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
-          <table className="w-full table-fixed text-left text-xs">
+        <div className="max-h-[70vh] overflow-auto hide-native-hscrollbar">
+          <table className="min-w-full table-fixed text-left text-xs [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap">
+            <colgroup>
+              <col style={{ width: 44 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 170 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 70 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 100 }} />
+            </colgroup>
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="sticky top-0 z-20 w-[44px] bg-[var(--brand-panel)] px-3 py-2">
+                <th className="sticky left-0 top-0 z-40 bg-[var(--brand-panel)] px-3 py-2">
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -876,12 +944,12 @@ export default function HomeSorveglianzaPage() {
                     }}
                   />
                 </th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                <th className="sticky left-[44px] top-0 z-40 bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("cognome")} className="inline-flex items-center gap-1">
                     Cognome {sortIcon("cognome")}
                   </button>
                 </th>
-                <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">
+                <th className="sticky left-[184px] top-0 z-40 border-r border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-2">
                   <button type="button" onClick={() => toggleSort("nome")} className="inline-flex items-center gap-1">
                     Nome {sortIcon("nome")}
                   </button>
@@ -935,6 +1003,75 @@ export default function HomeSorveglianzaPage() {
                 </th>
                 <th className="sticky top-0 z-20 bg-[var(--brand-panel)] px-4 py-2">Azioni</th>
               </tr>
+              <tr>
+                <th className="sticky left-0 top-8 z-30 bg-white px-3 py-2" />
+                <th className="sticky left-[44px] top-8 z-30 bg-white px-3 py-2">
+                  <input
+                    value={columnFilters.cognome}
+                    onChange={(e) => setColumnFilters((v) => ({ ...v, cognome: e.target.value }))}
+                    className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case"
+                    placeholder="Filtro"
+                  />
+                </th>
+                <th className="sticky left-[184px] top-8 z-30 border-r border-[var(--brand-line)] bg-white px-3 py-2">
+                  <input
+                    value={columnFilters.nome}
+                    onChange={(e) => setColumnFilters((v) => ({ ...v, nome: e.target.value }))}
+                    className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case"
+                    placeholder="Filtro"
+                  />
+                </th>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                  <input
+                    value={columnFilters.mansione}
+                    onChange={(e) => setColumnFilters((v) => ({ ...v, mansione: e.target.value }))}
+                    className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case"
+                    placeholder="Filtro"
+                  />
+                </th>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                  <input
+                    value={columnFilters.cantiere}
+                    onChange={(e) => setColumnFilters((v) => ({ ...v, cantiere: e.target.value }))}
+                    className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case"
+                    placeholder="Filtro"
+                  />
+                </th>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                  <input
+                    value={columnFilters.sottocantiere}
+                    onChange={(e) => setColumnFilters((v) => ({ ...v, sottocantiere: e.target.value }))}
+                    className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case"
+                    placeholder="Filtro"
+                  />
+                </th>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                  <MultiSelectDropdown
+                    selected={columnFilters.visita}
+                    options={visitaFilterOptions}
+                    onChange={(selected) => setColumnFilters((v) => ({ ...v, visita: selected }))}
+                    placeholder="Tutti"
+                  />
+                </th>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                  <MultiSelectDropdown
+                    selected={columnFilters.scadenza}
+                    options={scadenzaFilterOptions}
+                    onChange={(selected) => setColumnFilters((v) => ({ ...v, scadenza: selected }))}
+                    placeholder="mm/aaaa"
+                  />
+                </th>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2" />
+                <th className="sticky top-8 z-10 bg-white px-3 py-2">
+                  <input
+                    value={columnFilters.medico}
+                    onChange={(e) => setColumnFilters((v) => ({ ...v, medico: e.target.value }))}
+                    className="w-full rounded border border-[var(--brand-line)] bg-[var(--brand-panel)] px-2 py-1 text-[11px] normal-case"
+                    placeholder="Filtro"
+                  />
+                </th>
+                <th className="sticky top-8 z-10 bg-white px-3 py-2" />
+              </tr>
             </thead>
             <tbody>
               {sorted.map((row) => (
@@ -942,19 +1079,19 @@ export default function HomeSorveglianzaPage() {
                   key={row.workerId}
                   className="border-t border-[var(--brand-line)] transition hover:bg-[var(--brand-panel)]/60"
                 >
-                  <td className="w-[44px] px-3 py-2.5">
+                  <td className="sticky left-0 z-20 bg-[var(--brand-panel)] px-3 py-2.5">
                     <input
                       type="checkbox"
                       checked={selectedWorkerIds.has(row.workerId)}
                       onChange={() => toggleWorkerSelection(row.workerId)}
                     />
                   </td>
-                  <td className="w-1/12 px-4 py-2.5">
+                  <td className="sticky left-[44px] z-20 bg-[var(--brand-panel)] px-4 py-2.5">
                     <button type="button" data-unstyled="true" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline text-slate-800 dark:text-slate-200 text-left">
                       {row.cognome}
                     </button>
                   </td>
-                  <td className="w-1/12 px-4 py-2.5">
+                  <td className="sticky left-[184px] z-20 border-r border-[var(--brand-line)] bg-[var(--brand-panel)] px-4 py-2.5">
                     <button type="button" data-unstyled="true" onClick={() => void openWorkerDetail(row.workerId)} className="hover:underline text-slate-800 dark:text-slate-200 text-left">
                       {row.nome}
                     </button>

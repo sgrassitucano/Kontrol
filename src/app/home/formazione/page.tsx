@@ -6,7 +6,7 @@ import { normalizeJobCode } from "@/lib/training/normalize";
 import { DashboardCard, ModuleHeader, PanelCard, ActionMenu, courseStatusClassName } from "@/components/module-ui";
 import { EventModal } from "./event-modal";
 import { DashboardKpi, type DashboardBucketKey, type DashboardCategory as KpiCategory } from "./_components/dashboard-kpi";
-import { MultiSelectDropdown } from "./_components/multi-select-dropdown";
+import { MultiSelectDropdown } from "@/components/multi-select-dropdown";
 import { ImportProgrammatiModal } from "./_components/import-programmati-modal";
 import {
   isoToItDate,
